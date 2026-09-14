@@ -121,3 +121,22 @@ This preserves modern parsing logic from pp-rust while retaining cz project stru
 9. Node reuse ban: yes – dedicated nodes for Assignment, StructInitializer, etc., no reuse of binary expression for assignment.
 10. Printing/debug: implement `pp_ast_root_print` now rather than stub.
 
+## 6. Progress – 2026-03-19
+- Committed AST design refactor to match Rust model:
+  - Decoration moved from base node to specific expression nodes
+  - StructDeclaration fields as `PP_AST_StructField[]`
+  - StructInitializer entries as `PP_AST_StructInitEntry[]`
+  - TypeExpression uses `kind` + `PP_AST_ArrayListSpecifier`
+  - `AST_VECTOR_INIT_CAP` defined, vector growth policy unified
+- `include/pp_ast.h` and `src/pp_ast.c` created/updated, compilation passes.
+- `pp_ast_root_print` implemented, tab-indented recursive printer similar to cz
+- Commits:
+  - `AST design refactor per Rust model`
+  - `Implement pp_ast_root_print similar to cz`
+
+Next session tasks:
+1. Add vector push helpers for all AST lists using AST_VECTOR_INIT_CAP + double-on-full.
+2. Implement node creator functions with NULL_POINTER_ERROR_HANDLE + goto cleanup and ownership nulling.
+3. Begin Pratt parser skeleton using Rust binding strengths, mapping `create_expression_ext`.
+
+
