@@ -53,6 +53,13 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (lexer->error_list && lexer->error_list->n_errors > 0) {
+        for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
+            PP_Error* e = &lexer->error_list->errors[i];
+            printf("Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+        }
+    }
+
     // Lexical analysis complete – no output for now
     pp_lexer_free(lexer);
     return 0;

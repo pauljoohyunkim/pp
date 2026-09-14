@@ -1,6 +1,7 @@
 #include "pp_lexer.h"
 #include "pp_tokens.h"
 #include "pp_string_pool.h"
+#include "pp_error.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -9,23 +10,12 @@
 
 #define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr) == NULL) goto error_cleanup; } while (0)
 
-static inline char* create_null_terminated_string(const char* text, size_t length) {
-    char* nt_str = NULL;
-    if (text == NULL || length == 0) goto error_cleanup;
-    nt_str = (char*)malloc(sizeof(char)*(length+1));
-    NULL_POINTER_ERROR_HANDLE(nt_str);
-    memcpy(nt_str, text, length);
-    nt_str[length] = '\0';
-    return nt_str;
-error_cleanup:
-    return NULL;
-}
-
 PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
     PP_Lexer* lexer = NULL;
     PP_Token* tokens = NULL;
     char* code_copy = NULL;
     PP_StringPool* sp = NULL;
+    PP_ErrorList* error_list = NULL;
 
     if (code == NULL) return NULL;
 
@@ -46,9 +36,13 @@ PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
     sp = pp_string_pool_create();
     NULL_POINTER_ERROR_HANDLE(sp);
 
+    error_list = pp_error_list_create();
+    NULL_POINTER_ERROR_HANDLE(error_list);
+
     lexer->tokens = tokens;
     lexer->code = code_copy;
     lexer->sp = sp;
+    lexer->error_list = error_list;
     lexer->filename = filename;
     lexer->row = 1;
     lexer->col = 1;
@@ -61,6 +55,7 @@ error_cleanup:
     free(tokens);
     free(code_copy);
     pp_string_pool_free(sp);
+    pp_error_list_free(error_list);
     if (lexer) free(lexer);
     return NULL;
 }
@@ -70,6 +65,7 @@ void pp_lexer_free(PP_Lexer* lexer) {
         free(lexer->tokens);
         free((char*)lexer->code);
         pp_string_pool_free(lexer->sp);
+        pp_error_list_free(lexer->error_list);
         free(lexer);
     }
 }
@@ -355,6 +351,7 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 } else {
                     // unknown
                     if (!pp_lexer_push_token_helper(lexer, PP_TT_UNKNOWN, 1)) return 0;
+                    pp_error_list_push_error(lexer->error_list, lexer->filename, lexer->row, lexer->col, "Unknown token");
                     advance_pp(lexer, 1);
                 }
                 break;

@@ -8,6 +8,7 @@ extern "C" {
 #include <stddef.h>
 #include "pp_tokens.h"
 #include "pp_string_pool.h"
+#include "pp_error.h"
 
 typedef struct {
     const char* filename;
@@ -20,6 +21,7 @@ typedef struct {
     size_t n_tokens_capacity;
     size_t n_tokens;
     PP_StringPool* sp;
+    PP_ErrorList* error_list;
 } PP_Lexer;
 
 PP_Lexer* pp_lexer_create(const char* code, const char* filename);
