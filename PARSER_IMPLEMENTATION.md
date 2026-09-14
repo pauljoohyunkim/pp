@@ -109,7 +109,7 @@ Reuse cz sync token set extended with `lambda`, `typedef`, `newtype` as in pp-ru
 
 This preserves modern parsing logic from pp-rust while retaining cz project structure and C error-handling discipline for allocations.
 
-## 5. AST Design Decisions – confirmed 2026-03-19
+## 5. AST Design Decisions – confirmed 2026-09-14
 1. Decoration: follow Rust logic – decoration only on expression-like nodes that need it: BinaryExpression, UnaryExpression, CastExpression, Literal, Identifier, FunctionCall, MemberAccess, StructInitializer, CollectionInitializer. No universal decoration field.
 2. Scope level in decoration: drop for now, keep commented out for future re-add.
 3. StructDeclaration fields: use single array of `PPASTStructField { PP_AST_Node* field; PP_AST_Node* initializer; }` to mirror Rust tuple `(Box<Node>, Option<Node>)`. Parallel arrays rejected.
@@ -121,7 +121,7 @@ This preserves modern parsing logic from pp-rust while retaining cz project stru
 9. Node reuse ban: yes – dedicated nodes for Assignment, StructInitializer, etc., no reuse of binary expression for assignment.
 10. Printing/debug: implement `pp_ast_root_print` now rather than stub.
 
-## 6. Progress – 2026-03-19
+## 6. Progress – 2026-09-14
 - Committed AST design refactor to match Rust model:
   - Decoration moved from base node to specific expression nodes
   - StructDeclaration fields as `PP_AST_StructField[]`
