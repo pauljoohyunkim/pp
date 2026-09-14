@@ -39,13 +39,13 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
         }
         case PP_AST_FunctionDeclarationNode:
         case PP_AST_LambdaDeclarationNode: {
-            for (unsigned int i = 0; i < node->function.param_count; i++) {
-                pp_ast_root_free_internal(node->function.params[i]);
+            for (unsigned int i = 0; i < node->function_declaration.param_count; i++) {
+                pp_ast_root_free_internal(node->function_declaration.params[i]);
             }
-            free(node->function.params);
-            free(node->function.name);
-            pp_ast_root_free_internal(node->function.return_type);
-            pp_ast_root_free_internal(node->function.body);
+            free(node->function_declaration.params);
+            free(node->function_declaration.name);
+            pp_ast_root_free_internal(node->function_declaration.return_type);
+            pp_ast_root_free_internal(node->function_declaration.body);
             break;
         }
         case PP_AST_StatementListNode: {
@@ -141,8 +141,10 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
         }
         case PP_AST_TypeExpressionNode: {
             free(node->type_expression.identifier_name);
-            pp_ast_root_free_internal(node->type_expression.element_type);
-            pp_ast_root_free_internal(node->type_expression.array_spec.size_expr);
+            if (node->type_expression.array_spec) {
+                pp_ast_root_free_internal(node->type_expression.array_spec->size_expr);
+                free(node->type_expression.array_spec);
+            }
             break;
         }
         case PP_AST_StructDeclarationNode: {
@@ -238,10 +240,10 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             break;
         case PP_AST_FunctionDeclarationNode:
         case PP_AST_LambdaDeclarationNode:
-            printf("Function %s\n", node->function.name ? node->function.name : "");
-            for (unsigned int i = 0; i < node->function.param_count; i++) pp_ast_root_print(node->function.params[i], depth+1);
-            if (node->function.return_type) pp_ast_root_print(node->function.return_type, depth+1);
-            if (node->function.body) pp_ast_root_print(node->function.body, depth+1);
+            printf("Function %s\n", node->function_declaration.name ? node->function_declaration.name : "");
+            for (unsigned int i = 0; i < node->function_declaration.param_count; i++) pp_ast_root_print(node->function_declaration.params[i], depth+1);
+            if (node->function_declaration.return_type) pp_ast_root_print(node->function_declaration.return_type, depth+1);
+            if (node->function_declaration.body) pp_ast_root_print(node->function_declaration.body, depth+1);
             break;
         case PP_AST_StatementListNode:
             printf("StatementList\n");

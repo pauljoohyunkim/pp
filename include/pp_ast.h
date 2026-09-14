@@ -138,8 +138,7 @@ struct PP_AST_Node {
                 PP_TYPE_KIND_BOOL,
                 PP_TYPE_KIND_IDENTIFIER
             } kind;
-            PP_AST_ArrayListSpecifier array_spec;
-            PP_AST_Node* element_type; /* base type for array/list */
+            PP_AST_ArrayListSpecifier* array_spec; /* NULL = plain type */
         } type_expression;
 
         struct { /* TypedefDeclaration */
@@ -152,14 +151,14 @@ struct PP_AST_Node {
             char* identifier;
         } newtype_declaration;
 
-        struct { /* FunctionDeclaration / LambdaDeclaration share fields */
+        struct { /* FunctionDeclaration */
             char* name;
             PP_AST_Node** params; /* ParamDeclaration nodes */
             unsigned int param_count;
             unsigned int param_capacity;
             PP_AST_Node* return_type;
             PP_AST_Node* body; /* StatementList */
-        } function;
+        } function_declaration;
 
         struct { /* StatementList */
             PP_AST_Node** stmts;
