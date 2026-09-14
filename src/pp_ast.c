@@ -186,7 +186,123 @@ void pp_ast_root_free(PP_AST_Node* node) {
 
 void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
     if (!node) return;
-    /* Minimal stub – full printing to be added incrementally */
-    for (unsigned int i = 0; i < depth; i++) printf("  ");
-    printf("%d\n", node->node_type);
+    for (unsigned int i = 0; i < depth; i++) printf("\t");
+    switch (node->node_type) {
+        case PP_AST_ProgramNode:
+            printf("Program\n");
+            for (unsigned int i = 0; i < node->program.decl_count; i++) pp_ast_root_print(node->program.decls[i], depth+1);
+            break;
+        case PP_AST_StructDeclarationNode:
+            printf("StructDeclaration %s\n", node->struct_declaration.name ? node->struct_declaration.name : "");
+            for (unsigned int i = 0; i < node->struct_declaration.field_count; i++) {
+                PP_AST_StructField* f = &node->struct_declaration.fields[i];
+                pp_ast_root_print(f->field, depth+1);
+                if (f->initializer) {
+                    for (unsigned int k = 0; k < depth+2; k++) printf("\t");
+                    printf("Initializer\n");
+                    pp_ast_root_print(f->initializer, depth+2);
+                }
+            }
+            break;
+        case PP_AST_VariableDeclarationNode:
+            printf("VariableDeclaration\n");
+            pp_ast_root_print(node->variable_declaration.var_decl, depth+1);
+            if (node->variable_declaration.initializer) pp_ast_root_print(node->variable_declaration.initializer, depth+1);
+            break;
+        case PP_AST_AssignmentNode:
+            printf("Assignment\n");
+            pp_ast_root_print(node->assignment.lhs, depth+1);
+            pp_ast_root_print(node->assignment.rhs, depth+1);
+            break;
+        case PP_AST_ReturnStatementNode:
+            printf("ReturnStatement\n");
+            if (node->return_statement.expr) pp_ast_root_print(node->return_statement.expr, depth+1);
+            break;
+        case PP_AST_IfStatementNode:
+            printf("IfStatement\n");
+            pp_ast_root_print(node->if_statement.cond, depth+1);
+            pp_ast_root_print(node->if_statement.then_branch, depth+1);
+            if (node->if_statement.else_branch) pp_ast_root_print(node->if_statement.else_branch, depth+1);
+            break;
+        case PP_AST_WhileStatementNode:
+            printf("WhileStatement\n");
+            pp_ast_root_print(node->while_statement.cond, depth+1);
+            pp_ast_root_print(node->while_statement.body, depth+1);
+            break;
+        case PP_AST_ForStatementNode:
+            printf("ForStatement\n");
+            if (node->for_statement.init) pp_ast_root_print(node->for_statement.init, depth+1);
+            if (node->for_statement.cond) pp_ast_root_print(node->for_statement.cond, depth+1);
+            if (node->for_statement.update) pp_ast_root_print(node->for_statement.update, depth+1);
+            pp_ast_root_print(node->for_statement.body, depth+1);
+            break;
+        case PP_AST_FunctionDeclarationNode:
+        case PP_AST_LambdaDeclarationNode:
+            printf("Function %s\n", node->function.name ? node->function.name : "");
+            for (unsigned int i = 0; i < node->function.param_count; i++) pp_ast_root_print(node->function.params[i], depth+1);
+            if (node->function.return_type) pp_ast_root_print(node->function.return_type, depth+1);
+            if (node->function.body) pp_ast_root_print(node->function.body, depth+1);
+            break;
+        case PP_AST_StatementListNode:
+            printf("StatementList\n");
+            for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) pp_ast_root_print(node->statement_list.stmts[i], depth+1);
+            break;
+        case PP_AST_BinaryExpressionNode:
+            printf("BinaryExpression\n");
+            pp_ast_root_print(node->binary_expression.left, depth+1);
+            pp_ast_root_print(node->binary_expression.right, depth+1);
+            break;
+        case PP_AST_UnaryExpressionNode:
+            printf("UnaryExpression\n");
+            pp_ast_root_print(node->unary_expression.operand, depth+1);
+            break;
+        case PP_AST_CastExpressionNode:
+            printf("CastExpression\n");
+            pp_ast_root_print(node->cast_expression.expression, depth+1);
+            pp_ast_root_print(node->cast_expression.type_expr, depth+1);
+            break;
+        case PP_AST_LiteralNode:
+            printf("Literal %s\n", node->literal.lexeme ? node->literal.lexeme : "");
+            break;
+        case PP_AST_IdentifierNode:
+            printf("Identifier %s\n", node->identifier.identifier ? node->identifier.identifier : "");
+            break;
+        case PP_AST_FunctionCallNode:
+            printf("FunctionCall\n");
+            pp_ast_root_print(node->function_call.callee, depth+1);
+            for (unsigned int i = 0; i < node->function_call.arg_count; i++) pp_ast_root_print(node->function_call.arguments[i], depth+1);
+            break;
+        case PP_AST_MemberAccessNode:
+            printf("MemberAccess %s\n", node->member_access.member ? node->member_access.member : "");
+            pp_ast_root_print(node->member_access.object, depth+1);
+            break;
+        case PP_AST_ArrayListAccessNode:
+            printf("ArrayListAccess\n");
+            pp_ast_root_print(node->array_list_access.expr, depth+1);
+            pp_ast_root_print(node->array_list_access.index, depth+1);
+            break;
+        case PP_AST_ParamDeclarationNode:
+            printf("Param %s\n", node->param_declaration.identifier ? node->param_declaration.identifier : "");
+            if (node->param_declaration.type_expr) pp_ast_root_print(node->param_declaration.type_expr, depth+1);
+            break;
+        case PP_AST_TypeExpressionNode:
+            printf("TypeExpression\n");
+            break;
+        case PP_AST_StructInitializerNode:
+            printf("StructInitializer %s\n", node->struct_initializer.identifier ? node->struct_initializer.identifier : "");
+            for (unsigned int i = 0; i < node->struct_initializer.entry_count; i++) {
+                pp_ast_root_print(node->struct_initializer.entries[i].member_identifier, depth+1);
+                pp_ast_root_print(node->struct_initializer.entries[i].member_value, depth+1);
+            }
+            break;
+        case PP_AST_CollectionInitializerNode:
+            printf("CollectionInitializer\n");
+            if (node->collection_initializer.type_expr) pp_ast_root_print(node->collection_initializer.type_expr, depth+1);
+            if (node->collection_initializer.size_expr) pp_ast_root_print(node->collection_initializer.size_expr, depth+1);
+            for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) pp_ast_root_print(node->collection_initializer.elements[i], depth+1);
+            break;
+        default:
+            printf("NodeType %d\n", node->node_type);
+            break;
+    }
 }
