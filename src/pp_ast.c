@@ -132,6 +132,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
         case PP_AST_ArrayListAccessNode: {
             pp_ast_root_free_internal(node->array_list_access.expr);
             pp_ast_root_free_internal(node->array_list_access.index);
+            if (node->array_list_access.decoration) pp_ast_decoration_free(node->array_list_access.decoration);
             break;
         }
         case PP_AST_ParamDeclarationNode: {

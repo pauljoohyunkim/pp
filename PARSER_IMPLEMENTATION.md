@@ -137,6 +137,16 @@ This preserves modern parsing logic from pp-rust while retaining cz project stru
 Next session tasks:
 1. Add vector push helpers for all AST lists using AST_VECTOR_INIT_CAP + double-on-full.
 2. Implement node creator functions with NULL_POINTER_ERROR_HANDLE + goto cleanup and ownership nulling.
+
+## 7. Notable discrepancies vs pp-rust AST – 2026-09-14
+Identified after comparison with `../pp-rust/src/pp_ast.rs`:
+- **ArrayListAccess decoration**: Fixed – added `PP_AST_Decoration* decoration` to `array_list_access` union member, matching Rust.
+- **ParamDeclaration resolved_type**: pp-rust includes `resolved_type: Option<PPTypeId>` on ParamDeclaration. Type system not implemented yet; field left commented out in header with TODO note.
+- **TypeExpression array_spec optionality**: Fixed – array_spec is now a pointer, matching Option behavior.
+- **Function node naming**: Renamed union member to `function_declaration` for clarity; both Function and Lambda reuse same layout with named identifier per BNF.
+- All other expression nodes decoration placement matches Rust model: BinaryExpression, UnaryExpression, CastExpression, Literal, Identifier, FunctionCall, MemberAccess, StructInitializer, CollectionInitializer.
+
+Discrepancies addressed as above.
 3. Begin Pratt parser skeleton using Rust binding strengths, mapping `create_expression_ext`.
 
 

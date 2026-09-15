@@ -213,12 +213,15 @@ struct PP_AST_Node {
         struct { /* ArrayListAccess */
             PP_AST_Node* expr;
             PP_AST_Node* index;
+            PP_AST_Decoration* decoration;
         } array_list_access;
 
         struct { /* ParamDeclaration */
             char* identifier;
             PP_AST_Node* type_expr;
+            // void* resolved_type;   // TODO: type system not implemented yet
         } param_declaration;
+#warning "ParamDeclaration resolved_type placeholder – implement type system before production use"
 
         struct { /* StructInitializer */
             char* identifier;
