@@ -134,9 +134,41 @@ This preserves modern parsing logic from pp-rust while retaining cz project stru
   - `AST design refactor per Rust model`
   - `Implement pp_ast_root_print similar to cz`
 
+### Parser port progress – branch `port-parser` 2026-09-14
+
+- Project scaffold created matching cz structure
+  - `include/pp_parser.h` with `PP_Parser` struct and API `pp_parser_create / pp_parser_parse / pp_parser_free`
+  - `src/pp_parser.c` starter with cz-style error handling, `NULL_POINTER_ERROR_HANDLE` + `goto error_cleanup`
+- Ownership transfer from lexer to parser at creation; string pool moved to parser, tokens point directly to interned strings
+- Helper utilities implemented:
+  - `pp_parser_peek_token_type`, `pp_parser_consume_token`
+  - Sync set: IF FUNC LAMBDA RETURN FOR WHILE TYPEDEF NEWTYPE SEMICOLON RIGHT_CURLY_BRACKET
+  - `PP_Precedence` enum with pp-rust spaced values: Equality=10, Relational=20, BitwiseOr=30, BitwiseXor=40, BitwiseAnd=50, Additive=60, Multiplicative=70, Cast=80, Unary=90, CallAccess=100, Primary=110
+  - `pp_parser_infix_binding_power` mapping token types to left/right binding powers
+- Pratt expression skeleton
+  - `pp_parser_create_expression_ext(min_bp)` with loop over infix ops
+  - `create_unary` builds `PP_AST_UnaryExpressionNode` for `-`, `!`
+  - Primary: identifier, integer/float/true/false literals, parenthesized expressions delegated back to expression parser
+  - Literal nodes reuse string pool pointer, no strdup
+  - Binary expression nodes built with left/right children and operator token type
+  - Cast handling scaffolding for `as` with `pp_parser_create_type` stub
+- Commits on branch port-parser:
+  - scaffold pp parser with cz structure and pp-rust Pratt binding powers
+  - add infix binding power definition and fix build warnings
+  - add literal creation and forward declaration
+  - implement unary expression node creation
+  - add parentheses handling in primary
+  - implement binary expression node in Pratt loop
+  - add type stub and prepare cast handling
+- Build passes with only warnings; `bin/pplang` links.
+
 Next session tasks:
 1. Add vector push helpers for all AST lists using AST_VECTOR_INIT_CAP + double-on-full.
 2. Implement node creator functions with NULL_POINTER_ERROR_HANDLE + goto cleanup and ownership nulling.
+3. Complete postfix handling in Pratt loop: `(` function call, `[` array access, `.` member access with left-binding CALL_ACCESS
+4. Implement statement parsing with backtracking assignment detection as in pp-rust `create_expression_or_assignment`
+5. Program dispatch for global declarations FUNC/LAMBDA/STRUCT/LET/TYPEDEF/NEWTYPE
+
 
 ## 7. Notable discrepancies vs pp-rust AST – 2026-09-14
 Identified after comparison with `../pp-rust/src/pp_ast.rs`:
@@ -148,5 +180,149 @@ Identified after comparison with `../pp-rust/src/pp_ast.rs`:
 
 Discrepancies addressed as above.
 3. Begin Pratt parser skeleton using Rust binding strengths, mapping `create_expression_ext`.
+
+## 8. Parser Port Progress Update – 2026-09-14 to present
+### Branch port-parser
+Current state after incremental commits:
+- Pratt expression core implemented with pp-rust binding powers and infix_binding_power
+- Expression nodes: Binary, Unary, Cast, FunctionCall, ArrayListAccess, MemberAccess
+- Assignment detection in `create_expression_or_assignment` for = += -= *= /= %= &= |= ^=
+- Statement dispatch split into typed helpers:
+  * `pp_parser_create_return_statement`
+  * `pp_parser_create_if_statement`
+  * `pp_parser_create_while_statement`
+  * `pp_parser_create_for_statement`
+  * `pp_parser_create_variable_declaration`
+  * `pp_parser_create_block` building StatementList
+- Variable declaration now uses `pp_parser_create_param_decl` parsing `identifier :: type`
+- Type parsing extended to handle const, primitive types void/int32/float/bool, identifier types, and reference `&`, with array specifier `[size]` support and repeated dimensions loop
+- Program node dispatch wired:
+  * FUNC → pp_parser_create_function_declaration with param list, return type, block
+  * LAMBDA stub
+  * STRUCT → pp_parser_create_struct_declaration with member list `param_decl [= expr];`
+  * TYPEDEF / NEWTYPE implemented with base_type + identifier
+  * LET/CONST → global variable declaration via param_decl
+- Primary extended:
+  * Struct initializer detection `identifier { .field = expr , … }`
+  * Collection initializer `[ type [:size] ; elem* ]`
+- Postfix call/index/member handled in Pratt loop with CallAccess binding power
+- Unused `pp_parser_strdup` removed
+- Build passes on port-parser with only pre-existing warnings
+
+Recent commits:
+- implement postfix function call, index, and member access in Pratt parser
+- add expression_or_assignment stub / assignment detection
+- add block parsing with statement list
+- split statement creation into typed helpers for if/while/return/var_decl
+- add param_decl parser for identifier :: type
+- use param_decl parser in variable declaration
+- extend type parsing with const/reference and primitives
+- increment parser globals and primary init – struct/collection initializer support
+- implement param list and function declaration parsing
+- implement struct declaration parsing with members
+- remove unused strdup and improve struct parsing
+- support repeated array specifiers in type parsing
+
+Next steps:
+1. Complete lambda declaration parsing mirroring function
+2. Implement full error reporting via pp_error_list on parse failures and allocation OOM
+3. Add `pp_parser_parse_param_list` reuse for function/lambda, finalize param list cleanup on error with cz-style goto cleanup
+4. Enhance struct initializer parsing to handle optional trailing commas and better error recovery
+5. Add unit tests / sample parses for func/struct/typedef/global var
+
+## 9. Similarity Assessment – 2026-09-15
+### Structure vs ../cz/
+- **Project layout**: `include/pp_parser.h`, `src/pp_parser.c`, `include/pp_ast.h` mirrors cz's `include/cz_parser.h`, `src/cz_parser.c`.
+- **Ownership model**: parser owns code/tokens/string pool, ownership transferred from lexer with NULLing source pointers – same pattern as cz_parser_create.
+- **Error handling**: `NULL_POINTER_ERROR_HANDLE` + `goto error_cleanup` now present in creators; `pp_error_list_push_error` used in `pp_parser_consume_token`, matching cz's push-error-on-mismatch approach.
+- **Sync & recovery**: sync token set and `pp_parser_sync` mirrors `cz_parser_sync`.
+- **Vector growth**: `AST_VECTOR_INIT_CAP` + double-on-full used for decls/params/fields – same policy as cz error list/lexer.
+
+### Logic vs ../pp-rust/
+- **Pratt core**: `PP_Precedence` values 10,20,…110 exactly match pp-rust `OperatorPrecedence`; `pp_parser_infix_binding_power` returns left/right binding powers as in Rust.
+- **Expression loop**: `pp_parser_create_expression_ext` implements precedence-climbing with unary primary and postfix call/index/member handling inside the same loop – equivalent to Rust's `create_expression_ext`.
+- **Assignment backtracking**: `pp_parser_create_expression_or_assignment` parses LHS expression then checks assignment ops, matching Rust `create_expression_or_assignment`.
+- **Statements / blocks**: statement dispatch `create_return_statement`, `create_if_statement`, etc., mirrors Rust statement parsing; block builds `StatementList`.
+- **Types**: `is_const`, `is_reference`, `array_spec` pointer matches Rust `TypeExpression` with Option array specifier.
+- **AST shape**: decoration only on expression nodes, struct fields as `PP_AST_StructField[]`, struct init entries as `PP_AST_StructInitEntry[]` – aligns with Rust model decisions confirmed 2026-09-14.
+
+Conclusion: structure is cz-like, parsing logic is pp-rust-like; the port is consistent with both reference bases.
+
+## 10. Roadmap to Almost Complete Parser
+**Parsing completeness**
+1. Finalize lambda declaration – done in current commit, ensure cleanup is cz-style.
+2. Full global declaration coverage:
+   - `func`, `lambda`, `struct`, `typedef`, `newtype`, `let`/`const` globals – all parsers present, need final error messages and sync on failure.
+3. Statement completeness:
+   - Expression statements, variable decl in block, assignment statements, return, if/else-if chains, while, for with init/cond/update variants, block nesting.
+4. Primary values:
+   - Identifier, literals, parenthesized, struct initializer, collection initializer fully implemented; add string literal support when lexer provides it.
+5. Type parsing:
+   - Mutability `const`, base types, identifier types, reference `&`, array specifiers `[size]` repeated – done; optionally support nested array specifier in base_type per BNF.
+6. Error handling:
+   - Push parse errors for missing tokens, unexpected token, unclosed delimiters using `pp_error_list_push_error` with line/col like cz.
+   - Allocation failures already guarded by NULL_POINTER_ERROR_HANDLE + goto cleanup.
+7. Program dispatch robustness:
+   - Replace placeholder sync with proper error recovery and continue parsing subsequent declarations.
+8. Testing:
+   - Add sample PP programs covering each global decl, expression precedence, struct init, collection init, control flow.
+9. Cleanup:
+   - Remove remaining `#warning` placeholders once type system lands, ensure no memory leaks via `pp_ast_root_free` paths.
+
+With the above done the parser will be functionally equivalent to pp-rust's parser in C with cz's project/error discipline.
+
+## 11. Current Status – 2026-09-15 update
+### Recent incremental improvements
+- Lambda declaration now pushes cz-style errors for missing identifier, `::`, `(`, `)`, `->` and uses goto cleanup with proper free of params/return_type/body.
+- Struct declaration adds error pushes for missing identifier after `struct`, missing `{`, and missing `}` with cleanup path.
+- Typedef / Newtype declarations now capture typedef/newtype token position, push errors for missing identifier and missing terminating `;`, and return node with correct source location.
+- Variable declaration (`let`/`const`) uses NULL_POINTER_ERROR_HANDLE + goto cleanup, pushes errors for missing declarator, missing initializer expression, and missing terminating `;`.
+- Statement error recovery: expression statements now sync on parse failure and push error for missing `;`.
+- All creators consistently use `NULL_POINTER_ERROR_HANDLE` and `error_cleanup` labels; ownership transfer and free paths mirror cz patterns.
+
+### Similarity assessment updated
+Structure vs cz:
+- Error handling now extends to all global decl parsers with `pp_error_list_push_error`; sync set unchanged.
+- Cleanup paths complete for lambda, struct, typedef, newtype, variable declaration.
+
+Logic vs pp-rust:
+- No semantic deviation; error pushes are additive and do not change parsing logic.
+
+## 12. Final Similarity Assessment & Roadmap – 2026-09-16
+### Structure vs ../cz/
+- Project layout matches cz: `include/pp_parser.h` / `src/pp_parser.c`, AST headers mirror cz_ast.h.
+- Memory discipline: every allocation checked via `NULL_POINTER_ERROR_HANDLE`, cleanup via `goto error_cleanup`, frees partial sub-nodes – identical to cz pattern.
+- Error list usage: `pp_error_list_push_error` called on missing tokens, unclosed delimiters, and parse errors; sync token set mirrors cz_parser_sync.
+- Ownership transfer from lexer to parser with NULLing source pointers matches cz_parser_create.
+- Vector growth policy unified via `AST_VECTOR_INIT_CAP` + double-on-full, matching cz error list / lexer.
+
+### Logic vs ../pp-rust/
+- Pratt precedence values 10/20…110 match Rust OperatorPrecedence exactly.
+- Infix binding power mapping reproduces Rust left/right pairs; CallAccess = 100 with right_bp=0 as in Rust.
+- Assignment disambiguation via `create_expression_or_assignment` mirrors Rust backtracking approach.
+- Statement dispatch, block building, type parsing (const/reference/array specifier), struct/collection initializers follow Rust AST shape decisions confirmed 2026-09-14.
+- No semantic deviation; error pushes are purely additive diagnostics.
+
+### Current hardening state – branch port-parser
+- Function/lambda/struct/typedef/newtype/let declarations now have cz-style error pushes for missing '(' , ')' , '->' , '{' , '}' , ';' and appropriate NULL_POINTER_ERROR_HANDLE + goto cleanup.
+- Parameter declaration, struct fields, variable declaration creators hardened.
+- Literal type mapping added, string literal primary support added.
+- Block parser cleanup improved; expression statement sync with error push for missing ';' added.
+- Struct initializer and collection initializer now push errors for missing '{' , '}' , '[' , ']' , type, semicolon.
+- Type parsing pushes error for missing base type and missing ']' in array specifier.
+- Newtype declaration captures token position and pushes errors for missing identifier / ';'.
+
+### Remaining incremental steps
+1. Ensure remaining creators have NULL_POINTER_ERROR_HANDLE + goto cleanup – struct initializer member iteration, collection element loop edge cases; verify type parsing cleanup on allocation failure for array_spec chain.
+2. Add cz-style error pushes for missing tokens in those creators where not yet present (e.g., struct initializer '.' / identifier / '=' mismatches).
+3. Add additional error recovery sync points in statement parsers where appropriate; can be deferred until usage testing.
+4. Consider adding sample parses/tests for each global declaration and expression precedence corner cases.
+5. Finalize PARSER_IMPLEMENTATION.md similarity assessment above.
+
+All edits kept small per function with commits after each change, maintaining cz-style discipline while preserving pp-rust parsing logic.
+
+
+
+
 
 
