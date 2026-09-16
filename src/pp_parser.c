@@ -74,9 +74,7 @@ PP_Parser* pp_parser_create(PP_Lexer* lexer) {
     parser->error_list = error_list;
     return parser;
 error_cleanup:
-    if (parser) {
-        free(parser);
-    }
+    free(parser);
     return NULL;
 }
 
@@ -209,7 +207,7 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
     unsigned int decl_count = 0;
     unsigned int capacity = 0;
 
-    if (!parser) goto error_cleanup;
+    NULL_POINTER_ERROR_HANDLE(parser);
 
     program = pp_ast_node_create(PP_AST_ProgramNode, 0, 0);
     NULL_POINTER_ERROR_HANDLE(program);
@@ -266,7 +264,7 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
 
 error_cleanup:
     free(decls);
-    if (program) pp_ast_root_free(program);
+    pp_ast_root_free(program);
     return NULL;
 }
 
@@ -278,7 +276,7 @@ static PP_AST_Node* pp_parser_create_identifier(PP_Parser* parser) {
     node->identifier.identifier = tok->lexeme; /* use string pool pointer */
     return node;
 error_cleanup:
-    if (node) pp_ast_root_free(node);
+    pp_ast_root_free(node);
     return NULL;
 }
 
@@ -314,7 +312,7 @@ static PP_AST_Node* pp_parser_create_primary(PP_Parser* parser) {
 }
 
 static PP_AST_Node* pp_parser_create_literal(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
     PP_Token *tok = pp_parser_consume_token(parser, tt);
     if (!tok) return NULL;
@@ -325,12 +323,12 @@ static PP_AST_Node* pp_parser_create_literal(PP_Parser* parser) {
     node->literal.decoration = NULL;
     return node;
 error_cleanup:
-    if (node) pp_ast_root_free(node);
+    pp_ast_root_free(node);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_unary(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
     if (tt == PP_TT_MINUS || tt == PP_TT_EXCLAMATION) {
         PP_Token *op_tok = pp_parser_consume_token(parser, tt);
@@ -346,14 +344,14 @@ static PP_AST_Node* pp_parser_create_unary(PP_Parser* parser) {
         node->unary_expression.decoration = NULL;
         return node;
 error_cleanup:
-        if (operand) pp_ast_root_free(operand);
+        pp_ast_root_free(operand);
         return NULL;
     }
     return pp_parser_create_primary(parser);
 }
 
 static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     bool is_const = false;
     unsigned int line = 0, col = 0;
     if (pp_parser_peek_token_type(parser, 0) == PP_TT_CONST) {
@@ -417,7 +415,7 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
 error_cleanup:
     if (array_spec) {
         /* free any size_expr owned by spec before freeing spec */
-        if (array_spec->size_expr) pp_ast_root_free(array_spec->size_expr);
+        pp_ast_root_free(array_spec->size_expr);
         free(array_spec);
     }
     return NULL;
@@ -497,7 +495,7 @@ static PP_AST_Node* pp_parser_create_statement(PP_Parser* parser) {
 }
 
 static PP_AST_Node* pp_parser_create_block(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     if (pp_parser_peek_token_type(parser, 0) != PP_TT_LEFT_CURLY_BRACKET) return NULL;
     PP_Token* lbrace = pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET);
     unsigned int line = lbrace ? lbrace->line : 0;
@@ -529,7 +527,7 @@ static PP_AST_Node* pp_parser_create_block(PP_Parser* parser) {
     block->statement_list.capacity = capacity;
     return block;
 error_cleanup:
-    for (unsigned int i = 0; i < count; ++i) pp_ast_root_free(stmts[i]);
+    for (unsigned int i = 0; i < count; i++) pp_ast_root_free(stmts[i]);
     free(stmts);
     pp_ast_root_free(block);
     return NULL;
@@ -565,7 +563,7 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
                 while (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_PARENTHESIS && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
                     PP_AST_Node* arg = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
                     if (!arg) {
-                        for (unsigned int i = 0; i < arg_count; ++i) pp_ast_root_free(arguments[i]);
+                        for (unsigned int i = 0; i < arg_count; i++) pp_ast_root_free(arguments[i]);
                         free(arguments);
                         pp_ast_root_free(lhs);
                         return NULL;
@@ -580,7 +578,7 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
                 pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
                 PP_AST_Node* node = pp_ast_node_create(PP_AST_FunctionCallNode, op_tok->line, op_tok->column);
                 if (!node) {
-                    for (unsigned int i = 0; i < arg_count; ++i) pp_ast_root_free(arguments[i]);
+                    for (unsigned int i = 0; i < arg_count; i++) pp_ast_root_free(arguments[i]);
                     free(arguments);
                     pp_ast_root_free(lhs);
                     return NULL;
@@ -669,7 +667,7 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
 }
 
 static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* tok = pp_parser_consume_token(parser, PP_TT_RETURN);
     if (!tok) return NULL;
     unsigned int line = tok->line;
@@ -688,12 +686,12 @@ static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser) {
     node->return_statement.expr = expr;
     return node;
 error_cleanup:
-    if (expr) pp_ast_root_free(expr);
+    pp_ast_root_free(expr);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* tok = pp_parser_consume_token(parser, PP_TT_IF);
     if (!tok) return NULL;
     unsigned int line = tok->line;
@@ -732,14 +730,14 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
     node->if_statement.else_branch = else_branch;
     return node;
 error_cleanup:
-    if (cond) pp_ast_root_free(cond);
-    if (then_branch) pp_ast_root_free(then_branch);
-    if (else_branch) pp_ast_root_free(else_branch);
+    pp_ast_root_free(cond);
+    pp_ast_root_free(then_branch);
+    pp_ast_root_free(else_branch);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_while_statement(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* tok = pp_parser_consume_token(parser, PP_TT_WHILE);
     if (!tok) return NULL;
     unsigned int line = tok->line;
@@ -768,13 +766,13 @@ static PP_AST_Node* pp_parser_create_while_statement(PP_Parser* parser) {
     node->while_statement.body = body;
     return node;
 error_cleanup:
-    if (cond) pp_ast_root_free(cond);
-    if (body) pp_ast_root_free(body);
+    pp_ast_root_free(cond);
+    pp_ast_root_free(body);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* for_tok = pp_parser_consume_token(parser, PP_TT_FOR);
     if (!for_tok) return NULL;
     unsigned int line = for_tok->line;
@@ -827,22 +825,22 @@ static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser) {
         goto error_cleanup;
     }
     PP_AST_Node* node = pp_ast_node_create(PP_AST_ForStatementNode, 0, 0);
-    if (!node) goto error_cleanup;
+    NULL_POINTER_ERROR_HANDLE(node);
     node->for_statement.init = init;
     node->for_statement.cond = cond;
     node->for_statement.update = update;
     node->for_statement.body = body;
     return node;
 error_cleanup:
-    if (init) pp_ast_root_free(init);
-    if (cond) pp_ast_root_free(cond);
-    if (update) pp_ast_root_free(update);
-    if (body) pp_ast_root_free(body);
+    pp_ast_root_free(init);
+    pp_ast_root_free(cond);
+    pp_ast_root_free(update);
+    pp_ast_root_free(body);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_param_decl(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* ident_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
     if (!ident_tok) return NULL;
     if (!pp_parser_consume_token(parser, PP_TT_COLON_COLON)) {
@@ -857,12 +855,12 @@ static PP_AST_Node* pp_parser_create_param_decl(PP_Parser* parser) {
     node->param_declaration.type_expr = type_expr;
     return node;
 error_cleanup:
-    if (type_expr) pp_ast_root_free(type_expr);
+    pp_ast_root_free(type_expr);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_variable_declaration(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
     if (tt != PP_TT_LET) return NULL;
     PP_Token* decl_tok = pp_parser_consume_token(parser, tt);
@@ -893,8 +891,8 @@ static PP_AST_Node* pp_parser_create_variable_declaration(PP_Parser* parser) {
     node->variable_declaration.initializer = initializer;
     return node;
 error_cleanup:
-    if (var_decl) pp_ast_root_free(var_decl);
-    if (initializer) pp_ast_root_free(initializer);
+    pp_ast_root_free(var_decl);
+    pp_ast_root_free(initializer);
     return NULL;
 }
 
@@ -903,7 +901,7 @@ static PP_AST_Node* pp_parser_create_global_variable_declaration(PP_Parser* pars
 }
 
 static PP_AST_Node* pp_parser_create_function_declaration(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* func_tok = pp_parser_consume_token(parser, PP_TT_FUNC);
     if (!func_tok) return NULL;
     PP_Token* name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
@@ -941,16 +939,16 @@ static PP_AST_Node* pp_parser_create_function_declaration(PP_Parser* parser) {
     return node;
 error_cleanup:
     if (params) {
-        for (unsigned int i = 0; i < param_count; ++i) pp_ast_root_free(params[i]);
-        free(params);
+        for (unsigned int i = 0; i < param_count; i++) pp_ast_root_free(params[i]);
     }
-    if (return_type) pp_ast_root_free(return_type);
-    if (body) pp_ast_root_free(body);
+    free(params);
+    pp_ast_root_free(return_type);
+    pp_ast_root_free(body);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_lambda_declaration(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* lambda_tok = pp_parser_consume_token(parser, PP_TT_LAMBDA);
     if (!lambda_tok) return NULL;
     PP_Token* name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
@@ -993,14 +991,15 @@ static PP_AST_Node* pp_parser_create_lambda_declaration(PP_Parser* parser) {
     node->function_declaration.body = body;
     return node;
 error_cleanup:
-    if (params) { for (unsigned int i=0;i<param_count;++i) pp_ast_root_free(params[i]); free(params); }
-    if (return_type) pp_ast_root_free(return_type);
-    if (body) pp_ast_root_free(body);
+    if (params) { for (unsigned int i=0;i<param_count;i++) pp_ast_root_free(params[i]); }
+    free(params);
+    pp_ast_root_free(return_type);
+    pp_ast_root_free(body);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* struct_tok = pp_parser_consume_token(parser, PP_TT_STRUCT);
     if (!struct_tok) return NULL;
     PP_Token* name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
@@ -1051,17 +1050,17 @@ static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser) {
     return node;
 error_cleanup:
     if (fields) {
-        for (unsigned int i = 0; i < count; ++i) {
+        for (unsigned int i = 0; i < count; i++) {
             pp_ast_root_free(fields[i].field);
-            if (fields[i].initializer) pp_ast_root_free(fields[i].initializer);
+            pp_ast_root_free(fields[i].initializer);
         }
-        free(fields);
     }
+    free(fields);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_typedef_declaration(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* typedef_tok = pp_parser_consume_token(parser, PP_TT_TYPEDEF);
     if (!typedef_tok) return NULL;
     PP_AST_Node* base_type = pp_parser_create_type(parser);
@@ -1081,12 +1080,12 @@ static PP_AST_Node* pp_parser_create_typedef_declaration(PP_Parser* parser) {
     node->typedef_declaration.identifier = (char*)name_tok->lexeme;
     return node;
 error_cleanup:
-    if (base_type) pp_ast_root_free(base_type);
+    pp_ast_root_free(base_type);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* newtype_tok = pp_parser_consume_token(parser, PP_TT_NEWTYPE);
     if (!newtype_tok) return NULL;
     unsigned int line = newtype_tok->line;
@@ -1111,12 +1110,12 @@ static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser) {
     node->newtype_declaration.identifier = (char*)name_tok->lexeme;
     return node;
 error_cleanup:
-    if (base_type) pp_ast_root_free(base_type);
+    pp_ast_root_free(base_type);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* ident_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
     if (!ident_tok) return NULL;
     unsigned int line = ident_tok->line;
@@ -1179,18 +1178,18 @@ static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser) {
     return node;
 error_cleanup:
     if (entries) {
-        for (unsigned int i = 0; i < count; ++i) {
-            if (entries[i].member_identifier) pp_ast_root_free(entries[i].member_identifier);
-            if (entries[i].member_value) pp_ast_root_free(entries[i].member_value);
+        for (unsigned int i = 0; i < count; i++) {
+            pp_ast_root_free(entries[i].member_identifier);
+            pp_ast_root_free(entries[i].member_value);
         }
-        free(entries);
     }
-    if (node) pp_ast_root_free(node);
+    free(entries);
+    pp_ast_root_free(node);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_collection_initializer(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_Token* lbrack = pp_parser_consume_token(parser, PP_TT_LEFT_SQUARE_BRACKET);
     if (!lbrack) return NULL;
     unsigned int line = lbrack->line;
@@ -1248,12 +1247,12 @@ static PP_AST_Node* pp_parser_create_collection_initializer(PP_Parser* parser) {
     node->collection_initializer.element_capacity = capacity;
     return node;
 error_cleanup:
-    if (type_expr) pp_ast_root_free(type_expr);
-    if (size_expr) pp_ast_root_free(size_expr);
+    pp_ast_root_free(type_expr);
+    pp_ast_root_free(size_expr);
     if (elements) {
-        for (unsigned int i = 0; i < count; ++i) pp_ast_root_free(elements[i]);
-        free(elements);
+        for (unsigned int i = 0; i < count; i++) pp_ast_root_free(elements[i]);
     }
+    free(elements);
     return NULL;
 }
 
@@ -1289,9 +1288,9 @@ static int pp_parser_parse_param_list(PP_Parser* parser, PP_AST_Node*** out_para
     return 1;
 error_cleanup:
     if (params) {
-        for (unsigned int i = 0; i < *out_count; ++i) pp_ast_root_free(params[i]);
-        free(params);
+        for (unsigned int i = 0; i < *out_count; i++) pp_ast_root_free(params[i]);
     }
+    free(params);
     return 0;
 }
 
