@@ -788,3 +788,35 @@ TEST(ParserTest, TestLambdaDeclarationParsing) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, TestEmptyInput) {
+    const char* source = "";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestInvalidToken) {
+    const char* source = "func f ::() -> void { @; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestArrayListAccessMissingCloseBracketErrors) {
+    const char* source = "func f ::() -> void { arr[0; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestArrayListAccessEmptyIndexErrors) {
+    const char* source = "func f ::() -> void { arr[]; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(lexer_errors + parser_errors, 0);
+}
