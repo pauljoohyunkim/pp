@@ -220,3 +220,27 @@ TEST(ParserTest, BadMultipleErrorsRecovery) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_GT(parser_errors, 0);
 }
+
+TEST(ParserTest, TestLiteralNumerical) {
+    const char* source = "func f ::() -> void { 42; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestLiteralBooleanTrue) {
+    const char* source = "func f ::() -> void { true; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestBinaryAddition) {
+    const char* source = "func f ::() -> void { 1 + 2; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
