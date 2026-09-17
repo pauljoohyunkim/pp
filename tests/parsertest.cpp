@@ -1117,3 +1117,100 @@ TEST(ParserTest, TestLambdaWithMultipleParams) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, CzGoodPostfixChains) {
+    const char* source =
+        "func test_postfix_chains :: () -> int {
+"
+        "    current_zip :: int32 = company.subsidiary.address.zip;
+"
+        "    result :: int32 = get_calculator()(10, 20);
+"
+        "    return current_zip;
+"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, CzGoodLoops) {
+    const char* source =
+        "func test_loops :: () -> int32 {
+"
+        "    sum :: int32 = 0;
+"
+        "    for (i :: int32 = 0; i < 10; i = i + 1) {
+"
+        "        sum = sum + i;
+"
+        "    }
+"
+        "    for (; ;) {
+"
+        "        if (sum > 1000) {
+"
+        "            return sum;
+"
+        "        }
+"
+        "        sum = sum + 1;
+"
+        "    }
+"
+        "    return sum;
+"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, CzBadMalformedForLoop) {
+    const char* source =
+        "func bad_for :: () -> void {
+"
+        "    for (i :: int32 = 0; i < 10) {
+"
+        "        sum = sum + 1;
+"
+        "    }
+"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, CzBadNakedExpressionInStruct) {
+    const char* source =
+        "struct BadStruct {
+"
+        "    x :: int32;
+"
+        "    5 + 3;
+"
+        "    y :: float;
+"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, CzGoodVerificationAnchor) {
+    const char* source =
+        "func recovery_anchor :: () -> int32 {
+"
+        "    return 1;
+"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
