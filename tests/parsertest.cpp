@@ -1007,7 +1007,7 @@ TEST(ParserTest, TestIfNestedElseIfChain) {
 }
 
 TEST(ParserTest, TestWhileWithComplexCondition) {
-    const char* source = "func f ::() -> void { while (a < b && c > d) { x = 1; } }";
+    const char* source = "func f ::() -> void { while (a < b & c > d) { x = 1; } }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -1120,14 +1120,10 @@ TEST(ParserTest, TestLambdaWithMultipleParams) {
 
 TEST(ParserTest, CzGoodPostfixChains) {
     const char* source =
-        "func test_postfix_chains :: () -> int {
-"
-        "    current_zip :: int32 = company.subsidiary.address.zip;
-"
-        "    result :: int32 = get_calculator()(10, 20);
-"
-        "    return current_zip;
-"
+        "func test_postfix_chains :: () -> int32 {\n"
+        "    let current_zip :: int32 = company.subsidiary.address.zip;\n"
+        "    let result :: int32 = get_calculator()(10, 20);\n"
+        "    return current_zip;\n"
         "}";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
@@ -1137,30 +1133,19 @@ TEST(ParserTest, CzGoodPostfixChains) {
 
 TEST(ParserTest, CzGoodLoops) {
     const char* source =
-        "func test_loops :: () -> int32 {
-"
-        "    sum :: int32 = 0;
-"
-        "    for (i :: int32 = 0; i < 10; i = i + 1) {
-"
-        "        sum = sum + i;
-"
-        "    }
-"
-        "    for (; ;) {
-"
-        "        if (sum > 1000) {
-"
-        "            return sum;
-"
-        "        }
-"
-        "        sum = sum + 1;
-"
-        "    }
-"
-        "    return sum;
-"
+        "func test_loops :: () -> int32 {\n"
+        "    let sum :: int32 = 0;\n"
+        "    let i :: int32 = 0;\n"
+        "    for (; i < 10; i = i + 1) {\n"
+        "        sum = sum + i;\n"
+        "    }\n"
+        "    for (; ;) {\n"
+        "        if (sum > 1000) {\n"
+        "            return sum;\n"
+        "        }\n"
+        "        sum = sum + 1;\n"
+        "    }\n"
+        "    return sum;\n"
         "}";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
@@ -1170,14 +1155,10 @@ TEST(ParserTest, CzGoodLoops) {
 
 TEST(ParserTest, CzBadMalformedForLoop) {
     const char* source =
-        "func bad_for :: () -> void {
-"
-        "    for (i :: int32 = 0; i < 10) {
-"
-        "        sum = sum + 1;
-"
-        "    }
-"
+        "func bad_for :: () -> void {\n"
+        "    for (i :: int32 = 0; i < 10) {\n"
+        "        sum = sum + 1;\n"
+        "    }\n"
         "}";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
@@ -1187,14 +1168,10 @@ TEST(ParserTest, CzBadMalformedForLoop) {
 
 TEST(ParserTest, CzBadNakedExpressionInStruct) {
     const char* source =
-        "struct BadStruct {
-"
-        "    x :: int32;
-"
-        "    5 + 3;
-"
-        "    y :: float;
-"
+        "struct BadStruct {\n"
+        "    x :: int32;\n"
+        "    5 + 3;\n"
+        "    y :: float;\n"
         "}";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
@@ -1204,10 +1181,8 @@ TEST(ParserTest, CzBadNakedExpressionInStruct) {
 
 TEST(ParserTest, CzGoodVerificationAnchor) {
     const char* source =
-        "func recovery_anchor :: () -> int32 {
-"
-        "    return 1;
-"
+        "func recovery_anchor :: () -> int32 {\n"
+        "    return 1;\n"
         "}";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
