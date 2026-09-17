@@ -88,7 +88,7 @@ struct PP_AST_Node {
         } program;
 
         struct { /* StructDeclaration */
-            char* name;
+            const char* name;
             PP_AST_StructField* fields;
             unsigned int field_count;
             unsigned int field_capacity;
@@ -130,7 +130,7 @@ struct PP_AST_Node {
         struct { /* TypeExpression */
             bool is_const;
             bool is_reference;
-            char* identifier_name; /* identifier for named types, NULL for primitives */
+            const char* identifier_name; /* identifier for named types, NULL for primitives */
             enum {
                 PP_TYPE_KIND_VOID,
                 PP_TYPE_KIND_INT32,
@@ -143,16 +143,16 @@ struct PP_AST_Node {
 
         struct { /* TypedefDeclaration */
             PP_AST_Node* base_type;
-            char* identifier;
+            const char* identifier;
         } typedef_declaration;
 
         struct { /* NewtypeDeclaration */
             PP_AST_Node* base_type;
-            char* identifier;
+            const char* identifier;
         } newtype_declaration;
 
         struct { /* FunctionDeclaration */
-            char* name;
+            const char* name;
             PP_AST_Node** params; /* ParamDeclaration nodes */
             unsigned int param_count;
             unsigned int param_capacity;
@@ -187,12 +187,12 @@ struct PP_AST_Node {
 
         struct { /* Literal */
             PP_TokenType literal_type;
-            char* lexeme;
+            const char* lexeme;
             PP_AST_Decoration* decoration;
         } literal;
 
         struct { /* Identifier */
-            char* identifier;
+            const char* identifier;
             PP_AST_Decoration* decoration;
         } identifier;
 
@@ -206,7 +206,7 @@ struct PP_AST_Node {
 
         struct { /* MemberAccess */
             PP_AST_Node* object;
-            char* member;
+            const char* member;
             PP_AST_Decoration* decoration;
         } member_access;
 
@@ -224,7 +224,7 @@ struct PP_AST_Node {
 #warning "ParamDeclaration resolved_type placeholder – implement type system before production use"
 
         struct { /* StructInitializer */
-            char* identifier;
+            const char* identifier;
             PP_AST_StructInitEntry* entries;
             unsigned int entry_count;
             unsigned int entry_capacity;

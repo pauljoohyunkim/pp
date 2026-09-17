@@ -15,7 +15,7 @@ PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueC
 }
 
 void pp_ast_decoration_free(PP_AST_Decoration* decor) {
-    if (decor) free(decor);
+    free(decor);
 }
 
 PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, unsigned int col) {
@@ -31,28 +31,34 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
     if (!node) return;
     switch (node->node_type) {
         case PP_AST_ProgramNode: {
-            for (unsigned int i = 0; i < node->program.decl_count; i++) {
-                pp_ast_root_free_internal(node->program.decls[i]);
+            if (node->program.decls) {
+                for (unsigned int i = 0; i < node->program.decl_count; i++) {
+                    pp_ast_root_free_internal(node->program.decls[i]);
+                }
+                free(node->program.decls);
             }
-            free(node->program.decls);
             break;
         }
         case PP_AST_FunctionDeclarationNode:
         case PP_AST_LambdaDeclarationNode: {
-            for (unsigned int i = 0; i < node->function_declaration.param_count; i++) {
-                pp_ast_root_free_internal(node->function_declaration.params[i]);
+            if (node->function_declaration.params) {
+                for (unsigned int i = 0; i < node->function_declaration.param_count; i++) {
+                    pp_ast_root_free_internal(node->function_declaration.params[i]);
+                }
+                free(node->function_declaration.params);
             }
-            free(node->function_declaration.params);
-            free(node->function_declaration.name);
+            /* function_declaration.name is pool-owned const char* – do not free */
             pp_ast_root_free_internal(node->function_declaration.return_type);
             pp_ast_root_free_internal(node->function_declaration.body);
             break;
         }
         case PP_AST_StatementListNode: {
-            for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) {
-                pp_ast_root_free_internal(node->statement_list.stmts[i]);
+            if (node->statement_list.stmts) {
+                for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) {
+                    pp_ast_root_free_internal(node->statement_list.stmts[i]);
+                }
+                free(node->statement_list.stmts);
             }
-            free(node->statement_list.stmts);
             break;
         }
         case PP_AST_VariableDeclarationNode: {
@@ -90,28 +96,28 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
         case PP_AST_BinaryExpressionNode: {
             pp_ast_root_free_internal(node->binary_expression.left);
             pp_ast_root_free_internal(node->binary_expression.right);
-            if (node->binary_expression.decoration) pp_ast_decoration_free(node->binary_expression.decoration);
+            pp_ast_decoration_free(node->binary_expression.decoration);
             break;
         }
         case PP_AST_UnaryExpressionNode: {
             pp_ast_root_free_internal(node->unary_expression.operand);
-            if (node->unary_expression.decoration) pp_ast_decoration_free(node->unary_expression.decoration);
+            pp_ast_decoration_free(node->unary_expression.decoration);
             break;
         }
         case PP_AST_CastExpressionNode: {
             pp_ast_root_free_internal(node->cast_expression.expression);
             pp_ast_root_free_internal(node->cast_expression.type_expr);
-            if (node->cast_expression.decoration) pp_ast_decoration_free(node->cast_expression.decoration);
+            pp_ast_decoration_free(node->cast_expression.decoration);
             break;
         }
         case PP_AST_LiteralNode: {
-            free(node->literal.lexeme);
-            if (node->literal.decoration) pp_ast_decoration_free(node->literal.decoration);
+            /* literal.lexeme is pool-owned const char* – do not free */
+            pp_ast_decoration_free(node->literal.decoration);
             break;
         }
         case PP_AST_IdentifierNode: {
-            free(node->identifier.identifier);
-            if (node->identifier.decoration) pp_ast_decoration_free(node->identifier.decoration);
+            /* identifier.identifier is pool-owned const char* – do not free */
+            pp_ast_decoration_free(node->identifier.decoration);
             break;
         }
         case PP_AST_FunctionCallNode: {
@@ -120,19 +126,19 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
                 pp_ast_root_free_internal(node->function_call.arguments[i]);
             }
             free(node->function_call.arguments);
-            if (node->function_call.decoration) pp_ast_decoration_free(node->function_call.decoration);
+            pp_ast_decoration_free(node->function_call.decoration);
             break;
         }
         case PP_AST_MemberAccessNode: {
             pp_ast_root_free_internal(node->member_access.object);
-            free(node->member_access.member);
-            if (node->member_access.decoration) pp_ast_decoration_free(node->member_access.decoration);
+            /* member_access.member is pool-owned const char* – do not free */
+            pp_ast_decoration_free(node->member_access.decoration);
             break;
         }
         case PP_AST_ArrayListAccessNode: {
             pp_ast_root_free_internal(node->array_list_access.expr);
             pp_ast_root_free_internal(node->array_list_access.index);
-            if (node->array_list_access.decoration) pp_ast_decoration_free(node->array_list_access.decoration);
+            pp_ast_decoration_free(node->array_list_access.decoration);
             break;
         }
         case PP_AST_ParamDeclarationNode: {
@@ -141,7 +147,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_TypeExpressionNode: {
-            free(node->type_expression.identifier_name);
+            /* type_expression.identifier_name is pool-owned const char* – do not free */
             if (node->type_expression.array_spec) {
                 pp_ast_root_free_internal(node->type_expression.array_spec->size_expr);
                 free(node->type_expression.array_spec);
@@ -149,32 +155,38 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_StructDeclarationNode: {
-            free(node->struct_declaration.name);
-            for (unsigned int i = 0; i < node->struct_declaration.field_count; i++) {
-                pp_ast_root_free_internal(node->struct_declaration.fields[i].field);
-                pp_ast_root_free_internal(node->struct_declaration.fields[i].initializer);
+            /* struct_declaration.name is pool-owned const char* – do not free */
+            if (node->struct_declaration.fields) {
+                for (unsigned int i = 0; i < node->struct_declaration.field_count; i++) {
+                    pp_ast_root_free_internal(node->struct_declaration.fields[i].field);
+                    pp_ast_root_free_internal(node->struct_declaration.fields[i].initializer);
+                }
+                free(node->struct_declaration.fields);
             }
-            free(node->struct_declaration.fields);
             break;
         }
         case PP_AST_StructInitializerNode: {
-            free(node->struct_initializer.identifier);
-            for (unsigned int i = 0; i < node->struct_initializer.entry_count; i++) {
-                pp_ast_root_free_internal(node->struct_initializer.entries[i].member_identifier);
-                pp_ast_root_free_internal(node->struct_initializer.entries[i].member_value);
+            /* struct_initializer.identifier is pool-owned const char* – do not free */
+            if (node->struct_initializer.entries) {
+                for (unsigned int i = 0; i < node->struct_initializer.entry_count; i++) {
+                    pp_ast_root_free_internal(node->struct_initializer.entries[i].member_identifier);
+                    pp_ast_root_free_internal(node->struct_initializer.entries[i].member_value);
+                }
+                free(node->struct_initializer.entries);
             }
-            free(node->struct_initializer.entries);
-            if (node->struct_initializer.decoration) pp_ast_decoration_free(node->struct_initializer.decoration);
+            pp_ast_decoration_free(node->struct_initializer.decoration);
             break;
         }
         case PP_AST_CollectionInitializerNode: {
             pp_ast_root_free_internal(node->collection_initializer.type_expr);
             pp_ast_root_free_internal(node->collection_initializer.size_expr);
-            for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
-                pp_ast_root_free_internal(node->collection_initializer.elements[i]);
+            if (node->collection_initializer.elements) {
+                for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
+                    pp_ast_root_free_internal(node->collection_initializer.elements[i]);
+                }
+                free(node->collection_initializer.elements);
             }
-            free(node->collection_initializer.elements);
-            if (node->collection_initializer.decoration) pp_ast_decoration_free(node->collection_initializer.decoration);
+            pp_ast_decoration_free(node->collection_initializer.decoration);
             break;
         }
         default:
