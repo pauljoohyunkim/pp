@@ -1085,3 +1085,35 @@ TEST(ParserTest, TestStructWithMultipleFields) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, TestNestedStructInit) {
+    const char* source = "func f ::() -> void { S{ .a = Vec{ .x = 1.0 } }; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_LE(lexer_errors + parser_errors, 1);
+}
+
+TEST(ParserTest, TestCollectionInitMixedTypes) {
+    const char* source = "func f ::() -> void { let a :: int32 = [int32; 0, 1, 2]; let b :: bool = [bool: 3; true, false, true]; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestReturnWithComplexExpression) {
+    const char* source = "func f ::() -> int32 { return (a + b) * (c - d) / e; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestLambdaWithMultipleParams) {
+    const char* source = "lambda sum :: (a :: int32, b :: int32, c :: int32) -> int32 { return a + b + c; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
