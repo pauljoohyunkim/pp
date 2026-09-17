@@ -949,3 +949,19 @@ TEST(ParserTest, TestBaseTypeIdentifier) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, TestBaseTypeInvalidTokenErrors) {
+    const char* source = "func f :: (x :: +) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestBaseTypeKeywordOtherThanTypeErrors) {
+    const char* source = "func f :: (x :: if) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(lexer_errors + parser_errors, 0);
+}
