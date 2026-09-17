@@ -202,3 +202,21 @@ TEST(ParserTest, GoodArrayAccess) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, BadMultipleErrorsRecovery) {
+    const char* source =
+        "func good1 :: () -> int32 {\n"
+        "    return 1;\n"
+        "}\n"
+        "func bad_missing_brace :: () -> void {\n"
+        "    let x :: int32 = 5\n" // missing semicolon
+        "    return;\n"
+        "}\n"
+        "func good2 :: () -> int32 {\n"
+        "    return 2;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(parser_errors, 0);
+}
