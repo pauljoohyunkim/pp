@@ -820,3 +820,35 @@ TEST(ParserTest, TestArrayListAccessEmptyIndexErrors) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_GT(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, TestTypeConstBoolReference) {
+    const char* source = "func f :: (x :: const bool&) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypeConstFloatReference) {
+    const char* source = "func f :: (x :: const float&) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypeConstIdentifierReference) {
+    const char* source = "func f :: (x :: const MyType&) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypeConstOnlyIdentifier) {
+    const char* source = "func f :: (x :: const Foo) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
