@@ -349,7 +349,7 @@ static PP_AST_Node* pp_parser_create_literal(PP_Parser* parser) {
     node = pp_ast_node_create(PP_AST_LiteralNode, tok->line, tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
     node->literal.literal_type = tt;
-    node->literal.lexeme = (char*)tok->lexeme; /* string pool */
+    node->literal.lexeme = tok->lexeme; /* string pool */
     node->literal.decoration = NULL;
     tok = NULL;
     return node;
@@ -456,7 +456,7 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
     NULL_POINTER_ERROR_HANDLE(node);
     node->type_expression.is_const = is_const;
     node->type_expression.is_reference = is_ref;
-    node->type_expression.identifier_name = (tt == PP_TT_IDENTIFIER && tok) ? (char*)tok->lexeme : NULL;
+    node->type_expression.identifier_name = (tt == PP_TT_IDENTIFIER && tok) ? tok->lexeme : NULL;
     node->type_expression.kind = kind;
     node->type_expression.array_spec = array_spec;
     return node;
@@ -1124,7 +1124,7 @@ static PP_AST_Node* pp_parser_create_function_declaration(PP_Parser* parser) {
     NULL_POINTER_ERROR_HANDLE(body);
     node = pp_ast_node_create(PP_AST_FunctionDeclarationNode, func_tok->line, func_tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
-    node->function_declaration.name = (char*)name_tok->lexeme;
+    node->function_declaration.name = name_tok->lexeme;
     node->function_declaration.params = params;
     params = NULL;
     node->function_declaration.param_count = param_count;
@@ -1187,7 +1187,7 @@ static PP_AST_Node* pp_parser_create_lambda_declaration(PP_Parser* parser) {
     NULL_POINTER_ERROR_HANDLE(body);
     node = pp_ast_node_create(PP_AST_LambdaDeclarationNode, lambda_tok->line, lambda_tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
-    node->function_declaration.name = (char*)name_tok->lexeme;
+    node->function_declaration.name = name_tok->lexeme;
     node->function_declaration.params = params;
     params = NULL;
     node->function_declaration.param_count = param_count;
@@ -1270,7 +1270,7 @@ static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser) {
     }
     node = pp_ast_node_create(PP_AST_StructDeclarationNode, struct_tok->line, struct_tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
-    node->struct_declaration.name = (char*)name_tok->lexeme;
+    node->struct_declaration.name = name_tok->lexeme;
     node->struct_declaration.fields = fields;
     node->struct_declaration.field_count = count;
     node->struct_declaration.field_capacity = capacity;
@@ -1317,7 +1317,7 @@ static PP_AST_Node* pp_parser_create_typedef_declaration(PP_Parser* parser) {
     node = pp_ast_node_create(PP_AST_TypedefDeclarationNode, typedef_tok->line, typedef_tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
     node->typedef_declaration.base_type = base_type;
-    node->typedef_declaration.identifier = (char*)name_tok->lexeme;
+    node->typedef_declaration.identifier = name_tok->lexeme;
     base_type = NULL;
     name_tok = NULL;
     typedef_tok = NULL;
@@ -1361,7 +1361,7 @@ static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser) {
     node = pp_ast_node_create(PP_AST_NewtypeDeclarationNode, line, col);
     NULL_POINTER_ERROR_HANDLE(node);
     node->newtype_declaration.base_type = base_type;
-    node->newtype_declaration.identifier = (char*)name_tok->lexeme;
+    node->newtype_declaration.identifier = name_tok->lexeme;
     base_type = NULL;
     name_tok = NULL;
 
@@ -1398,7 +1398,7 @@ static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser) {
 
     node = pp_ast_node_create(PP_AST_StructInitializerNode, line, col);
     NULL_POINTER_ERROR_HANDLE(node);
-    node->struct_initializer.identifier = (char*)ident_tok->lexeme;
+    node->struct_initializer.identifier = ident_tok->lexeme;
 
     capacity = AST_VECTOR_INIT_CAP;
     count = 0;
@@ -1428,7 +1428,7 @@ static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser) {
         }
         member_id_node = pp_ast_node_create(PP_AST_IdentifierNode, member_tok->line, member_tok->column);
         NULL_POINTER_ERROR_HANDLE(member_id_node);
-        member_id_node->identifier.identifier = (char*)member_tok->lexeme;
+        member_id_node->identifier.identifier = member_tok->lexeme;
         entries[count].member_identifier = member_id_node;
         member_id_node = NULL;
         entries[count].member_value = member_val;
