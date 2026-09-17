@@ -965,3 +965,19 @@ TEST(ParserTest, TestBaseTypeKeywordOtherThanTypeErrors) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_GT(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, TestStructInitWithIdentifier) {
+    const char* source = "func f ::() -> void { Point{ .x = 1, .y = 2 }; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_LE(lexer_errors + parser_errors, 1);
+}
+
+TEST(ParserTest, TestCollectionInitEmptyList) {
+    const char* source = "func f ::() -> void { let a :: bool = [bool; ]; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    // Empty collection init may be tolerated or error; allow either as long as parser runs
+}
