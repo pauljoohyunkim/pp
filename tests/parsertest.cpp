@@ -981,3 +981,43 @@ TEST(ParserTest, TestCollectionInitEmptyList) {
     EXPECT_EQ(parse_result, 1);
     // Empty collection init may be tolerated or error; allow either as long as parser runs
 }
+
+TEST(ParserTest, TestTypeConstInt32ArrayEmptyRef) {
+    const char* source = "func f :: (x :: const int32[]&) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypeFloatArraySizeRef) {
+    const char* source = "func f :: (x :: float[8]&) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestIfNestedElseIfChain) {
+    const char* source = "func f ::() -> void { if (a) { } else if (b) { } else if (c) { } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestWhileWithComplexCondition) {
+    const char* source = "func f ::() -> void { while (a < b && c > d) { x = 1; } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestForWithInitAndCondOnly) {
+    const char* source = "func f ::() -> void { for (i = 0; i < 10; ) { x = 1; } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
