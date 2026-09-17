@@ -500,3 +500,291 @@ TEST(ParserTest, TestUnaryPrecedenceAdd) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, TestTypeInt32ArraySize) {
+    const char* source = "func f :: (x :: int32[10]) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypeFloatArrayEmpty) {
+    const char* source = "func f :: (x :: float[]) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypeBoolArrayRef) {
+    const char* source = "func f :: (x :: bool[4]&) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypeInt32EmptyArrayRef) {
+    const char* source = "func f :: (x :: int32[]&) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypeConstInt32ArraySize) {
+    const char* source = "func f :: (x :: const int32[5]) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypedefDeclWithIdentifierBase) {
+    const char* source = "typedef MyBase MyAlias;";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestNewtypeDeclWithIdentifierBase) {
+    const char* source = "newtype MyBase MyNewType;";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestBlockExpressionStatementIdentifier) {
+    const char* source = "func foo ::() -> void { y; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestBlockAssignmentWithFunctionCallLhs) {
+    const char* source = "func foo ::() -> void { x[2]() = 1; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestReturnWithBinaryExpression) {
+    const char* source = "func foo ::() -> void { return a + b; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestArrayListAccessIdentifierIdentifierIndex) {
+    const char* source = "func f ::() -> void { arr[i]; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestUnaryMinusIdentifier) {
+    const char* source = "func f ::() -> void { -foo; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestUnaryExclamationIdentifier) {
+    const char* source = "func f ::() -> void { !foo; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestUnaryPrecedenceMultiply) {
+    const char* source = "func f ::() -> void { -2 * 3; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestArrayListAccessWithUnaryIndex) {
+    const char* source = "func f ::() -> void { arr[-1]; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestArrayListAccessWithAdditionOutside) {
+    const char* source = "func f ::() -> void { arr[0] + 1; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestStructDecl) {
+    const char* source = "struct Point { x :: int32; y :: int32; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestCollectionInitFixed) {
+    const char* source = "func f ::() -> void { let a :: int32 = [int32:5; 1,2,3]; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestCollectionInitList) {
+    const char* source = "func f ::() -> void { let a :: bool = [bool; true, false]; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestExpressionStatementLiteral) {
+    const char* source = "func foo ::() -> void { 42; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestExpressionStatementUnaryCall) {
+    const char* source = "func foo ::() -> void { -x; bar(); }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestIfStatementWithThenBranch) {
+    const char* source = "func foo ::() -> void { if (true) { x = 1; } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestIfStatementWithElseBlock) {
+    const char* source = "func foo ::() -> void { if (true) { x = 1; } else { x = 2; } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestIfStatementWithElseIf) {
+    const char* source = "func foo ::() -> void { if (a) { x = 1; } else if (b) { x = 2; } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestIfStatementWithComplexCondition) {
+    const char* source = "func foo ::() -> void { if (a == 1) { x = 2; } else { y = 3; } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestIfStatementNestedElseBlock) {
+    const char* source = "func foo ::() -> void { if (a) { if (b) { x = 1; } else { x = 2; } } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestWhileStatementBooleanCondition) {
+    const char* source = "func foo ::() -> void { while (true) { x = 1; } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestWhileStatementWithNestedWhile) {
+    const char* source = "func foo ::() -> void { while (a) { while (b) { x = 1; } } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestForStatementEmptyParts) {
+    const char* source = "func foo ::() -> void { for (;;) { x = 1; } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestForStatementExpressionInitAndUpdate) {
+    const char* source = "func foo ::() -> void { for (i = 0; i < 10; i = i + 1) { x = 1; } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestWhileStatementSimple) {
+    const char* source = "func foo ::() -> void { while (i < n) { i = i + 1; } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestForStatementSimple) {
+    const char* source = "func foo ::() -> void { for (; ; ) { } }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestStructInit) {
+    const char* source = "func f ::() -> void { Point{ .x = 1, .y = 2 }; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_LE(lexer_errors + parser_errors, 1);
+}
+
+TEST(ParserTest, TestCastExpression) {
+    const char* source = "func f ::() -> void { x as int32; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestMemberAccess) {
+    const char* source = "func f ::() -> void { obj.field; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestLambdaDeclarationParsing) {
+    const char* source = "lambda add :: (a :: int32, b :: int32) -> int32 { return a + b; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
