@@ -196,17 +196,27 @@ static bool pp_parser_is_sync_token(PP_TokenType token_type) {
 
 static int pp_parser_sync(PP_Parser* parser) {
     if (!parser) return 0;
-    while (parser->idx < parser->n_tokens) {
-        PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
-        if (pp_parser_is_sync_token(tt)) {
-            if (tt == PP_TT_SEMICOLON || tt == PP_TT_RIGHT_CURLY_BRACKET) {
+
+    if (pp_parser_peek_token_type(parser, 0) == PP_TT_EOF) {
+        return 1;
+    }
+
+    if (pp_parser_is_sync_token(pp_parser_peek_token_type(parser, 0))) {
+        parser->idx++;
+    }
+
+    while (parser->idx < parser->n_tokens && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
+        PP_TokenType peeked = pp_parser_peek_token_type(parser, 0);
+        if (pp_parser_is_sync_token(peeked)) {
+            if (peeked == PP_TT_SEMICOLON || peeked == PP_TT_RIGHT_CURLY_BRACKET) {
                 parser->idx++;
             }
             return 1;
         }
         parser->idx++;
     }
-    return 0;
+
+    return 1;
 }
 
 static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
@@ -769,9 +779,13 @@ static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser) {
         col = return_tok->column;
     }
 
-    // expression
-    expr = pp_parser_create_expression_or_assignment(parser);
-    NULL_POINTER_ERROR_HANDLE(expr);
+    // expression (optional)
+    if (pp_parser_peek_token_type(parser, 0) == PP_TT_SEMICOLON) {
+        expr = NULL;
+    } else {
+        expr = pp_parser_create_expression_or_assignment(parser);
+        NULL_POINTER_ERROR_HANDLE(expr);
+    }
 
     // semicolon
     {
@@ -798,6 +812,7 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
     PP_AST_Node* then_branch = NULL;
     PP_AST_Node* else_branch = NULL;
     PP_Token* if_tok = NULL;
+    PP_Token* left_paren = NULL;
     PP_Token* right_paren = NULL;
     PP_Token* else_tok = NULL;
     unsigned int line = 0;
@@ -813,6 +828,12 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
         col = if_tok->column;
     }
 
+    // left parenthesis
+    {
+        left_paren = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(left_paren);
+    }
+
     // Condition
     cond = pp_parser_create_expression_or_assignment(parser);
     NULL_POINTER_ERROR_HANDLE(cond);
@@ -823,8 +844,8 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
         NULL_POINTER_ERROR_HANDLE(right_paren);
     }
 
-    // then branch
-    then_branch = pp_parser_create_statement(parser);
+    // then branch - must be a block per grammar
+    then_branch = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(then_branch);
 
     // else branch (optional)
