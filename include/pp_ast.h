@@ -130,7 +130,7 @@ struct PP_AST_Node {
         struct { /* TypeExpression */
             bool is_const;
             bool is_reference;
-            char* identifier_name; /* identifier for named types, NULL for primitives */
+            const char* identifier_name; /* identifier for named types, NULL for primitives */
             enum {
                 PP_TYPE_KIND_VOID,
                 PP_TYPE_KIND_INT32,
@@ -206,7 +206,7 @@ struct PP_AST_Node {
 
         struct { /* MemberAccess */
             PP_AST_Node* object;
-            char* member;
+            const char* member;
             PP_AST_Decoration* decoration;
         } member_access;
 

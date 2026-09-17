@@ -47,7 +47,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
                 }
                 free(node->function_declaration.params);
             }
-            free(node->function_declaration.name);
+            free((char*)node->function_declaration.name);
             pp_ast_root_free_internal(node->function_declaration.return_type);
             pp_ast_root_free_internal(node->function_declaration.body);
             break;
@@ -111,12 +111,12 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_LiteralNode: {
-            free(node->literal.lexeme);
+            free((char*)node->literal.lexeme);
             pp_ast_decoration_free(node->literal.decoration);
             break;
         }
         case PP_AST_IdentifierNode: {
-            free(node->identifier.identifier);
+            free((char*)node->identifier.identifier);
             pp_ast_decoration_free(node->identifier.decoration);
             break;
         }
@@ -131,7 +131,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
         }
         case PP_AST_MemberAccessNode: {
             pp_ast_root_free_internal(node->member_access.object);
-            free(node->member_access.member);
+            free((char*)node->member_access.member);
             pp_ast_decoration_free(node->member_access.decoration);
             break;
         }
@@ -147,7 +147,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_TypeExpressionNode: {
-            free(node->type_expression.identifier_name);
+            free((char*)node->type_expression.identifier_name);
             if (node->type_expression.array_spec) {
                 pp_ast_root_free_internal(node->type_expression.array_spec->size_expr);
                 free(node->type_expression.array_spec);
@@ -155,7 +155,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_StructDeclarationNode: {
-            free(node->struct_declaration.name);
+            free((char*)node->struct_declaration.name);
             if (node->struct_declaration.fields) {
                 for (unsigned int i = 0; i < node->struct_declaration.field_count; i++) {
                     pp_ast_root_free_internal(node->struct_declaration.fields[i].field);
@@ -166,7 +166,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_StructInitializerNode: {
-            free(node->struct_initializer.identifier);
+            free((char*)node->struct_initializer.identifier);
             if (node->struct_initializer.entries) {
                 for (unsigned int i = 0; i < node->struct_initializer.entry_count; i++) {
                     pp_ast_root_free_internal(node->struct_initializer.entries[i].member_identifier);

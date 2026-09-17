@@ -702,7 +702,7 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
                 node = pp_ast_node_create(PP_AST_MemberAccessNode, op_tok->line, op_tok->column);
                 NULL_POINTER_ERROR_HANDLE(node);
                 node->member_access.object = lhs;
-                node->member_access.member = (char*)member_tok->lexeme;
+                node->member_access.member = member_tok->lexeme;
                 node->member_access.decoration = NULL;
                 lhs = node;
                 member_tok = NULL;
