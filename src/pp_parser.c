@@ -57,21 +57,29 @@ static int pp_parser_parse_param_list(PP_Parser* parser, PP_AST_Node*** out_para
 PP_Parser* pp_parser_create(PP_Lexer* lexer) {
     PP_Parser* parser = NULL;
     PP_ErrorList* error_list = NULL;
-    if (!lexer) return NULL;
+    NULL_POINTER_ERROR_HANDLE(lexer);
+
     parser = (PP_Parser*)calloc(1, sizeof(PP_Parser));
     NULL_POINTER_ERROR_HANDLE(parser);
+
     error_list = pp_error_list_create();
     NULL_POINTER_ERROR_HANDLE(error_list);
+
     parser->code = lexer->code;
     lexer->code = NULL;
     parser->code_length = lexer->code_length;
+
     parser->tokens = lexer->tokens;
     lexer->tokens = NULL;
     parser->n_tokens = lexer->n_tokens;
+
     parser->filename = lexer->filename;
+
     parser->sp = lexer->sp;
     lexer->sp = NULL;
+
     parser->error_list = error_list;
+
     return parser;
 error_cleanup:
     free(parser);
@@ -204,6 +212,7 @@ static int pp_parser_sync(PP_Parser* parser) {
 static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
     PP_AST_Node* program = NULL;
     PP_AST_Node** decls = NULL;
+    PP_AST_Node* decl = NULL;
     unsigned int decl_count = 0;
     unsigned int capacity = 0;
 
@@ -219,7 +228,7 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
     while (parser->idx < parser->n_tokens) {
         PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
         if (tt == PP_TT_EOF) break;
-        PP_AST_Node* decl = NULL;
+        decl = NULL;
         switch (tt) {
             case PP_TT_FUNC:
                 decl = pp_parser_create_function_declaration(parser);
@@ -254,7 +263,9 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
             decls = tmp;
             capacity = new_cap;
         }
-        decls[decl_count++] = decl;
+        decls[decl_count] = decl;
+        decl = NULL;
+        decl_count++;
     }
 
     program->program.decls = decls;
@@ -263,17 +274,30 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
     return program;
 
 error_cleanup:
+    pp_ast_root_free(decl);
+    if (decls) {
+        for (unsigned int i = 0; i < decl_count; i++) {
+            pp_ast_root_free(decls[i]);
+        }
+    }
     free(decls);
     pp_ast_root_free(program);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_identifier(PP_Parser* parser) {
-    PP_Token *tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
-    if (!tok) return NULL;
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_IdentifierNode, tok->line, tok->column);
+    PP_AST_Node* node = NULL;
+    PP_Token* tok = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    {
+        tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(tok);
+    }
+    node = pp_ast_node_create(PP_AST_IdentifierNode, tok->line, tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
     node->identifier.identifier = tok->lexeme; /* use string pool pointer */
+    tok = NULL;
     return node;
 error_cleanup:
     pp_ast_root_free(node);
@@ -281,7 +305,7 @@ error_cleanup:
 }
 
 static PP_AST_Node* pp_parser_create_primary(PP_Parser* parser) {
-    if (!parser) return NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
     if (tt == PP_TT_IDENTIFIER && pp_parser_peek_token_type(parser, 1) == PP_TT_LEFT_CURLY_BRACKET) {
         return pp_parser_create_struct_initializer(parser);
@@ -298,8 +322,6 @@ static PP_AST_Node* pp_parser_create_primary(PP_Parser* parser) {
         case PP_TT_LEFT_PARENTHESIS: {
             pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
             PP_AST_Node* expr = NULL;
-            /* need forward decl for expression */
-            extern PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned char min_bp);
             expr = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
             pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
             return expr;
@@ -309,18 +331,27 @@ static PP_AST_Node* pp_parser_create_primary(PP_Parser* parser) {
         default:
             return NULL;
     }
+error_cleanup:
+    return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_literal(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_Token* tok = NULL;
+    PP_TokenType tt;
     NULL_POINTER_ERROR_HANDLE(parser);
-    PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
-    PP_Token *tok = pp_parser_consume_token(parser, tt);
-    if (!tok) return NULL;
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_LiteralNode, tok->line, tok->column);
+
+    tt = pp_parser_peek_token_type(parser, 0);
+    {
+        tok = pp_parser_consume_token(parser, tt);
+        NULL_POINTER_ERROR_HANDLE(tok);
+    }
+    node = pp_ast_node_create(PP_AST_LiteralNode, tok->line, tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
     node->literal.literal_type = tt;
     node->literal.lexeme = (char*)tok->lexeme; /* string pool */
     node->literal.decoration = NULL;
+    tok = NULL;
     return node;
 error_cleanup:
     pp_ast_root_free(node);
@@ -328,29 +359,44 @@ error_cleanup:
 }
 
 static PP_AST_Node* pp_parser_create_unary(PP_Parser* parser) {
+    PP_AST_Node* operand = NULL;
+    PP_AST_Node* node = NULL;
+    PP_Token* op_tok = NULL;
+    unsigned int line = 0;
+    unsigned int col = 0;
+    PP_TokenType tt;
     NULL_POINTER_ERROR_HANDLE(parser);
-    PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
+
+    tt = pp_parser_peek_token_type(parser, 0);
     if (tt == PP_TT_MINUS || tt == PP_TT_EXCLAMATION) {
-        PP_Token *op_tok = pp_parser_consume_token(parser, tt);
-        if (!op_tok) return NULL;
-        unsigned int line = op_tok->line;
-        unsigned int col = op_tok->column;
-        PP_AST_Node* operand = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_UNARY);
-        if (!operand) return NULL;
-        PP_AST_Node* node = pp_ast_node_create(PP_AST_UnaryExpressionNode, line, col);
+        {
+            op_tok = pp_parser_consume_token(parser, tt);
+            NULL_POINTER_ERROR_HANDLE(op_tok);
+            line = op_tok->line;
+            col = op_tok->column;
+        }
+        operand = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_UNARY);
+        NULL_POINTER_ERROR_HANDLE(operand);
+        node = pp_ast_node_create(PP_AST_UnaryExpressionNode, line, col);
         NULL_POINTER_ERROR_HANDLE(node);
         node->unary_expression.op = tt;
         node->unary_expression.operand = operand;
         node->unary_expression.decoration = NULL;
+        operand = NULL;
         return node;
-error_cleanup:
-        pp_ast_root_free(operand);
-        return NULL;
     }
     return pp_parser_create_primary(parser);
+error_cleanup:
+    pp_ast_root_free(operand);
+    pp_ast_root_free(node);
+    return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* size_expr = NULL;
+    PP_AST_ArrayListSpecifier* array_spec = NULL;
+    PP_AST_ArrayListSpecifier* spec = NULL;
     NULL_POINTER_ERROR_HANDLE(parser);
     bool is_const = false;
     unsigned int line = 0, col = 0;
@@ -364,28 +410,28 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
     }
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
     PP_Token* tok = NULL;
-    int kind = 4; /* identifier default */
-    if (tt == PP_TT_VOID) { kind = 0; tok = pp_parser_consume_token(parser, PP_TT_VOID); }
-    else if (tt == PP_TT_INT32) { kind = 1; tok = pp_parser_consume_token(parser, PP_TT_INT32); }
-    else if (tt == PP_TT_FLOAT) { kind = 2; tok = pp_parser_consume_token(parser, PP_TT_FLOAT); }
-    else if (tt == PP_TT_BOOL) { kind = 3; tok = pp_parser_consume_token(parser, PP_TT_BOOL); }
-    else if (tt == PP_TT_IDENTIFIER) { kind = 4; tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER); }
-    else {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected type name");
-        return NULL;
+    int kind = PP_TYPE_KIND_IDENTIFIER; /* identifier default */
+    switch (tt) {
+        case PP_TT_VOID: kind = PP_TYPE_KIND_VOID; tok = pp_parser_consume_token(parser, PP_TT_VOID); break;
+        case PP_TT_INT32: kind = PP_TYPE_KIND_INT32; tok = pp_parser_consume_token(parser, PP_TT_INT32); break;
+        case PP_TT_FLOAT: kind = PP_TYPE_KIND_FLOAT; tok = pp_parser_consume_token(parser, PP_TT_FLOAT); break;
+        case PP_TT_BOOL: kind = PP_TYPE_KIND_BOOL; tok = pp_parser_consume_token(parser, PP_TT_BOOL); break;
+        case PP_TT_IDENTIFIER: kind = PP_TYPE_KIND_IDENTIFIER; tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER); break;
+        default:
+            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected type name");
+            return NULL;
     }
     /* Array specifier */
-    PP_AST_ArrayListSpecifier* array_spec = NULL;
     while (pp_parser_peek_token_type(parser, 0) == PP_TT_LEFT_SQUARE_BRACKET) {
         pp_parser_consume_token(parser, PP_TT_LEFT_SQUARE_BRACKET);
-        PP_AST_Node* size_expr = NULL;
+        size_expr = NULL;
         if (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_SQUARE_BRACKET && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
             size_expr = pp_parser_create_expression_or_assignment(parser);
         }
         if (!pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET)) {
             pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ']' to close array specifier");
         }
-        PP_AST_ArrayListSpecifier* spec = (PP_AST_ArrayListSpecifier*)calloc(1, sizeof(PP_AST_ArrayListSpecifier));
+        spec = (PP_AST_ArrayListSpecifier*)calloc(1, sizeof(PP_AST_ArrayListSpecifier));
         if (spec) {
             if (size_expr) {
                 spec->kind = PP_ARRAY_SPEC_SIZE;
@@ -395,16 +441,18 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
                 spec->size_expr = NULL;
             }
             /* simple chaining: replace previous, real implementation would nest */
-            if (array_spec) free(array_spec);
+            free(array_spec);
             array_spec = spec;
+            spec = NULL;
         }
+        size_expr = NULL;
     }
     bool is_ref = false;
     if (pp_parser_peek_token_type(parser, 0) == PP_TT_AMPERSAND) {
         pp_parser_consume_token(parser, PP_TT_AMPERSAND);
         is_ref = true;
     }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_TypeExpressionNode, tok ? tok->line : 0, tok ? tok->column : 0);
+    node = pp_ast_node_create(PP_AST_TypeExpressionNode, tok ? tok->line : 0, tok ? tok->column : 0);
     NULL_POINTER_ERROR_HANDLE(node);
     node->type_expression.is_const = is_const;
     node->type_expression.is_reference = is_ref;
@@ -413,18 +461,25 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
     node->type_expression.array_spec = array_spec;
     return node;
 error_cleanup:
+    pp_ast_root_free(node);
+    pp_ast_root_free(size_expr);
     if (array_spec) {
         /* free any size_expr owned by spec before freeing spec */
         pp_ast_root_free(array_spec->size_expr);
-        free(array_spec);
     }
+    free(array_spec);
+    free(spec);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_expression_or_assignment(PP_Parser* parser) {
-    if (!parser) return NULL;
-    PP_AST_Node* lhs = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
-    if (!lhs) return NULL;
+    PP_AST_Node* lhs = NULL;
+    PP_AST_Node* rhs = NULL;
+    PP_AST_Node* node = NULL;
+    PP_Token* op_tok = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
+    lhs = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
+    NULL_POINTER_ERROR_HANDLE(lhs);
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
     switch (tt) {
         case PP_TT_EQUAL:
@@ -436,34 +491,32 @@ static PP_AST_Node* pp_parser_create_expression_or_assignment(PP_Parser* parser)
         case PP_TT_AMPERSAND_EQUAL:
         case PP_TT_BAR_EQUAL:
         case PP_TT_CARET_EQUAL: {
-            PP_Token* op_tok = pp_parser_consume_token(parser, tt);
-            if (!op_tok) {
-                pp_ast_root_free(lhs);
-                return NULL;
-            }
-            PP_AST_Node* rhs = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
-            if (!rhs) {
-                pp_ast_root_free(lhs);
-                return NULL;
-            }
-            PP_AST_Node* node = pp_ast_node_create(PP_AST_AssignmentNode, op_tok->line, op_tok->column);
-            if (!node) {
-                pp_ast_root_free(lhs);
-                pp_ast_root_free(rhs);
-                return NULL;
-            }
+            op_tok = pp_parser_consume_token(parser, tt);
+            NULL_POINTER_ERROR_HANDLE(op_tok);
+            rhs = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
+            NULL_POINTER_ERROR_HANDLE(rhs);
+            node = pp_ast_node_create(PP_AST_AssignmentNode, op_tok->line, op_tok->column);
+            NULL_POINTER_ERROR_HANDLE(node);
             node->assignment.lhs = lhs;
             node->assignment.op = tt;
             node->assignment.rhs = rhs;
+            lhs = NULL;
+            rhs = NULL;
             return node;
         }
         default:
             return lhs;
     }
+error_cleanup:
+    pp_ast_root_free(lhs);
+    pp_ast_root_free(rhs);
+    pp_ast_root_free(node);
+    return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_statement(PP_Parser* parser) {
-    if (!parser) return NULL;
+    PP_AST_Node* expr = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
     switch (tt) {
         case PP_TT_LEFT_CURLY_BRACKET:
@@ -480,11 +533,8 @@ static PP_AST_Node* pp_parser_create_statement(PP_Parser* parser) {
             return pp_parser_create_variable_declaration(parser);
         default: {
             /* Expression statement */
-            PP_AST_Node* expr = pp_parser_create_expression_or_assignment(parser);
-            if (!expr) {
-                pp_parser_sync(parser);
-                return NULL;
-            }
+            expr = pp_parser_create_expression_or_assignment(parser);
+            NULL_POINTER_ERROR_HANDLE(expr);
             if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
                 pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser), pp_parser_get_col(parser), "Expected ';' after expression statement");
                 pp_parser_sync(parser);
@@ -492,22 +542,39 @@ static PP_AST_Node* pp_parser_create_statement(PP_Parser* parser) {
             return expr;
         }
     }
+error_cleanup:
+    pp_ast_root_free(expr);
+    return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_block(PP_Parser* parser) {
-    NULL_POINTER_ERROR_HANDLE(parser);
-    if (pp_parser_peek_token_type(parser, 0) != PP_TT_LEFT_CURLY_BRACKET) return NULL;
-    PP_Token* lbrace = pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET);
-    unsigned int line = lbrace ? lbrace->line : 0;
-    unsigned int col = lbrace ? lbrace->column : 0;
-    PP_AST_Node* block = pp_ast_node_create(PP_AST_StatementListNode, line, col);
-    NULL_POINTER_ERROR_HANDLE(block);
-    unsigned int capacity = AST_VECTOR_INIT_CAP;
+    PP_AST_Node* block = NULL;
+    PP_AST_Node** stmts = NULL;
+    PP_AST_Node* stmt = NULL;
+    unsigned int capacity = 0;
     unsigned int count = 0;
-    PP_AST_Node** stmts = (PP_AST_Node**)calloc(capacity, sizeof(PP_AST_Node*));
+    unsigned int line = 0;
+    unsigned int col = 0;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    // left curly brace
+    {
+        PP_Token* lbrace_tok = pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(lbrace_tok);
+        line = lbrace_tok->line;
+        col = lbrace_tok->column;
+    }
+
+    block = pp_ast_node_create(PP_AST_StatementListNode, line, col);
+    NULL_POINTER_ERROR_HANDLE(block);
+
+    capacity = AST_VECTOR_INIT_CAP;
+    count = 0;
+    stmts = (PP_AST_Node**)calloc(capacity, sizeof(PP_AST_Node*));
     NULL_POINTER_ERROR_HANDLE(stmts);
+
     while (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_CURLY_BRACKET && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
-        PP_AST_Node* stmt = pp_parser_create_statement(parser);
+        stmt = pp_parser_create_statement(parser);
         if (!stmt) break;
         if (count >= capacity) {
             unsigned int new_cap = capacity * 2;
@@ -516,220 +583,282 @@ static PP_AST_Node* pp_parser_create_block(PP_Parser* parser) {
             stmts = tmp;
             capacity = new_cap;
         }
-        stmts[count++] = stmt;
+        stmts[count] = stmt;
+        stmt = NULL;
+        count++;
     }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_CURLY_BRACKET)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected '}' to close block");
-        goto error_cleanup;
+
+    // right curly brace
+    {
+        PP_Token* rbrace_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_CURLY_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(rbrace_tok);
     }
+
     block->statement_list.stmts = stmts;
     block->statement_list.stmt_count = count;
     block->statement_list.capacity = capacity;
     return block;
 error_cleanup:
-    for (unsigned int i = 0; i < count; i++) pp_ast_root_free(stmts[i]);
+    pp_ast_root_free(stmt);
+    if (stmts) {
+        for (unsigned int i = 0; i < count; i++) pp_ast_root_free(stmts[i]);
+    }
     free(stmts);
     pp_ast_root_free(block);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned char min_bp) {
-    if (!parser) return NULL;
-    PP_AST_Node* lhs = pp_parser_create_unary(parser);
-    if (!lhs) return NULL;
+    PP_AST_Node* lhs = NULL;
+    PP_AST_Node* rhs = NULL;
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* index_expr = NULL;
+    PP_AST_Node* type_node = NULL;
+    PP_AST_Node** arguments = NULL;
+    PP_AST_Node* arg = NULL;
+    PP_Token* op_tok = NULL;
+    PP_Token* member_tok = NULL;
+    unsigned int arg_count = 0;
+    unsigned int arg_capacity = 0;
+    unsigned char left_bp = 0;
+    unsigned char right_bp = 0;
+    PP_TokenType op_type;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    lhs = pp_parser_create_unary(parser);
+    NULL_POINTER_ERROR_HANDLE(lhs);
 
     while (1) {
-        PP_TokenType op_type = pp_parser_peek_token_type(parser, 0);
-        unsigned char left_bp = 0, right_bp = 0;
+        op_type = pp_parser_peek_token_type(parser, 0);
         if (!pp_parser_infix_binding_power(op_type, &left_bp, &right_bp)) break;
         if (left_bp < min_bp) break;
 
-        PP_Token *op_tok = pp_parser_consume_token(parser, op_type);
-        if (!op_tok) {
-            pp_ast_root_free(lhs);
-            return NULL;
+        {
+            op_tok = pp_parser_consume_token(parser, op_type);
+            NULL_POINTER_ERROR_HANDLE(op_tok);
         }
 
         /* Handle postfix call / index / member */
         if (op_type == PP_TT_LEFT_PARENTHESIS || op_type == PP_TT_LEFT_SQUARE_BRACKET || op_type == PP_TT_PERIOD) {
             if (op_type == PP_TT_LEFT_PARENTHESIS) {
-                unsigned int arg_count = 0;
-                unsigned int arg_capacity = AST_VECTOR_INIT_CAP;
-                PP_AST_Node** arguments = (PP_AST_Node**)calloc(arg_capacity, sizeof(PP_AST_Node*));
-                if (!arguments) {
-                    pp_ast_root_free(lhs);
-                    return NULL;
-                }
+                arg_count = 0;
+                arg_capacity = AST_VECTOR_INIT_CAP;
+                arguments = (PP_AST_Node**)calloc(arg_capacity, sizeof(PP_AST_Node*));
+                NULL_POINTER_ERROR_HANDLE(arguments);
                 while (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_PARENTHESIS && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
-                    PP_AST_Node* arg = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
-                    if (!arg) {
-                        for (unsigned int i = 0; i < arg_count; i++) pp_ast_root_free(arguments[i]);
-                        free(arguments);
-                        pp_ast_root_free(lhs);
-                        return NULL;
+                    arg = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
+                    NULL_POINTER_ERROR_HANDLE(arg);
+                    if (arg_count >= arg_capacity) {
+                        unsigned int new_cap = arg_capacity * 2;
+                        PP_AST_Node** tmp = (PP_AST_Node**)realloc(arguments, new_cap * sizeof(PP_AST_Node*));
+                        NULL_POINTER_ERROR_HANDLE(tmp);
+                        arguments = tmp;
+                        arg_capacity = new_cap;
                     }
-                    arguments[arg_count++] = arg;
+                    arguments[arg_count] = arg;
+                    arg = NULL;
+                    arg_count++;
                     if (pp_parser_peek_token_type(parser, 0) == PP_TT_COMMA) {
-                        pp_parser_consume_token(parser, PP_TT_COMMA);
+                        {
+                            PP_Token* comma_tok = pp_parser_consume_token(parser, PP_TT_COMMA);
+                            NULL_POINTER_ERROR_HANDLE(comma_tok);
+                        }
                     } else {
                         break;
                     }
                 }
-                pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
-                PP_AST_Node* node = pp_ast_node_create(PP_AST_FunctionCallNode, op_tok->line, op_tok->column);
-                if (!node) {
-                    for (unsigned int i = 0; i < arg_count; i++) pp_ast_root_free(arguments[i]);
-                    free(arguments);
-                    pp_ast_root_free(lhs);
-                    return NULL;
+                {
+                    PP_Token* right_paren = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
+                    NULL_POINTER_ERROR_HANDLE(right_paren);
                 }
+                node = pp_ast_node_create(PP_AST_FunctionCallNode, op_tok->line, op_tok->column);
+                NULL_POINTER_ERROR_HANDLE(node);
                 node->function_call.callee = lhs;
                 node->function_call.arguments = arguments;
                 node->function_call.arg_count = arg_count;
                 node->function_call.arg_capacity = arg_capacity;
                 node->function_call.decoration = NULL;
                 lhs = node;
+                arguments = NULL;
             } else if (op_type == PP_TT_LEFT_SQUARE_BRACKET) {
-                PP_AST_Node* index_expr = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
-                if (!index_expr) {
-                    pp_ast_root_free(lhs);
-                    return NULL;
+                index_expr = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
+                NULL_POINTER_ERROR_HANDLE(index_expr);
+                {
+                    PP_Token* right_bracket = pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET);
+                    NULL_POINTER_ERROR_HANDLE(right_bracket);
                 }
-                pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET);
-                PP_AST_Node* node = pp_ast_node_create(PP_AST_ArrayListAccessNode, op_tok->line, op_tok->column);
-                if (!node) {
-                    pp_ast_root_free(lhs);
-                    pp_ast_root_free(index_expr);
-                    return NULL;
-                }
+                node = pp_ast_node_create(PP_AST_ArrayListAccessNode, op_tok->line, op_tok->column);
+                NULL_POINTER_ERROR_HANDLE(node);
                 node->array_list_access.expr = lhs;
                 node->array_list_access.index = index_expr;
                 node->array_list_access.decoration = NULL;
                 lhs = node;
+                index_expr = NULL;
             } else if (op_type == PP_TT_PERIOD) {
-                PP_Token* member_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
-                if (!member_tok) {
-                    pp_ast_root_free(lhs);
-                    return NULL;
+                {
+                    member_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+                    NULL_POINTER_ERROR_HANDLE(member_tok);
                 }
-                PP_AST_Node* node = pp_ast_node_create(PP_AST_MemberAccessNode, op_tok->line, op_tok->column);
-                if (!node) {
-                    pp_ast_root_free(lhs);
-                    return NULL;
-                }
+                node = pp_ast_node_create(PP_AST_MemberAccessNode, op_tok->line, op_tok->column);
+                NULL_POINTER_ERROR_HANDLE(node);
                 node->member_access.object = lhs;
                 node->member_access.member = (char*)member_tok->lexeme;
                 node->member_access.decoration = NULL;
                 lhs = node;
+                member_tok = NULL;
             }
             continue;
         }
 
         if (op_type == PP_TT_AS) {
             /* Cast expression */
-            extern PP_AST_Node* pp_parser_create_type(PP_Parser* parser);
-            PP_AST_Node* type_node = pp_parser_create_type(parser);
-            if (!type_node) {
-                pp_ast_root_free(lhs);
-                return NULL;
-            }
-            PP_AST_Node* node = pp_ast_node_create(PP_AST_CastExpressionNode, op_tok->line, op_tok->column);
-            if (!node) {
-                pp_ast_root_free(lhs);
-                pp_ast_root_free(type_node);
-                return NULL;
-            }
+            type_node = pp_parser_create_type(parser);
+            NULL_POINTER_ERROR_HANDLE(type_node);
+            node = pp_ast_node_create(PP_AST_CastExpressionNode, op_tok->line, op_tok->column);
+            NULL_POINTER_ERROR_HANDLE(node);
             node->cast_expression.expression = lhs;
             node->cast_expression.type_expr = type_node;
             node->cast_expression.decoration = NULL;
             lhs = node;
+            type_node = NULL;
             continue;
         }
 
-        PP_AST_Node* rhs = pp_parser_create_expression_ext(parser, right_bp ? right_bp : 0);
-        if (!rhs) {
-            pp_ast_root_free(lhs);
-            return NULL;
-        }
-        PP_AST_Node* node = pp_ast_node_create(PP_AST_BinaryExpressionNode, op_tok->line, op_tok->column);
-        if (!node) {
-            pp_ast_root_free(lhs);
-            pp_ast_root_free(rhs);
-            return NULL;
-        }
+        rhs = pp_parser_create_expression_ext(parser, right_bp ? right_bp : 0);
+        NULL_POINTER_ERROR_HANDLE(rhs);
+        node = pp_ast_node_create(PP_AST_BinaryExpressionNode, op_tok->line, op_tok->column);
+        NULL_POINTER_ERROR_HANDLE(node);
         node->binary_expression.op = op_type;
         node->binary_expression.left = lhs;
         node->binary_expression.right = rhs;
         node->binary_expression.decoration = NULL;
         lhs = node;
+        rhs = NULL;
     }
     return lhs;
+error_cleanup:
+    pp_ast_root_free(lhs);
+    pp_ast_root_free(rhs);
+    pp_ast_root_free(node);
+    pp_ast_root_free(index_expr);
+    pp_ast_root_free(type_node);
+    pp_ast_root_free(arg);
+    if (arguments) {
+        for (unsigned int i = 0; i < arg_count; i++) {
+            pp_ast_root_free(arguments[i]);
+        }
+    }
+    free(arguments);
+    return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* expr = NULL;
+    PP_Token* return_tok = NULL;
+    PP_Token* semicolon = NULL;
+    unsigned int line = 0;
+    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* tok = pp_parser_consume_token(parser, PP_TT_RETURN);
-    if (!tok) return NULL;
-    unsigned int line = tok->line;
-    unsigned int col = tok->column;
-    PP_AST_Node* expr = pp_parser_create_expression_or_assignment(parser);
-    if (!expr) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected expression after return");
-        goto error_cleanup;
+
+    // return token
+    {
+        return_tok = pp_parser_consume_token(parser, PP_TT_RETURN);
+        NULL_POINTER_ERROR_HANDLE(return_tok);
+        line = return_tok->line;
+        col = return_tok->column;
     }
-    if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ';' after return expression");
-        goto error_cleanup;
+
+    // expression
+    expr = pp_parser_create_expression_or_assignment(parser);
+    NULL_POINTER_ERROR_HANDLE(expr);
+
+    // semicolon
+    {
+        semicolon = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semicolon);
     }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_ReturnStatementNode, line, col);
+
+    node = pp_ast_node_create(PP_AST_ReturnStatementNode, line, col);
     NULL_POINTER_ERROR_HANDLE(node);
+
     node->return_statement.expr = expr;
+    expr = NULL;
+
     return node;
 error_cleanup:
+    pp_ast_root_free(node);
     pp_ast_root_free(expr);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
-    NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* tok = pp_parser_consume_token(parser, PP_TT_IF);
-    if (!tok) return NULL;
-    unsigned int line = tok->line;
-    unsigned int col = tok->column;
-    if (!pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected '(' after if");
-        goto error_cleanup;
-    }
-    PP_AST_Node* cond = pp_parser_create_expression_or_assignment(parser);
-    if (!cond) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected condition expression in if");
-        goto error_cleanup;
-    }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ')' after if condition");
-        goto error_cleanup;
-    }
-    PP_AST_Node* then_branch = pp_parser_create_statement(parser);
-    if (!then_branch) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected statement after if condition");
-        goto error_cleanup;
-    }
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* cond = NULL;
+    PP_AST_Node* then_branch = NULL;
     PP_AST_Node* else_branch = NULL;
-    if (pp_parser_peek_token_type(parser, 0) == PP_TT_ELSE) {
-        pp_parser_consume_token(parser, PP_TT_ELSE);
-        else_branch = pp_parser_create_statement(parser);
-        if (!else_branch) {
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected statement after else");
-            goto error_cleanup;
-        }
+    PP_Token* if_tok = NULL;
+    PP_Token* right_paren = NULL;
+    PP_Token* else_tok = NULL;
+    unsigned int line = 0;
+    unsigned int col = 0;
+
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    // if token
+    {
+        if_tok = pp_parser_consume_token(parser, PP_TT_IF);
+        NULL_POINTER_ERROR_HANDLE(if_tok);
+        line = if_tok->line;
+        col = if_tok->column;
     }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_IfStatementNode, line, col);
+
+    // Condition
+    cond = pp_parser_create_expression_or_assignment(parser);
+    NULL_POINTER_ERROR_HANDLE(cond);
+
+    // right parenthesis
+    {
+        right_paren = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(right_paren);
+    }
+
+    // then branch
+    then_branch = pp_parser_create_statement(parser);
+    NULL_POINTER_ERROR_HANDLE(then_branch);
+
+    // else branch (optional)
+    if (pp_parser_peek_token_type(parser, 0) == PP_TT_ELSE) {
+        // else token
+        {
+            else_tok = pp_parser_consume_token(parser, PP_TT_ELSE);
+            NULL_POINTER_ERROR_HANDLE(else_tok);
+        }
+
+        // after else, could be block or if statement
+        if (pp_parser_peek_token_type(parser, 0) == PP_TT_LEFT_CURLY_BRACKET) {
+            else_branch = pp_parser_create_block(parser);
+            NULL_POINTER_ERROR_HANDLE(else_branch);
+        } else if (pp_parser_peek_token_type(parser, 0) == PP_TT_IF) {
+            else_branch = pp_parser_create_if_statement(parser);
+            NULL_POINTER_ERROR_HANDLE(else_branch);
+        }
+        // else else_branch remains NULL (allowed)
+    }
+
+    node = pp_ast_node_create(PP_AST_IfStatementNode, line, col);
     NULL_POINTER_ERROR_HANDLE(node);
+
     node->if_statement.cond = cond;
+    cond = NULL;
     node->if_statement.then_branch = then_branch;
+    then_branch = NULL;
     node->if_statement.else_branch = else_branch;
+    else_branch = NULL;
+
     return node;
 error_cleanup:
+    pp_ast_root_free(node);
     pp_ast_root_free(cond);
     pp_ast_root_free(then_branch);
     pp_ast_root_free(else_branch);
@@ -737,101 +866,134 @@ error_cleanup:
 }
 
 static PP_AST_Node* pp_parser_create_while_statement(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* cond = NULL;
+    PP_AST_Node* body = NULL;
+    PP_Token* while_tok = NULL;
+    PP_Token* left_paren = NULL;
+    PP_Token* right_paren = NULL;
+    unsigned int line = 0;
+    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* tok = pp_parser_consume_token(parser, PP_TT_WHILE);
-    if (!tok) return NULL;
-    unsigned int line = tok->line;
-    unsigned int col = tok->column;
-    if (!pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected '(' after while");
-        goto error_cleanup;
+
+    // while token
+    {
+        while_tok = pp_parser_consume_token(parser, PP_TT_WHILE);
+        NULL_POINTER_ERROR_HANDLE(while_tok);
+        line = while_tok->line;
+        col = while_tok->column;
     }
-    PP_AST_Node* cond = pp_parser_create_expression_or_assignment(parser);
-    if (!cond) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected condition expression in while");
-        goto error_cleanup;
+
+    // left parenthesis
+    {
+        left_paren = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(left_paren);
     }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ')' after while condition");
-        goto error_cleanup;
+
+    // condition
+    cond = pp_parser_create_expression_or_assignment(parser);
+    NULL_POINTER_ERROR_HANDLE(cond);
+
+    // right parenthesis
+    {
+        right_paren = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(right_paren);
     }
-    PP_AST_Node* body = pp_parser_create_statement(parser);
-    if (!body) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected statement after while condition");
-        goto error_cleanup;
-    }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_WhileStatementNode, line, col);
+
+    // body
+    body = pp_parser_create_statement(parser);
+    NULL_POINTER_ERROR_HANDLE(body);
+
+    node = pp_ast_node_create(PP_AST_WhileStatementNode, line, col);
     NULL_POINTER_ERROR_HANDLE(node);
+
     node->while_statement.cond = cond;
+    cond = NULL;
     node->while_statement.body = body;
+    body = NULL;
+
     return node;
 error_cleanup:
+    pp_ast_root_free(node);
     pp_ast_root_free(cond);
     pp_ast_root_free(body);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser) {
-    NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* for_tok = pp_parser_consume_token(parser, PP_TT_FOR);
-    if (!for_tok) return NULL;
-    unsigned int line = for_tok->line;
-    unsigned int col = for_tok->column;
-    if (pp_parser_peek_token_type(parser, 0) != PP_TT_LEFT_PARENTHESIS) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected '(' after for");
-        goto error_cleanup;
-    }
-    pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
+    PP_AST_Node* node = NULL;
     PP_AST_Node* init = NULL;
     PP_AST_Node* cond = NULL;
     PP_AST_Node* update = NULL;
-    /* init expression or declaration */
+    PP_AST_Node* body = NULL;
+    PP_Token* for_tok = NULL;
+    PP_Token* left_paren = NULL;
+    PP_Token* semicolon1 = NULL;
+    PP_Token* semicolon2 = NULL;
+    PP_Token* right_paren = NULL;
+    unsigned int line = 0;
+    unsigned int col = 0;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    // for token
+    for_tok = pp_parser_consume_token(parser, PP_TT_FOR);
+    NULL_POINTER_ERROR_HANDLE(for_tok);
+    line = for_tok->line;
+    col = for_tok->column;
+
+    // left parenthesis
+    left_paren = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
+    NULL_POINTER_ERROR_HANDLE(left_paren);
+
+    // init (optional)
     if (pp_parser_peek_token_type(parser, 0) != PP_TT_SEMICOLON) {
         init = pp_parser_create_expression_or_assignment(parser);
-        if (!init) {
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected init expression in for");
-            goto error_cleanup;
-        }
+        NULL_POINTER_ERROR_HANDLE(init);
     }
-    if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ';' after for init");
-        goto error_cleanup;
-    }
+
+    // first semicolon
+    semicolon1 = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+    NULL_POINTER_ERROR_HANDLE(semicolon1);
+
+    // cond (optional)
     if (pp_parser_peek_token_type(parser, 0) != PP_TT_SEMICOLON) {
         cond = pp_parser_create_expression_or_assignment(parser);
-        if (!cond) {
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected condition expression in for");
-            goto error_cleanup;
-        }
+        NULL_POINTER_ERROR_HANDLE(cond);
     }
-    if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ';' after for condition");
-        goto error_cleanup;
-    }
+
+    // second semicolon
+    semicolon2 = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+    NULL_POINTER_ERROR_HANDLE(semicolon2);
+
+    // update (optional)
     if (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_PARENTHESIS) {
         update = pp_parser_create_expression_or_assignment(parser);
-        if (!update) {
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected update expression in for");
-            goto error_cleanup;
-        }
+        NULL_POINTER_ERROR_HANDLE(update);
     }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ')' after for header");
-        goto error_cleanup;
-    }
-    PP_AST_Node* body = pp_parser_create_statement(parser);
-    if (!body) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected statement after for header");
-        goto error_cleanup;
-    }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_ForStatementNode, 0, 0);
+
+    // right parenthesis
+    right_paren = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
+    NULL_POINTER_ERROR_HANDLE(right_paren);
+
+    // body
+    body = pp_parser_create_statement(parser);
+    NULL_POINTER_ERROR_HANDLE(body);
+
+    node = pp_ast_node_create(PP_AST_ForStatementNode, line, col);
     NULL_POINTER_ERROR_HANDLE(node);
+
     node->for_statement.init = init;
+    init = NULL;
     node->for_statement.cond = cond;
+    cond = NULL;
     node->for_statement.update = update;
+    update = NULL;
     node->for_statement.body = body;
+    body = NULL;
+
     return node;
 error_cleanup:
+    pp_ast_root_free(node);
     pp_ast_root_free(init);
     pp_ast_root_free(cond);
     pp_ast_root_free(update);
@@ -840,57 +1002,77 @@ error_cleanup:
 }
 
 static PP_AST_Node* pp_parser_create_param_decl(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* type_expr = NULL;
+    PP_Token* ident_tok = NULL;
+    PP_Token* colon_colon_tok = NULL;
+
     NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* ident_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
-    if (!ident_tok) return NULL;
-    if (!pp_parser_consume_token(parser, PP_TT_COLON_COLON)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, ident_tok->line, ident_tok->column, "Expected '::' after parameter name");
-        goto error_cleanup;
+
+    {
+        ident_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(ident_tok);
     }
-    PP_AST_Node* type_expr = pp_parser_create_type(parser);
+
+    {
+        colon_colon_tok = pp_parser_consume_token(parser, PP_TT_COLON_COLON);
+        NULL_POINTER_ERROR_HANDLE(colon_colon_tok);
+    }
+
+    type_expr = pp_parser_create_type(parser);
     NULL_POINTER_ERROR_HANDLE(type_expr);
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_ParamDeclarationNode, ident_tok->line, ident_tok->column);
+
+    node = pp_ast_node_create(PP_AST_ParamDeclarationNode, ident_tok->line, ident_tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
     node->param_declaration.identifier = (char*)ident_tok->lexeme;
     node->param_declaration.type_expr = type_expr;
+    type_expr = NULL;
+    ident_tok = NULL;
     return node;
 error_cleanup:
+    pp_ast_root_free(node);
     pp_ast_root_free(type_expr);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_variable_declaration(PP_Parser* parser) {
-    NULL_POINTER_ERROR_HANDLE(parser);
-    PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
-    if (tt != PP_TT_LET) return NULL;
-    PP_Token* decl_tok = pp_parser_consume_token(parser, tt);
-    if (!decl_tok) return NULL;
-    unsigned int line = decl_tok->line;
-    unsigned int col = decl_tok->column;
-    PP_AST_Node* var_decl = pp_parser_create_param_decl(parser);
-    if (!var_decl) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected variable declarator after let");
-        goto error_cleanup;
-    }
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* var_decl = NULL;
     PP_AST_Node* initializer = NULL;
+    PP_Token* decl_tok = NULL;
+    unsigned int line = 0, col = 0;
+    NULL_POINTER_ERROR_HANDLE(parser);
+    {
+        PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
+        if (tt != PP_TT_LET) return NULL;
+        decl_tok = pp_parser_consume_token(parser, PP_TT_LET);
+        NULL_POINTER_ERROR_HANDLE(decl_tok);
+        line = decl_tok->line;
+        col = decl_tok->column;
+    }
+    var_decl = pp_parser_create_param_decl(parser);
+    NULL_POINTER_ERROR_HANDLE(var_decl);
     if (pp_parser_peek_token_type(parser, 0) == PP_TT_EQUAL) {
-        pp_parser_consume_token(parser, PP_TT_EQUAL);
-        initializer = pp_parser_create_expression_or_assignment(parser);
-        if (!initializer) {
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected initializer expression");
-            goto error_cleanup;
+        {
+            PP_Token* eq_tok = pp_parser_consume_token(parser, PP_TT_EQUAL);
+            NULL_POINTER_ERROR_HANDLE(eq_tok);
         }
+        initializer = pp_parser_create_expression_or_assignment(parser);
+        NULL_POINTER_ERROR_HANDLE(initializer);
     }
-    if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ';' after variable declaration");
-        goto error_cleanup;
+    {
+        PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semi_tok);
     }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_VariableDeclarationNode, line, col);
+    node = pp_ast_node_create(PP_AST_VariableDeclarationNode, line, col);
     NULL_POINTER_ERROR_HANDLE(node);
     node->variable_declaration.var_decl = var_decl;
+    var_decl = NULL;
     node->variable_declaration.initializer = initializer;
+    initializer = NULL;
     return node;
 error_cleanup:
+    pp_ast_root_free(node);
     pp_ast_root_free(var_decl);
     pp_ast_root_free(initializer);
     return NULL;
@@ -901,41 +1083,56 @@ static PP_AST_Node* pp_parser_create_global_variable_declaration(PP_Parser* pars
 }
 
 static PP_AST_Node* pp_parser_create_function_declaration(PP_Parser* parser) {
-    NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* func_tok = pp_parser_consume_token(parser, PP_TT_FUNC);
-    if (!func_tok) return NULL;
-    PP_Token* name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
-    if (!name_tok) return NULL;
-    if (!pp_parser_consume_token(parser, PP_TT_COLON_COLON)) { /* error */ }
-    if (!pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, func_tok ? func_tok->line : 0, func_tok ? func_tok->column : 0, "Expected '(' after function name");
-        return NULL;
-    }
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* return_type = NULL;
+    PP_AST_Node* body = NULL;
     PP_AST_Node** params = NULL;
+    PP_Token* func_tok = NULL;
+    PP_Token* name_tok = NULL;
     unsigned int param_count = 0, param_capacity = 0;
+    NULL_POINTER_ERROR_HANDLE(parser);
+    {
+        func_tok = pp_parser_consume_token(parser, PP_TT_FUNC);
+        NULL_POINTER_ERROR_HANDLE(func_tok);
+    }
+    {
+        name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(name_tok);
+    }
+    {
+        PP_Token* colon_colon_tok = pp_parser_consume_token(parser, PP_TT_COLON_COLON);
+        NULL_POINTER_ERROR_HANDLE(colon_colon_tok);
+    }
+    {
+        PP_Token* left_paren_tok = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(left_paren_tok);
+    }
     if (!pp_parser_parse_param_list(parser, &params, &param_count, &param_capacity)) {
         goto error_cleanup;
     }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, func_tok->line, func_tok->column, "Expected ')' after parameter list");
-        goto error_cleanup;
+    {
+        PP_Token* right_paren_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(right_paren_tok);
     }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_ARROW)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, func_tok->line, func_tok->column, "Expected '->' after parameter list");
-        goto error_cleanup;
+    {
+        PP_Token* arrow_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_ARROW);
+        NULL_POINTER_ERROR_HANDLE(arrow_tok);
     }
-    PP_AST_Node* return_type = pp_parser_create_type(parser);
+    return_type = pp_parser_create_type(parser);
     NULL_POINTER_ERROR_HANDLE(return_type);
-    PP_AST_Node* body = pp_parser_create_block(parser);
+    body = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(body);
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_FunctionDeclarationNode, func_tok->line, func_tok->column);
+    node = pp_ast_node_create(PP_AST_FunctionDeclarationNode, func_tok->line, func_tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
     node->function_declaration.name = (char*)name_tok->lexeme;
     node->function_declaration.params = params;
+    params = NULL;
     node->function_declaration.param_count = param_count;
     node->function_declaration.param_capacity = param_capacity;
     node->function_declaration.return_type = return_type;
+    return_type = NULL;
     node->function_declaration.body = body;
+    body = NULL;
     return node;
 error_cleanup:
     if (params) {
@@ -944,87 +1141,115 @@ error_cleanup:
     free(params);
     pp_ast_root_free(return_type);
     pp_ast_root_free(body);
+    pp_ast_root_free(node);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_lambda_declaration(PP_Parser* parser) {
-    NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* lambda_tok = pp_parser_consume_token(parser, PP_TT_LAMBDA);
-    if (!lambda_tok) return NULL;
-    PP_Token* name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
-    if (!name_tok) {
-        pp_error_list_push_error(parser->error_list, parser->filename, lambda_tok->line, lambda_tok->column, "Expected identifier after lambda keyword");
-        goto error_cleanup;
-    }
-    if (!pp_parser_consume_token(parser, PP_TT_COLON_COLON)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, lambda_tok->line, lambda_tok->column, "Expected '::' after lambda name");
-        goto error_cleanup;
-    }
-    if (!pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, lambda_tok->line, lambda_tok->column, "Expected '(' after lambda name");
-        goto error_cleanup;
-    }
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* return_type = NULL;
+    PP_AST_Node* body = NULL;
     PP_AST_Node** params = NULL;
+    PP_Token* lambda_tok = NULL;
+    PP_Token* name_tok = NULL;
     unsigned int param_count = 0, param_capacity = 0;
+    NULL_POINTER_ERROR_HANDLE(parser);
+    {
+        lambda_tok = pp_parser_consume_token(parser, PP_TT_LAMBDA);
+        NULL_POINTER_ERROR_HANDLE(lambda_tok);
+    }
+    {
+        name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(name_tok);
+    }
+    {
+        PP_Token* colon_colon_tok = pp_parser_consume_token(parser, PP_TT_COLON_COLON);
+        NULL_POINTER_ERROR_HANDLE(colon_colon_tok);
+    }
+    {
+        PP_Token* left_paren_tok = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(left_paren_tok);
+    }
     if (!pp_parser_parse_param_list(parser, &params, &param_count, &param_capacity)) {
         goto error_cleanup;
     }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, lambda_tok->line, lambda_tok->column, "Expected ')' after lambda parameter list");
-        goto error_cleanup;
+    {
+        PP_Token* right_paren_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(right_paren_tok);
     }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_ARROW)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, lambda_tok->line, lambda_tok->column, "Expected '->' after lambda parameter list");
-        goto error_cleanup;
+    {
+        PP_Token* arrow_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_ARROW);
+        NULL_POINTER_ERROR_HANDLE(arrow_tok);
     }
-    PP_AST_Node* return_type = pp_parser_create_type(parser);
+    return_type = pp_parser_create_type(parser);
     NULL_POINTER_ERROR_HANDLE(return_type);
-    PP_AST_Node* body = pp_parser_create_block(parser);
+    body = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(body);
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_LambdaDeclarationNode, lambda_tok->line, lambda_tok->column);
+    node = pp_ast_node_create(PP_AST_LambdaDeclarationNode, lambda_tok->line, lambda_tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
     node->function_declaration.name = (char*)name_tok->lexeme;
     node->function_declaration.params = params;
+    params = NULL;
     node->function_declaration.param_count = param_count;
     node->function_declaration.param_capacity = param_capacity;
     node->function_declaration.return_type = return_type;
+    return_type = NULL;
     node->function_declaration.body = body;
+    body = NULL;
     return node;
 error_cleanup:
-    if (params) { for (unsigned int i=0;i<param_count;i++) pp_ast_root_free(params[i]); }
+    if (params) {
+        for (unsigned int i = 0; i < param_count; i++) pp_ast_root_free(params[i]);
+    }
     free(params);
     pp_ast_root_free(return_type);
     pp_ast_root_free(body);
+    pp_ast_root_free(node);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser) {
-    NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* struct_tok = pp_parser_consume_token(parser, PP_TT_STRUCT);
-    if (!struct_tok) return NULL;
-    PP_Token* name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
-    if (!name_tok) {
-        pp_error_list_push_error(parser->error_list, parser->filename, struct_tok->line, struct_tok->column, "Expected identifier after struct keyword");
-        goto error_cleanup;
-    }
-    if (!pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, struct_tok->line, struct_tok->column, "Expected '{' after struct name");
-        goto error_cleanup;
-    }
-    unsigned int capacity = AST_VECTOR_INIT_CAP;
+    PP_AST_Node* node = NULL;
+    PP_Token* struct_tok = NULL;
+    PP_Token* name_tok = NULL;
+    PP_AST_StructField* fields = NULL;
+    unsigned int capacity = 0;
     unsigned int count = 0;
-    PP_AST_StructField* fields = (PP_AST_StructField*)calloc(capacity, sizeof(PP_AST_StructField));
+    PP_AST_Node* param_decl = NULL;
+    PP_AST_Node* initializer = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    {
+        struct_tok = pp_parser_consume_token(parser, PP_TT_STRUCT);
+        NULL_POINTER_ERROR_HANDLE(struct_tok);
+    }
+    {
+        name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(name_tok);
+    }
+    {
+        PP_Token* left_brace = pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(left_brace);
+    }
+    capacity = AST_VECTOR_INIT_CAP;
+    count = 0;
+    fields = (PP_AST_StructField*)calloc(capacity, sizeof(PP_AST_StructField));
     NULL_POINTER_ERROR_HANDLE(fields);
     while (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_CURLY_BRACKET && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
-        PP_AST_Node* param_decl = pp_parser_create_param_decl(parser);
+        param_decl = pp_parser_create_param_decl(parser);
         if (!param_decl) break;
-        PP_AST_Node* initializer = NULL;
+        initializer = NULL;
         if (pp_parser_peek_token_type(parser, 0) == PP_TT_EQUAL) {
-            pp_parser_consume_token(parser, PP_TT_EQUAL);
+            {
+                PP_Token* equal_tok = pp_parser_consume_token(parser, PP_TT_EQUAL);
+                NULL_POINTER_ERROR_HANDLE(equal_tok);
+            }
             initializer = pp_parser_create_expression_or_assignment(parser);
+            NULL_POINTER_ERROR_HANDLE(initializer);
         }
-        if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
-            /* error recovery */
+        {
+            PP_Token* semicolon_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+            NULL_POINTER_ERROR_HANDLE(semicolon_tok);
         }
         if (count >= capacity) {
             unsigned int new_cap = capacity * 2;
@@ -1035,20 +1260,28 @@ static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser) {
         }
         fields[count].field = param_decl;
         fields[count].initializer = initializer;
+        param_decl = NULL;
+        initializer = NULL;
         count++;
     }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_CURLY_BRACKET)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, struct_tok->line, struct_tok->column, "Expected '}' to close struct declaration");
-        goto error_cleanup;
+    {
+        PP_Token* right_brace = pp_parser_consume_token(parser, PP_TT_RIGHT_CURLY_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(right_brace);
     }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_StructDeclarationNode, struct_tok->line, struct_tok->column);
+    node = pp_ast_node_create(PP_AST_StructDeclarationNode, struct_tok->line, struct_tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
     node->struct_declaration.name = (char*)name_tok->lexeme;
     node->struct_declaration.fields = fields;
     node->struct_declaration.field_count = count;
     node->struct_declaration.field_capacity = capacity;
+    fields = NULL;
+    name_tok = NULL;
+    struct_tok = NULL;
     return node;
 error_cleanup:
+    pp_ast_root_free(node);
+    pp_ast_root_free(param_decl);
+    pp_ast_root_free(initializer);
     if (fields) {
         for (unsigned int i = 0; i < count; i++) {
             pp_ast_root_free(fields[i].field);
@@ -1060,96 +1293,132 @@ error_cleanup:
 }
 
 static PP_AST_Node* pp_parser_create_typedef_declaration(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* base_type = NULL;
+    PP_Token* typedef_tok = NULL;
+    PP_Token* name_tok = NULL;
+    PP_Token* semicolon_tok = NULL;
     NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* typedef_tok = pp_parser_consume_token(parser, PP_TT_TYPEDEF);
-    if (!typedef_tok) return NULL;
-    PP_AST_Node* base_type = pp_parser_create_type(parser);
+
+    {
+        typedef_tok = pp_parser_consume_token(parser, PP_TT_TYPEDEF);
+        NULL_POINTER_ERROR_HANDLE(typedef_tok);
+    }
+    base_type = pp_parser_create_type(parser);
     NULL_POINTER_ERROR_HANDLE(base_type);
-    PP_Token* name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
-    if (!name_tok) {
-        pp_error_list_push_error(parser->error_list, parser->filename, typedef_tok->line, typedef_tok->column, "Expected identifier after typedef base type");
-        goto error_cleanup;
+    {
+        name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(name_tok);
     }
-    if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, typedef_tok->line, typedef_tok->column, "Expected ';' after typedef declaration");
-        goto error_cleanup;
+    {
+        semicolon_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semicolon_tok);
     }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_TypedefDeclarationNode, typedef_tok->line, typedef_tok->column);
+    node = pp_ast_node_create(PP_AST_TypedefDeclarationNode, typedef_tok->line, typedef_tok->column);
     NULL_POINTER_ERROR_HANDLE(node);
     node->typedef_declaration.base_type = base_type;
     node->typedef_declaration.identifier = (char*)name_tok->lexeme;
+    base_type = NULL;
+    name_tok = NULL;
+    typedef_tok = NULL;
     return node;
 error_cleanup:
     pp_ast_root_free(base_type);
+    pp_ast_root_free(node);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* base_type = NULL;
+    PP_Token* newtype_tok = NULL;
+    PP_Token* name_tok = NULL;
+    PP_Token* semicolon_tok = NULL;
+    unsigned int line = 0;
+    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* newtype_tok = pp_parser_consume_token(parser, PP_TT_NEWTYPE);
-    if (!newtype_tok) return NULL;
-    unsigned int line = newtype_tok->line;
-    unsigned int col = newtype_tok->column;
-    PP_AST_Node* base_type = pp_parser_create_type(parser);
-    if (!base_type) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected type after newtype");
-        goto error_cleanup;
+
+    {
+        newtype_tok = pp_parser_consume_token(parser, PP_TT_NEWTYPE);
+        NULL_POINTER_ERROR_HANDLE(newtype_tok);
+        line = newtype_tok->line;
+        col = newtype_tok->column;
     }
-    PP_Token* name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
-    if (!name_tok) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected identifier after newtype base type");
-        goto error_cleanup;
+
+    base_type = pp_parser_create_type(parser);
+    NULL_POINTER_ERROR_HANDLE(base_type);
+
+    {
+        name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(name_tok);
     }
-    if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ';' after newtype declaration");
-        /* recover */
+
+    {
+        semicolon_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semicolon_tok);
     }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_NewtypeDeclarationNode, line, col);
+
+    node = pp_ast_node_create(PP_AST_NewtypeDeclarationNode, line, col);
     NULL_POINTER_ERROR_HANDLE(node);
     node->newtype_declaration.base_type = base_type;
     node->newtype_declaration.identifier = (char*)name_tok->lexeme;
+    base_type = NULL;
+    name_tok = NULL;
+
     return node;
 error_cleanup:
+    pp_ast_root_free(node);
     pp_ast_root_free(base_type);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_Token* ident_tok = NULL;
+    PP_AST_StructInitEntry* entries = NULL;
+    PP_AST_Node* member_id_node = NULL;
+    PP_AST_Node* member_val = NULL;
+    unsigned int capacity = 0;
+    unsigned int count = 0;
+    unsigned int line = 0;
+    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* ident_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
-    if (!ident_tok) return NULL;
-    unsigned int line = ident_tok->line;
-    unsigned int col = ident_tok->column;
-    if (!pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected '{' after struct initializer identifier");
-        goto error_cleanup;
+
+    {
+        ident_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(ident_tok);
+        line = ident_tok->line;
+        col = ident_tok->column;
     }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_StructInitializerNode, line, col);
+
+    {
+        PP_Token* left_brace = pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(left_brace);
+    }
+
+    node = pp_ast_node_create(PP_AST_StructInitializerNode, line, col);
     NULL_POINTER_ERROR_HANDLE(node);
     node->struct_initializer.identifier = (char*)ident_tok->lexeme;
-    unsigned int capacity = AST_VECTOR_INIT_CAP;
-    unsigned int count = 0;
-    PP_AST_StructInitEntry* entries = (PP_AST_StructInitEntry*)calloc(capacity, sizeof(PP_AST_StructInitEntry));
+
+    capacity = AST_VECTOR_INIT_CAP;
+    count = 0;
+    entries = (PP_AST_StructInitEntry*)calloc(capacity, sizeof(PP_AST_StructInitEntry));
     NULL_POINTER_ERROR_HANDLE(entries);
+
     while (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_CURLY_BRACKET && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
-        if (!pp_parser_consume_token(parser, PP_TT_PERIOD)) {
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected '.' before struct initializer member");
-            break;
+        {
+            PP_Token* period_tok = pp_parser_consume_token(parser, PP_TT_PERIOD);
+            NULL_POINTER_ERROR_HANDLE(period_tok);
         }
         PP_Token* member_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
-        if (!member_tok) {
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected identifier after '.' in struct initializer");
-            break;
+        NULL_POINTER_ERROR_HANDLE(member_tok);
+        {
+            PP_Token* equal_tok = pp_parser_consume_token(parser, PP_TT_EQUAL);
+            NULL_POINTER_ERROR_HANDLE(equal_tok);
         }
-        if (!pp_parser_consume_token(parser, PP_TT_EQUAL)) {
-            pp_error_list_push_error(parser->error_list, parser->filename, member_tok->line, member_tok->column, "Expected '=' after struct initializer member name");
-            break;
-        }
-        PP_AST_Node* member_val = pp_parser_create_expression_or_assignment(parser);
-        if (!member_val) {
-            pp_error_list_push_error(parser->error_list, parser->filename, member_tok->line, member_tok->column, "Expected expression for struct initializer member value");
-            break;
-        }
+        member_val = pp_parser_create_expression_or_assignment(parser);
+        NULL_POINTER_ERROR_HANDLE(member_val);
+
         if (count >= capacity) {
             unsigned int new_cap = capacity * 2;
             PP_AST_StructInitEntry* tmp = (PP_AST_StructInitEntry*)realloc(entries, new_cap * sizeof(PP_AST_StructInitEntry));
@@ -1157,26 +1426,37 @@ static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser) {
             entries = tmp;
             capacity = new_cap;
         }
-        /* Create simple nodes for member identifier */
-        PP_AST_Node* member_id_node = pp_ast_node_create(PP_AST_IdentifierNode, member_tok->line, member_tok->column);
+        member_id_node = pp_ast_node_create(PP_AST_IdentifierNode, member_tok->line, member_tok->column);
         NULL_POINTER_ERROR_HANDLE(member_id_node);
         member_id_node->identifier.identifier = (char*)member_tok->lexeme;
         entries[count].member_identifier = member_id_node;
+        member_id_node = NULL;
         entries[count].member_value = member_val;
+        member_val = NULL;
         count++;
         if (pp_parser_peek_token_type(parser, 0) == PP_TT_COMMA) {
-            pp_parser_consume_token(parser, PP_TT_COMMA);
+            {
+                PP_Token* comma_tok = pp_parser_consume_token(parser, PP_TT_COMMA);
+                NULL_POINTER_ERROR_HANDLE(comma_tok);
+            }
         }
     }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_CURLY_BRACKET)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected '}' to close struct initializer");
-        goto error_cleanup;
+
+    {
+        PP_Token* right_brace = pp_parser_consume_token(parser, PP_TT_RIGHT_CURLY_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(right_brace);
     }
+
     node->struct_initializer.entries = entries;
     node->struct_initializer.entry_count = count;
     node->struct_initializer.entry_capacity = capacity;
+    entries = NULL;
+    ident_tok = NULL;
     return node;
 error_cleanup:
+    pp_ast_root_free(member_id_node);
+    pp_ast_root_free(member_val);
+    pp_ast_root_free(node);
     if (entries) {
         for (unsigned int i = 0; i < count; i++) {
             pp_ast_root_free(entries[i].member_identifier);
@@ -1184,44 +1464,54 @@ error_cleanup:
         }
     }
     free(entries);
-    pp_ast_root_free(node);
     return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_collection_initializer(PP_Parser* parser) {
-    NULL_POINTER_ERROR_HANDLE(parser);
-    PP_Token* lbrack = pp_parser_consume_token(parser, PP_TT_LEFT_SQUARE_BRACKET);
-    if (!lbrack) return NULL;
-    unsigned int line = lbrack->line;
-    unsigned int col = lbrack->column;
-    PP_AST_Node* type_expr = pp_parser_create_type(parser);
-    if (!type_expr) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected type in collection initializer");
-        goto error_cleanup;
-    }
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* type_expr = NULL;
     PP_AST_Node* size_expr = NULL;
-    if (pp_parser_peek_token_type(parser, 0) == PP_TT_COLON) {
-        pp_parser_consume_token(parser, PP_TT_COLON);
-        size_expr = pp_parser_create_expression_or_assignment(parser);
-        if (!size_expr) {
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected expression after ':' in collection initializer");
-        }
-    }
-    if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ';' after collection type and size");
-        goto error_cleanup;
-    }
-    /* parse element list until closing ] */
-    unsigned int capacity = AST_VECTOR_INIT_CAP;
+    PP_AST_Node** elements = NULL;
+    PP_AST_Node* elem = NULL;
+    unsigned int capacity = 0;
     unsigned int count = 0;
-    PP_AST_Node** elements = (PP_AST_Node**)calloc(capacity, sizeof(PP_AST_Node*));
-    NULL_POINTER_ERROR_HANDLE(elements);
-    while (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_SQUARE_BRACKET && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
-        PP_AST_Node* elem = pp_parser_create_expression_or_assignment(parser);
-        if (!elem) {
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected expression in collection initializer");
-            goto error_cleanup;
+    unsigned int line = 0;
+    unsigned int col = 0;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    {
+        PP_Token* lbrack = pp_parser_consume_token(parser, PP_TT_LEFT_SQUARE_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(lbrack);
+        line = lbrack->line;
+        col = lbrack->column;
+    }
+
+    type_expr = pp_parser_create_type(parser);
+    NULL_POINTER_ERROR_HANDLE(type_expr);
+
+    size_expr = NULL;
+    if (pp_parser_peek_token_type(parser, 0) == PP_TT_COLON) {
+        {
+            PP_Token* colon_tok = pp_parser_consume_token(parser, PP_TT_COLON);
+            NULL_POINTER_ERROR_HANDLE(colon_tok);
         }
+        size_expr = pp_parser_create_expression_or_assignment(parser);
+        NULL_POINTER_ERROR_HANDLE(size_expr);
+    }
+
+    {
+        PP_Token* semicolon_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semicolon_tok);
+    }
+
+    capacity = AST_VECTOR_INIT_CAP;
+    count = 0;
+    elements = (PP_AST_Node**)calloc(capacity, sizeof(PP_AST_Node*));
+    NULL_POINTER_ERROR_HANDLE(elements);
+
+    while (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_SQUARE_BRACKET && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
+        elem = pp_parser_create_expression_or_assignment(parser);
+        NULL_POINTER_ERROR_HANDLE(elem);
         if (count >= capacity) {
             unsigned int new_cap = capacity * 2;
             PP_AST_Node** tmp = (PP_AST_Node**)realloc(elements, new_cap * sizeof(PP_AST_Node*));
@@ -1229,49 +1519,67 @@ static PP_AST_Node* pp_parser_create_collection_initializer(PP_Parser* parser) {
             elements = tmp;
             capacity = new_cap;
         }
-        elements[count++] = elem;
+        elements[count] = elem;
+        elem = NULL;
+        count++;
         if (pp_parser_peek_token_type(parser, 0) == PP_TT_COMMA) {
-            pp_parser_consume_token(parser, PP_TT_COMMA);
+            {
+                PP_Token* comma_tok = pp_parser_consume_token(parser, PP_TT_COMMA);
+                NULL_POINTER_ERROR_HANDLE(comma_tok);
+            }
         }
     }
-    if (!pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ']' to close collection initializer");
-        goto error_cleanup;
+
+    {
+        PP_Token* rbrack = pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(rbrack);
     }
-    PP_AST_Node* node = pp_ast_node_create(PP_AST_CollectionInitializerNode, type_expr->line, type_expr->col);
+
+    node = pp_ast_node_create(PP_AST_CollectionInitializerNode, type_expr->line, type_expr->col);
     NULL_POINTER_ERROR_HANDLE(node);
     node->collection_initializer.type_expr = type_expr;
     node->collection_initializer.size_expr = size_expr;
     node->collection_initializer.elements = elements;
     node->collection_initializer.element_count = count;
     node->collection_initializer.element_capacity = capacity;
+    type_expr = NULL;
+    size_expr = NULL;
+    elements = NULL;
     return node;
 error_cleanup:
+    pp_ast_root_free(node);
     pp_ast_root_free(type_expr);
     pp_ast_root_free(size_expr);
+    pp_ast_root_free(elem);
     if (elements) {
-        for (unsigned int i = 0; i < count; i++) pp_ast_root_free(elements[i]);
+        for (unsigned int i = 0; i < count; i++) {
+            pp_ast_root_free(elements[i]);
+        }
     }
     free(elements);
     return NULL;
 }
 
 static int pp_parser_parse_param_list(PP_Parser* parser, PP_AST_Node*** out_params, unsigned int* out_count, unsigned int* out_capacity) {
-    if (!parser || !out_params || !out_count || !out_capacity) return 0;
+    PP_AST_Node** params = NULL;
+    PP_AST_Node* param = NULL;
+    PP_AST_Node** tmp = NULL;
+    unsigned int new_cap = 0;
+    if (parser == NULL || !out_params || !out_count || !out_capacity) return 0;
     *out_count = 0;
     *out_capacity = AST_VECTOR_INIT_CAP;
-    PP_AST_Node** params = (PP_AST_Node**)calloc(*out_capacity, sizeof(PP_AST_Node*));
+    params = (PP_AST_Node**)calloc(*out_capacity, sizeof(PP_AST_Node*));
     NULL_POINTER_ERROR_HANDLE(params);
     if (pp_parser_peek_token_type(parser, 0) == PP_TT_RIGHT_PARENTHESIS) {
         *out_params = params;
         return 1;
     }
     while (1) {
-        PP_AST_Node* param = pp_parser_create_param_decl(parser);
+        param = pp_parser_create_param_decl(parser);
         NULL_POINTER_ERROR_HANDLE(param);
         if (*out_count >= *out_capacity) {
-            unsigned int new_cap = *out_capacity * 2;
-            PP_AST_Node** tmp = (PP_AST_Node**)realloc(params, new_cap * sizeof(PP_AST_Node*));
+            new_cap = *out_capacity * 2;
+            tmp = (PP_AST_Node**)realloc(params, new_cap * sizeof(PP_AST_Node*));
             NULL_POINTER_ERROR_HANDLE(tmp);
             params = tmp;
             *out_capacity = new_cap;
@@ -1279,7 +1587,10 @@ static int pp_parser_parse_param_list(PP_Parser* parser, PP_AST_Node*** out_para
         params[*out_count] = param;
         (*out_count)++;
         if (pp_parser_peek_token_type(parser, 0) == PP_TT_COMMA) {
-            pp_parser_consume_token(parser, PP_TT_COMMA);
+            {
+                PP_Token* comma_tok = pp_parser_consume_token(parser, PP_TT_COMMA);
+                NULL_POINTER_ERROR_HANDLE(comma_tok);
+            }
             continue;
         }
         break;
