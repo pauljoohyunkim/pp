@@ -1007,7 +1007,7 @@ TEST(ParserTest, TestIfNestedElseIfChain) {
 }
 
 TEST(ParserTest, TestWhileWithComplexCondition) {
-    const char* source = "func f ::() -> void { while (a < b & c > d) { x = 1; } }";
+    const char* source = "func f ::() -> void { while (a < b && c > d) { x = 1; } }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);

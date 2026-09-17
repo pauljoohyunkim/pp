@@ -9,17 +9,19 @@
 
 typedef enum {
     PP_PRECEDENCE_NONE = 0,
-    PP_PRECEDENCE_EQUALITY = 10,
-    PP_PRECEDENCE_RELATIONAL = 20,
-    PP_PRECEDENCE_BITWISE_OR = 30,
-    PP_PRECEDENCE_BITWISE_XOR = 40,
-    PP_PRECEDENCE_BITWISE_AND = 50,
-    PP_PRECEDENCE_ADDITIVE = 60,
-    PP_PRECEDENCE_MULTIPLICATIVE = 70,
-    PP_PRECEDENCE_CAST = 80,
-    PP_PRECEDENCE_UNARY = 90,
-    PP_PRECEDENCE_CALL_ACCESS = 100,
-    PP_PRECEDENCE_PRIMARY = 110
+    PP_PRECEDENCE_LOGICAL_OR = 10,
+    PP_PRECEDENCE_LOGICAL_AND = 20,
+    PP_PRECEDENCE_EQUALITY = 30,
+    PP_PRECEDENCE_RELATIONAL = 40,
+    PP_PRECEDENCE_BITWISE_OR = 50,
+    PP_PRECEDENCE_BITWISE_XOR = 60,
+    PP_PRECEDENCE_BITWISE_AND = 70,
+    PP_PRECEDENCE_ADDITIVE = 80,
+    PP_PRECEDENCE_MULTIPLICATIVE = 90,
+    PP_PRECEDENCE_CAST = 100,
+    PP_PRECEDENCE_UNARY = 110,
+    PP_PRECEDENCE_CALL_ACCESS = 120,
+    PP_PRECEDENCE_PRIMARY = 130
 } PP_Precedence;
 
 static inline unsigned int pp_parser_get_line(const PP_Parser* parser);
@@ -124,6 +126,10 @@ static PP_TokenType pp_parser_peek_token_type(const PP_Parser* parser, unsigned 
 static int pp_parser_infix_binding_power(PP_TokenType token_type, unsigned char *left_bp, unsigned char *right_bp) {
     unsigned char lb = 0, rb = 0;
     switch (token_type) {
+        case PP_TT_AMPERSAND_AMPERSAND:
+            lb = PP_PRECEDENCE_LOGICAL_AND; rb = PP_PRECEDENCE_LOGICAL_AND + 1; break;
+        case PP_TT_BAR_BAR:
+            lb = PP_PRECEDENCE_LOGICAL_OR; rb = PP_PRECEDENCE_LOGICAL_OR + 1; break;
         case PP_TT_EQUAL_EQUAL:
         case PP_TT_EXCLAMATION_EQUAL:
             lb = PP_PRECEDENCE_EQUALITY; rb = PP_PRECEDENCE_EQUALITY + 1; break;
