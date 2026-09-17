@@ -300,3 +300,51 @@ TEST(ParserTest, TestArrayListAccessIdentifierLiteralIndex) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, TestArrayListAccessNested) {
+    const char* source = "func f ::() -> void { arr[0][1]; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestArrayListAccessWithBinaryIndex) {
+    const char* source = "func f ::() -> void { arr[1 + 2 * 3]; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestParamDeclaration) {
+    const char* source = "func f :: (foo :: int32) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestVariableDeclarationNoInit) {
+    const char* source = "func f ::() -> void { let foo :: int32; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestVariableDeclarationWithInit) {
+    const char* source = "func f ::() -> void { let foo :: int32 = 42; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypedefDeclSimple) {
+    const char* source = "typedef int32 MyInt;";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
