@@ -1053,3 +1053,35 @@ TEST(ParserTest, TestFunctionCallChain) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, TestVariableDeclConstRefArray) {
+    const char* source = "func f ::() -> void { let a :: const int32[4]& = b; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestTypedefChain) {
+    const char* source = "typedef int32 A; typedef A B; typedef B C;";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestNewtypeChain) {
+    const char* source = "newtype int32 A; newtype A B;";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestStructWithMultipleFields) {
+    const char* source = "struct S { a :: int32; b :: float; c :: bool; d :: int32[10]; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
