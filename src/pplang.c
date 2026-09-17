@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "pp_lexer.h"
+#include "pp_parser.h"
+#include "pp_ast.h"
 
 static long get_file_size(const char *filename) {
     FILE *fp = fopen(filename, "rb");
@@ -60,7 +62,30 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Lexical analysis complete – no output for now
+    PP_Parser* parser = pp_parser_create(lexer);
+    if (!parser) {
+        printf("Parser creation failure\n");
+        pp_lexer_free(lexer);
+        return 1;
+    }
+
+    int ret = pp_parser_parse(parser);
+    if (ret != 1) {
+        printf("Parser failed\n");
+    }
+
+    if (parser->error_list && parser->error_list->n_errors > 0) {
+        for (size_t i = 0; i < parser->error_list->n_errors; i++) {
+            PP_Error* e = &parser->error_list->errors[i];
+            printf("Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+        }
+    } else {
+        printf("Parse succeeded. AST:\n");
+        pp_ast_root_print(parser->program, 0);
+    }
+
+    // Free in reverse order of creation
+    pp_parser_free(parser);
     pp_lexer_free(lexer);
     return 0;
 }

@@ -1,4 +1,5 @@
 #include "pp_ast.h"
+#include "pp_tokens.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -47,7 +48,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
                 }
                 free(node->function_declaration.params);
             }
-            free(node->function_declaration.name);
+            /* function_declaration.name is pool-owned const char* – do not free */
             pp_ast_root_free_internal(node->function_declaration.return_type);
             pp_ast_root_free_internal(node->function_declaration.body);
             break;
@@ -111,12 +112,12 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_LiteralNode: {
-            free(node->literal.lexeme);
+            /* literal.lexeme is pool-owned const char* – do not free */
             pp_ast_decoration_free(node->literal.decoration);
             break;
         }
         case PP_AST_IdentifierNode: {
-            free(node->identifier.identifier);
+            /* identifier.identifier is pool-owned const char* – do not free */
             pp_ast_decoration_free(node->identifier.decoration);
             break;
         }
@@ -131,7 +132,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
         }
         case PP_AST_MemberAccessNode: {
             pp_ast_root_free_internal(node->member_access.object);
-            free(node->member_access.member);
+            /* member_access.member is pool-owned const char* – do not free */
             pp_ast_decoration_free(node->member_access.decoration);
             break;
         }
@@ -147,7 +148,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_TypeExpressionNode: {
-            free(node->type_expression.identifier_name);
+            /* type_expression.identifier_name is pool-owned const char* – do not free */
             if (node->type_expression.array_spec) {
                 pp_ast_root_free_internal(node->type_expression.array_spec->size_expr);
                 free(node->type_expression.array_spec);
@@ -155,7 +156,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_StructDeclarationNode: {
-            free(node->struct_declaration.name);
+            /* struct_declaration.name is pool-owned const char* – do not free */
             if (node->struct_declaration.fields) {
                 for (unsigned int i = 0; i < node->struct_declaration.field_count; i++) {
                     pp_ast_root_free_internal(node->struct_declaration.fields[i].field);
@@ -166,7 +167,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_StructInitializerNode: {
-            free(node->struct_initializer.identifier);
+            /* struct_initializer.identifier is pool-owned const char* – do not free */
             if (node->struct_initializer.entries) {
                 for (unsigned int i = 0; i < node->struct_initializer.entry_count; i++) {
                     pp_ast_root_free_internal(node->struct_initializer.entries[i].member_identifier);
@@ -225,7 +226,10 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             if (node->variable_declaration.initializer) pp_ast_root_print(node->variable_declaration.initializer, depth+1);
             break;
         case PP_AST_AssignmentNode:
-            printf("Assignment\n");
+            {
+                const char* op_name = pp_token_to_human_name(node->assignment.op);
+                printf("Assignment %s\n", op_name ? op_name : "?");
+            }
             pp_ast_root_print(node->assignment.lhs, depth+1);
             pp_ast_root_print(node->assignment.rhs, depth+1);
             break;
@@ -263,12 +267,18 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) pp_ast_root_print(node->statement_list.stmts[i], depth+1);
             break;
         case PP_AST_BinaryExpressionNode:
-            printf("BinaryExpression\n");
+            {
+                const char* op_name = pp_token_to_human_name(node->binary_expression.op);
+                printf("BinaryExpression %s\n", op_name ? op_name : "?");
+            }
             pp_ast_root_print(node->binary_expression.left, depth+1);
             pp_ast_root_print(node->binary_expression.right, depth+1);
             break;
         case PP_AST_UnaryExpressionNode:
-            printf("UnaryExpression\n");
+            {
+                const char* op_name = pp_token_to_human_name(node->unary_expression.op);
+                printf("UnaryExpression %s\n", op_name ? op_name : "?");
+            }
             pp_ast_root_print(node->unary_expression.operand, depth+1);
             break;
         case PP_AST_CastExpressionNode:
