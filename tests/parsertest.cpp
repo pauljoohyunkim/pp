@@ -917,3 +917,35 @@ TEST(ParserTest, TestTypeWrongOrderConstAfterBase) {
     // Parser may error on trailing const; accept both success or error as long as it parses
     // For now require parse result 1 and at least not crash
 }
+
+TEST(ParserTest, TestBaseTypeInt32) {
+    const char* source = "func f :: (x :: int32) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestBaseTypeFloat) {
+    const char* source = "func f :: (x :: float) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestBaseTypeBool) {
+    const char* source = "func f :: (x :: bool) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, TestBaseTypeIdentifier) {
+    const char* source = "func f :: (x :: MyType) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
