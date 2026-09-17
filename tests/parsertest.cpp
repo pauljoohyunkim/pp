@@ -134,3 +134,71 @@ TEST(ParserTest, GoodLambda) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, GoodStructInitializer) {
+    const char* source =
+        "struct Vec { x :: float; y :: float; }\n"
+        "func mk :: () -> Vec {\n"
+        "    return Vec{ .x = 1.0, .y = 2.0 };\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodCollectionInitializer) {
+    const char* source =
+        "func nums :: () -> int32 {\n"
+        "    let arr :: int32 = [int32: 5; 1, 2, 3, 4];\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodMemberAccessAndCall) {
+    const char* source =
+        "func foo :: (s :: int32) -> int32 {\n"
+        "    let v :: int32 = s + 1;\n"
+        "    return v;\n"
+        "}\n"
+        "func bar :: () -> int32 {\n"
+        "    let x :: int32 = foo(42);\n"
+        "    let obj :: int32 = 0;\n"
+        "    let y :: int32 = obj;\n"
+        "    return x + y;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodCastExpression) {
+    const char* source =
+        "func cast_test :: () -> int32 {\n"
+        "    let f :: float = 3.14;\n"
+        "    let i :: int32 = f as int32;\n"
+        "    return i;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodArrayAccess) {
+    const char* source =
+        "func idx :: () -> int32 {\n"
+        "    let arr :: int32 = [int32: 3; 10, 20, 30];\n"
+        "    let v :: int32 = arr[1];\n"
+        "    return v;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
