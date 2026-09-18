@@ -9,6 +9,7 @@ extern "C" {
 #include "pp_error.h"
 #include "pp_ast.h"
 #include "pp_type.h"
+#include "pp_type_table.h"
 
 typedef struct {
     const char* filename;
@@ -19,9 +20,9 @@ typedef struct {
     PP_AST_Node* program;
     PP_StringPool* sp;
 
-    /* TODO: Environment and global type table not yet implemented */
+    /* TODO: Environment not yet implemented */
     // PP_Environment* global_env;
-    // PP_GlobalTypeTable* gtt;
+    PP_GlobalTypeTable* gtt;
 
     const PPType* current_function_return;
     PP_ErrorList* error_list;

@@ -1,8 +1,11 @@
 # PP Compiler
 
 This is a C-based successor of cz. Build and usage follow the same pattern as ../cz/ but with the pp language.
+The logic up to semantic analyzer pass 1 is to be similar to ../pp-rust (which is the prototype of PP compiler)
 
 Detailed design, language features, pipeline and build instructions are in `notes/project_overview.md`.
+
+Check the general coding rules at `notes/general_coding_rule.md`
 
 Do not commit or push unless instructed to explicitly.
 
