@@ -61,7 +61,7 @@ static int pp_type_equal(const PPType *a, const PPType *b) {
         case PP_TK_Bool:
             return 1;
         default:
-            /* For complex types, fall back to pointer equality for now */
+            #warning "For complex types, fall back to pointer equality for now"
             return a == b;
     }
 }

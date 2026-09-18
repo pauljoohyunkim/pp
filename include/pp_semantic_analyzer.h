@@ -29,15 +29,6 @@ typedef struct {
 } PP_SemanticAnalyzer;
 
 /**
- * @brief Return read-only PPType from Type Expression Node. Will add to GTT if it does not exist.
- *
- * @param type_node Type expression node
- * @param sa Pointer to PP_SemanticAnalyzer struct
- * @return const PPType* Read-only pointer to PPType on success, NULL on failure
- */
-const PPType* pp_type_from_type_node(const PP_AST_Node* type_node, PP_SemanticAnalyzer* sa);
-
-/**
  * @brief Creates semantic analyzer from parser
  *
  * @param parser Pointer to PP_Parser struct.

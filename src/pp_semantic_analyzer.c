@@ -5,6 +5,7 @@
 
 #define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr) == NULL) goto error_cleanup; } while (0)
 
+static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node);
 /* Pass I */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
 static void pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
@@ -14,17 +15,6 @@ static void pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnal
 
 /* Pass II */
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
-
-/**
- * @brief Return read-only PPType from Type Expression Node.
- * Shell implementation - not implemented yet.
- */
-const PPType* pp_type_from_type_node(const PP_AST_Node* type_node, PP_SemanticAnalyzer* sa) {
-    (void)type_node;
-    (void)sa;
-    /* TODO: implement */
-    return NULL;
-}
 
 /**
  * @brief Creates semantic analyzer from parser
@@ -127,6 +117,88 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
     return 1;
 }
 
+
+static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node) {
+    assert(sa);
+    assert(type_node);
+    assert(type_node->node_type == PP_AST_TypeExpressionNode);
+    PPType* type = NULL;
+    PPType* subtype = NULL;
+
+    switch (type_node->type_expression.kind) {
+        case PP_AST_TYPE_KIND_VOID:
+            type = pp_type_create(PP_TK_Void);
+            break;
+        case PP_AST_TYPE_KIND_INT32:
+            type = pp_type_create(PP_TK_Int32);
+            break;
+        case PP_AST_TYPE_KIND_FLOAT:
+            type = pp_type_create(PP_TK_Float);
+            break;
+        case PP_AST_TYPE_KIND_BOOL:
+            type = pp_type_create(PP_TK_Bool);
+            break;
+        case PP_AST_TYPE_KIND_IDENTIFIER:
+            #warning "Type identifier not yet implemented"
+            abort();
+            break;
+        //default:
+        //    assert(0 && "Invalid AST type kind");
+        //    abort();
+    }
+    NULL_POINTER_ERROR_HANDLE(type);
+
+    // Intern
+    type = pp_global_type_table_intern(sa->gtt, type);
+    NULL_POINTER_ERROR_HANDLE(type);
+
+    // Constness
+    if (type_node->type_expression.is_const) {
+        subtype = type;
+        type = NULL;
+
+        // Create const wrapper
+        type = pp_type_create(PP_TK_Const);
+        NULL_POINTER_ERROR_HANDLE(type);
+
+        // Move internal type to a leaf ot const wrapper.
+        type->type.pp_type_const.const_of = subtype;
+        subtype = NULL;
+
+        // Intern
+        type = pp_global_type_table_intern(sa->gtt, type);
+        NULL_POINTER_ERROR_HANDLE(type);
+    }
+
+    #warning "Array/List and reference needs implementation"
+    //if (type_node->type_expression.array_spec) {
+    //    subtype = type;
+    //    type = NULL;
+
+    //    // Create array/list wrapper
+    //    type->type.pp_type_
+    //}
+    if (type_node->type_expression.is_reference) {
+        subtype = type;
+        type = NULL;
+
+        type->type.pp_type_reference.reference_to = subtype;
+        subtype = NULL;
+
+        // Intern
+        type = pp_global_type_table_intern(sa->gtt, type);
+        NULL_POINTER_ERROR_HANDLE(type);
+    }
+
+    return type;
+
+error_cleanup:
+    pp_type_free(type);
+    pp_type_free(subtype);
+
+    return NULL;
+}
+
 /* --- Shell stubs for internal passes --- */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa) {
     NULL_POINTER_ERROR_HANDLE(sa);
@@ -188,7 +260,13 @@ error_cleanup:
 static void pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
+    assert(node->node_type == PP_AST_TypedefDeclarationNode);
 
+    #warning "Typedef temporarily constructed"
+
+    PPType* ptr = pp_type_from_type_node(sa, node->typedef_declaration.base_type);
+
+    return;
 
 error_cleanup:
     return;
@@ -197,6 +275,7 @@ error_cleanup:
 static void pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
+    assert(node->node_type == PP_AST_NewtypeDeclarationNode);
 
 
 error_cleanup:
