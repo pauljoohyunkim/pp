@@ -24,7 +24,7 @@ typedef struct {
     // PP_Environment* global_env;
     PP_GlobalTypeTable* gtt;
 
-    const PPType* current_function_return;
+    const PPType* current_function_type;
     PP_ErrorList* error_list;
 } PP_SemanticAnalyzer;
 

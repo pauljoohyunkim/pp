@@ -1,11 +1,18 @@
 #include "pp_semantic_analyzer.h"
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr) == NULL) goto error_cleanup; } while (0)
 
-/* Forward declarations for internal helpers - shells only */
+/* Pass I */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
+static void pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static void pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static void pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static void pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+
+/* Pass II */
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
 
 /**
@@ -50,7 +57,7 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
     sa->error_list = parser->error_list;
     parser->error_list = NULL;
 
-    sa->current_function_return = NULL;
+    sa->current_function_type = NULL;
 
     gtt = pp_global_type_table_create();
     NULL_POINTER_ERROR_HANDLE(gtt);
@@ -85,7 +92,6 @@ error_cleanup:
         if (sa->error_list) {
             pp_error_list_free(sa->error_list);
         }
-        /* Free may be NULL-safe */
         pp_global_type_table_free(sa->gtt);
     }
     free(sa);
@@ -113,9 +119,9 @@ void pp_semantic_analyzer_free(PP_SemanticAnalyzer* sa) {
  */
 int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
     if (!sa) return 0;
+#warning "Multiple passes might need return value checking for each pass."
 
-    /* TODO: implement passes */
-    /* pp_semantic_analyzer_build_global_table(sa); */
+    pp_semantic_analyzer_build_global_table(sa);
     /* pp_semantic_analyzer_full_analyze(sa); */
 
     return 1;
@@ -123,8 +129,78 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
 
 /* --- Shell stubs for internal passes --- */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa) {
-    (void)sa;
+    NULL_POINTER_ERROR_HANDLE(sa);
+
+    NULL_POINTER_ERROR_HANDLE(sa->program);
+
+    for (size_t i = 0; i < sa->program->program.decl_count; i++) {
+        const PP_AST_Node* decl = sa->program->program.decls[i];
+        switch (decl->node_type) {
+            case PP_AST_FunctionDeclarationNode:
+                pp_semantic_analyzer_build_global_table_function_decl(sa, decl);
+                break;
+            case PP_AST_LambdaDeclarationNode:
+                pp_semantic_analyzer_build_global_table_lambda_decl(sa, decl);
+                break;
+            case PP_AST_StructDeclarationNode:
+
+                break;
+            case PP_AST_VariableDeclarationNode:
+
+                break;
+            case PP_AST_TypedefDeclarationNode:
+                pp_semantic_analyzer_build_global_table_typedef_decl(sa, decl);
+                break;
+            case PP_AST_NewtypeDeclarationNode:
+                pp_semantic_analyzer_build_global_table_newtype_decl(sa, decl);
+                break;
+            default:
+                assert(0 && "Semantic Analyzer Pass 1 default case. This should have been handled at parser.");
+                abort();
+        }
+    }
+    
+    return 1;
+
+error_cleanup:
     return 0;
+}
+
+
+static void pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+
+
+error_cleanup:
+    return;
+}
+
+static void pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+
+
+error_cleanup:
+    return;
+}
+
+static void pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+
+
+error_cleanup:
+    return;
+}
+
+static void pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+
+
+error_cleanup:
+    return;
 }
 
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
