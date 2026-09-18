@@ -4,6 +4,7 @@
 - Use `NULL_POINTER_ERROR_HANDLE(ptr)` for nullity checks that should jump to an `error_cleanup` label.
 - Prefer `NULL_POINTER_ERROR_HANDLE` for all non-nullable inputs/objects at function entry and after allocations, rather than manual `if (!ptr) goto error_cleanup;`.
 - When an `error_cleanup` label exists, do not perform early returns for null pointers; let the macro jump to cleanup.
+- If a function has no `error_cleanup`, do **not** use `NULL_POINTER_ERROR_HANDLE`; use explicit early return instead. The macro requires a cleanup target.
 
 ## Memory / Free discipline
 - Custom free functions safely handle NULL: `free(NULL)` is valid in C.
