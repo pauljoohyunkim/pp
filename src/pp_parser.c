@@ -176,7 +176,9 @@ static PP_Token* pp_parser_consume_token(PP_Parser* parser, PP_TokenType expecte
         parser->idx++;
         return t;
     } else {
-        pp_error_list_push_error(parser->error_list, parser->filename, t->line, t->column, "Expected token %d but got %d", expected_type, t->token_type);
+        const char* expected_name = pp_token_to_human_name(expected_type);
+        const char* got_name = pp_token_to_human_name(t->token_type);
+        pp_error_list_push_error(parser->error_list, parser->filename, t->line, t->column, "Expected token %s but got %s", expected_name ? expected_name : "unknown", got_name ? got_name : "unknown");
         parser->idx++;
         return NULL;
     }
@@ -426,13 +428,13 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
     }
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
     PP_Token* tok = NULL;
-    int kind = PP_TYPE_KIND_IDENTIFIER; /* identifier default */
+    int kind = PP_AST_TYPE_KIND_IDENTIFIER; /* identifier default */
     switch (tt) {
-        case PP_TT_VOID: kind = PP_TYPE_KIND_VOID; tok = pp_parser_consume_token(parser, PP_TT_VOID); break;
-        case PP_TT_INT32: kind = PP_TYPE_KIND_INT32; tok = pp_parser_consume_token(parser, PP_TT_INT32); break;
-        case PP_TT_FLOAT: kind = PP_TYPE_KIND_FLOAT; tok = pp_parser_consume_token(parser, PP_TT_FLOAT); break;
-        case PP_TT_BOOL: kind = PP_TYPE_KIND_BOOL; tok = pp_parser_consume_token(parser, PP_TT_BOOL); break;
-        case PP_TT_IDENTIFIER: kind = PP_TYPE_KIND_IDENTIFIER; tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER); break;
+        case PP_TT_VOID: kind = PP_AST_TYPE_KIND_VOID; tok = pp_parser_consume_token(parser, PP_TT_VOID); break;
+        case PP_TT_INT32: kind = PP_AST_TYPE_KIND_INT32; tok = pp_parser_consume_token(parser, PP_TT_INT32); break;
+        case PP_TT_FLOAT: kind = PP_AST_TYPE_KIND_FLOAT; tok = pp_parser_consume_token(parser, PP_TT_FLOAT); break;
+        case PP_TT_BOOL: kind = PP_AST_TYPE_KIND_BOOL; tok = pp_parser_consume_token(parser, PP_TT_BOOL); break;
+        case PP_TT_IDENTIFIER: kind = PP_AST_TYPE_KIND_IDENTIFIER; tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER); break;
         default:
             pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected type name");
             return NULL;
@@ -1502,15 +1504,11 @@ static PP_AST_Node* pp_parser_create_collection_initializer(PP_Parser* parser) {
     PP_AST_Node* elem = NULL;
     unsigned int capacity = 0;
     unsigned int count = 0;
-    unsigned int line = 0;
-    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
 
     {
         PP_Token* lbrack = pp_parser_consume_token(parser, PP_TT_LEFT_SQUARE_BRACKET);
         NULL_POINTER_ERROR_HANDLE(lbrack);
-        line = lbrack->line;
-        col = lbrack->column;
     }
 
     type_expr = pp_parser_create_type(parser);
