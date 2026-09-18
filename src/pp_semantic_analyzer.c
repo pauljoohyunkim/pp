@@ -10,6 +10,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
 static void pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static void pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static void pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static void pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static void pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 
@@ -218,7 +219,7 @@ static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa) {
 
                 break;
             case PP_AST_VariableDeclarationNode:
-
+                pp_semantic_analyzer_build_global_table_variable_decl(sa, decl);
                 break;
             case PP_AST_TypedefDeclarationNode:
                 pp_semantic_analyzer_build_global_table_typedef_decl(sa, decl);
@@ -254,6 +255,18 @@ static void pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnaly
 
 
 error_cleanup:
+    return;
+}
+
+static void pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_VariableDeclarationNode);
+    assert(node->variable_declaration.var_decl->node_type == PP_AST_ParamDeclarationNode);
+
+    #warning "Variable temporarily constructed"
+    const PPType* var_type = pp_type_from_type_node(sa, node->variable_declaration.var_decl->param_declaration.type_expr);
+
     return;
 }
 
