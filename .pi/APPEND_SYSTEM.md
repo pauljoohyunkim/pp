@@ -14,3 +14,10 @@ Whenever you are at a C/C++ repo, you should use clang-format:
 ```bash
 clang-format -style="{BasedOnStyle: Google, IndentWidth: 4, ContinuationIndentWidth: 4}" -i main.cpp
 ```
+
+## Memory Leak check
+When testing using `pplang` binary, to check for memory leak, you can use `valgrind`:
+
+```bash
+valgrind --leak-check=yes ./bin/pplang pp_test_code.pp
+```
