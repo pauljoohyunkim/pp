@@ -100,17 +100,9 @@ void pp_semantic_analyzer_free(PP_SemanticAnalyzer* sa) {
 
     free((char*)sa->code);
     free(sa->tokens);
-    if (sa->program) {
-        /* TODO: use proper AST free */
-        /* pp_ast_root_free(sa->program); */
-    }
-    if (sa->sp) {
-        /* TODO: pp_string_pool_free(sa->sp); */
-    }
-    if (sa->error_list) {
-        pp_error_list_free(sa->error_list);
-    }
-
+    pp_ast_root_free(sa->program);
+    pp_string_pool_free(sa->sp);
+    pp_error_list_free(sa->error_list);
     pp_global_type_table_free(sa->gtt);
 
     free(sa);
