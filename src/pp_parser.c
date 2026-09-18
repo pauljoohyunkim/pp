@@ -9,17 +9,19 @@
 
 typedef enum {
     PP_PRECEDENCE_NONE = 0,
-    PP_PRECEDENCE_EQUALITY = 10,
-    PP_PRECEDENCE_RELATIONAL = 20,
-    PP_PRECEDENCE_BITWISE_OR = 30,
-    PP_PRECEDENCE_BITWISE_XOR = 40,
-    PP_PRECEDENCE_BITWISE_AND = 50,
-    PP_PRECEDENCE_ADDITIVE = 60,
-    PP_PRECEDENCE_MULTIPLICATIVE = 70,
-    PP_PRECEDENCE_CAST = 80,
-    PP_PRECEDENCE_UNARY = 90,
-    PP_PRECEDENCE_CALL_ACCESS = 100,
-    PP_PRECEDENCE_PRIMARY = 110
+    PP_PRECEDENCE_LOGICAL_OR = 10,
+    PP_PRECEDENCE_LOGICAL_AND = 20,
+    PP_PRECEDENCE_EQUALITY = 30,
+    PP_PRECEDENCE_RELATIONAL = 40,
+    PP_PRECEDENCE_BITWISE_OR = 50,
+    PP_PRECEDENCE_BITWISE_XOR = 60,
+    PP_PRECEDENCE_BITWISE_AND = 70,
+    PP_PRECEDENCE_ADDITIVE = 80,
+    PP_PRECEDENCE_MULTIPLICATIVE = 90,
+    PP_PRECEDENCE_CAST = 100,
+    PP_PRECEDENCE_UNARY = 110,
+    PP_PRECEDENCE_CALL_ACCESS = 120,
+    PP_PRECEDENCE_PRIMARY = 130
 } PP_Precedence;
 
 static inline unsigned int pp_parser_get_line(const PP_Parser* parser);
@@ -124,6 +126,10 @@ static PP_TokenType pp_parser_peek_token_type(const PP_Parser* parser, unsigned 
 static int pp_parser_infix_binding_power(PP_TokenType token_type, unsigned char *left_bp, unsigned char *right_bp) {
     unsigned char lb = 0, rb = 0;
     switch (token_type) {
+        case PP_TT_AMPERSAND_AMPERSAND:
+            lb = PP_PRECEDENCE_LOGICAL_AND; rb = PP_PRECEDENCE_LOGICAL_AND + 1; break;
+        case PP_TT_BAR_BAR:
+            lb = PP_PRECEDENCE_LOGICAL_OR; rb = PP_PRECEDENCE_LOGICAL_OR + 1; break;
         case PP_TT_EQUAL_EQUAL:
         case PP_TT_EXCLAMATION_EQUAL:
             lb = PP_PRECEDENCE_EQUALITY; rb = PP_PRECEDENCE_EQUALITY + 1; break;
@@ -170,7 +176,9 @@ static PP_Token* pp_parser_consume_token(PP_Parser* parser, PP_TokenType expecte
         parser->idx++;
         return t;
     } else {
-        pp_error_list_push_error(parser->error_list, parser->filename, t->line, t->column, "Expected token %d but got %d", expected_type, t->token_type);
+        const char* expected_name = pp_token_to_human_name(expected_type);
+        const char* got_name = pp_token_to_human_name(t->token_type);
+        pp_error_list_push_error(parser->error_list, parser->filename, t->line, t->column, "Expected token %s but got %s", expected_name ? expected_name : "unknown", got_name ? got_name : "unknown");
         parser->idx++;
         return NULL;
     }
@@ -196,17 +204,27 @@ static bool pp_parser_is_sync_token(PP_TokenType token_type) {
 
 static int pp_parser_sync(PP_Parser* parser) {
     if (!parser) return 0;
-    while (parser->idx < parser->n_tokens) {
-        PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
-        if (pp_parser_is_sync_token(tt)) {
-            if (tt == PP_TT_SEMICOLON || tt == PP_TT_RIGHT_CURLY_BRACKET) {
+
+    if (pp_parser_peek_token_type(parser, 0) == PP_TT_EOF) {
+        return 1;
+    }
+
+    if (pp_parser_is_sync_token(pp_parser_peek_token_type(parser, 0))) {
+        parser->idx++;
+    }
+
+    while (parser->idx < parser->n_tokens && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
+        PP_TokenType peeked = pp_parser_peek_token_type(parser, 0);
+        if (pp_parser_is_sync_token(peeked)) {
+            if (peeked == PP_TT_SEMICOLON || peeked == PP_TT_RIGHT_CURLY_BRACKET) {
                 parser->idx++;
             }
             return 1;
         }
         parser->idx++;
     }
-    return 0;
+
+    return 1;
 }
 
 static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
@@ -410,13 +428,13 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
     }
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
     PP_Token* tok = NULL;
-    int kind = PP_TYPE_KIND_IDENTIFIER; /* identifier default */
+    int kind = PP_AST_TYPE_KIND_IDENTIFIER; /* identifier default */
     switch (tt) {
-        case PP_TT_VOID: kind = PP_TYPE_KIND_VOID; tok = pp_parser_consume_token(parser, PP_TT_VOID); break;
-        case PP_TT_INT32: kind = PP_TYPE_KIND_INT32; tok = pp_parser_consume_token(parser, PP_TT_INT32); break;
-        case PP_TT_FLOAT: kind = PP_TYPE_KIND_FLOAT; tok = pp_parser_consume_token(parser, PP_TT_FLOAT); break;
-        case PP_TT_BOOL: kind = PP_TYPE_KIND_BOOL; tok = pp_parser_consume_token(parser, PP_TT_BOOL); break;
-        case PP_TT_IDENTIFIER: kind = PP_TYPE_KIND_IDENTIFIER; tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER); break;
+        case PP_TT_VOID: kind = PP_AST_TYPE_KIND_VOID; tok = pp_parser_consume_token(parser, PP_TT_VOID); break;
+        case PP_TT_INT32: kind = PP_AST_TYPE_KIND_INT32; tok = pp_parser_consume_token(parser, PP_TT_INT32); break;
+        case PP_TT_FLOAT: kind = PP_AST_TYPE_KIND_FLOAT; tok = pp_parser_consume_token(parser, PP_TT_FLOAT); break;
+        case PP_TT_BOOL: kind = PP_AST_TYPE_KIND_BOOL; tok = pp_parser_consume_token(parser, PP_TT_BOOL); break;
+        case PP_TT_IDENTIFIER: kind = PP_AST_TYPE_KIND_IDENTIFIER; tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER); break;
         default:
             pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected type name");
             return NULL;
@@ -769,9 +787,13 @@ static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser) {
         col = return_tok->column;
     }
 
-    // expression
-    expr = pp_parser_create_expression_or_assignment(parser);
-    NULL_POINTER_ERROR_HANDLE(expr);
+    // expression (optional)
+    if (pp_parser_peek_token_type(parser, 0) == PP_TT_SEMICOLON) {
+        expr = NULL;
+    } else {
+        expr = pp_parser_create_expression_or_assignment(parser);
+        NULL_POINTER_ERROR_HANDLE(expr);
+    }
 
     // semicolon
     {
@@ -798,6 +820,7 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
     PP_AST_Node* then_branch = NULL;
     PP_AST_Node* else_branch = NULL;
     PP_Token* if_tok = NULL;
+    PP_Token* left_paren = NULL;
     PP_Token* right_paren = NULL;
     PP_Token* else_tok = NULL;
     unsigned int line = 0;
@@ -813,6 +836,12 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
         col = if_tok->column;
     }
 
+    // left parenthesis
+    {
+        left_paren = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(left_paren);
+    }
+
     // Condition
     cond = pp_parser_create_expression_or_assignment(parser);
     NULL_POINTER_ERROR_HANDLE(cond);
@@ -823,8 +852,8 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
         NULL_POINTER_ERROR_HANDLE(right_paren);
     }
 
-    // then branch
-    then_branch = pp_parser_create_statement(parser);
+    // then branch - must be a block per grammar
+    then_branch = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(then_branch);
 
     // else branch (optional)
@@ -1475,15 +1504,11 @@ static PP_AST_Node* pp_parser_create_collection_initializer(PP_Parser* parser) {
     PP_AST_Node* elem = NULL;
     unsigned int capacity = 0;
     unsigned int count = 0;
-    unsigned int line = 0;
-    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
 
     {
         PP_Token* lbrack = pp_parser_consume_token(parser, PP_TT_LEFT_SQUARE_BRACKET);
         NULL_POINTER_ERROR_HANDLE(lbrack);
-        line = lbrack->line;
-        col = lbrack->column;
     }
 
     type_expr = pp_parser_create_type(parser);

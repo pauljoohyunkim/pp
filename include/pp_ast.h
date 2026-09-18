@@ -8,6 +8,7 @@ extern "C" {
 #include <stdbool.h>
 #include "pp_tokens.h"
 #include "pp_string_pool.h"
+#include "pp_type.h"
 
 #ifndef AST_VECTOR_INIT_CAP
 #define AST_VECTOR_INIT_CAP 8
@@ -21,7 +22,7 @@ typedef enum {
 } PP_ValueCategory;
 
 typedef struct {
-    const void* resolved_type; /* Placeholder for future type table */
+    const PPType* resolved_type;
     PP_ValueCategory value_category;
     bool is_constexpr;
     /* unsigned int scope_level; // reserved */
@@ -74,6 +75,14 @@ typedef enum {
     PP_AST_StructInitializerNode,
     PP_AST_CollectionInitializerNode
 } PP_AST_NodeType;
+
+typedef enum {
+    PP_AST_TYPE_KIND_VOID,
+    PP_AST_TYPE_KIND_INT32,
+    PP_AST_TYPE_KIND_FLOAT,
+    PP_AST_TYPE_KIND_BOOL,
+    PP_AST_TYPE_KIND_IDENTIFIER
+} PP_AST_TypeKind;
 
 struct PP_AST_Node {
     PP_AST_NodeType node_type;
@@ -131,13 +140,7 @@ struct PP_AST_Node {
             bool is_const;
             bool is_reference;
             const char* identifier_name; /* identifier for named types, NULL for primitives */
-            enum {
-                PP_TYPE_KIND_VOID,
-                PP_TYPE_KIND_INT32,
-                PP_TYPE_KIND_FLOAT,
-                PP_TYPE_KIND_BOOL,
-                PP_TYPE_KIND_IDENTIFIER
-            } kind;
+            PP_AST_TypeKind kind;
             PP_AST_ArrayListSpecifier* array_spec; /* NULL = plain type */
         } type_expression;
 
@@ -219,9 +222,8 @@ struct PP_AST_Node {
         struct { /* ParamDeclaration */
             char* identifier;
             PP_AST_Node* type_expr;
-            // void* resolved_type;   // TODO: type system not implemented yet
+            const PPType* resolved_type;
         } param_declaration;
-#warning "ParamDeclaration resolved_type placeholder – implement type system before production use"
 
         struct { /* StructInitializer */
             const char* identifier;

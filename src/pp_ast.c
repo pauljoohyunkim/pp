@@ -1,4 +1,5 @@
 #include "pp_ast.h"
+#include "pp_tokens.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -225,7 +226,10 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             if (node->variable_declaration.initializer) pp_ast_root_print(node->variable_declaration.initializer, depth+1);
             break;
         case PP_AST_AssignmentNode:
-            printf("Assignment\n");
+            {
+                const char* op_name = pp_token_to_human_name(node->assignment.op);
+                printf("Assignment %s\n", op_name ? op_name : "?");
+            }
             pp_ast_root_print(node->assignment.lhs, depth+1);
             pp_ast_root_print(node->assignment.rhs, depth+1);
             break;
@@ -263,12 +267,18 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) pp_ast_root_print(node->statement_list.stmts[i], depth+1);
             break;
         case PP_AST_BinaryExpressionNode:
-            printf("BinaryExpression\n");
+            {
+                const char* op_name = pp_token_to_human_name(node->binary_expression.op);
+                printf("BinaryExpression %s\n", op_name ? op_name : "?");
+            }
             pp_ast_root_print(node->binary_expression.left, depth+1);
             pp_ast_root_print(node->binary_expression.right, depth+1);
             break;
         case PP_AST_UnaryExpressionNode:
-            printf("UnaryExpression\n");
+            {
+                const char* op_name = pp_token_to_human_name(node->unary_expression.op);
+                printf("UnaryExpression %s\n", op_name ? op_name : "?");
+            }
             pp_ast_root_print(node->unary_expression.operand, depth+1);
             break;
         case PP_AST_CastExpressionNode:

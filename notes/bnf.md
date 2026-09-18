@@ -64,7 +64,13 @@
 
 ;; --- Expression ---
 ;; TODO: Need to add equality, relational, etc.
-<expression>                ::= <equality>
+<expression>                ::= <logical_or>
+
+<logical_or>                ::= <logical_or> "||" <logical_and>
+                              | <equality>
+
+<logical_and>               ::= <logical_and> "&&" <equality>
+                              | <equality>
 
 <equality>                  ::= <equality> "==" <relational> 
                               | <equality> "!=" <relational> 
