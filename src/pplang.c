@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "pp_lexer.h"
 #include "pp_parser.h"
+#include "pp_semantic_analyzer.h"
 #include "pp_ast.h"
 
 static long get_file_size(const char *filename) {
@@ -84,7 +85,31 @@ int main(int argc, char** argv) {
         pp_ast_root_print(parser->program, 0);
     }
 
+    PP_SemanticAnalyzer* sa = NULL;
+    sa = pp_semantic_analyzer_create(parser);
+    if (!sa) {
+        printf("Semantic analyzer creation failure\n");
+        pp_parser_free(parser);
+        pp_lexer_free(lexer);
+        return 1;
+    }
+
+    ret = pp_semantic_analyzer_analyze(sa);
+    if (ret != 1) {
+        printf("Semantic analysis failed\n");
+    }
+
+    if (sa->error_list && sa->error_list->n_errors > 0) {
+        for (size_t i = 0; i < sa->error_list->n_errors; i++) {
+            PP_Error* e = &sa->error_list->errors[i];
+            printf("Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+        }
+    } else {
+        printf("Semantic analysis succeeded.\n");
+    }
+
     // Free in reverse order of creation
+    pp_semantic_analyzer_free(sa);
     pp_parser_free(parser);
     pp_lexer_free(lexer);
     return 0;
