@@ -23,6 +23,7 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
 PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
     PP_SemanticAnalyzer* sa = NULL;
     PP_GlobalTypeTable* gtt = NULL;
+    PPSymbolTable* gst = NULL;
 
     NULL_POINTER_ERROR_HANDLE(parser);
 
@@ -52,7 +53,15 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
 
     gtt = pp_global_type_table_create();
     NULL_POINTER_ERROR_HANDLE(gtt);
+
+    gst = pp_symbol_table_create(0);
+    NULL_POINTER_ERROR_HANDLE(gst);
+
     sa->gtt = gtt;
+    gtt = NULL;
+
+    sa->gst = gst;
+    gst = NULL;
 
     /* Optionally pre-intern primitive types */
     {
@@ -101,6 +110,7 @@ void pp_semantic_analyzer_free(PP_SemanticAnalyzer* sa) {
     pp_string_pool_free(sa->sp);
     pp_error_list_free(sa->error_list);
     pp_global_type_table_free(sa->gtt);
+    pp_symbol_table_free(sa->gst);
 
     free(sa);
 }
@@ -123,80 +133,56 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     assert(sa);
     assert(type_node);
     assert(type_node->node_type == PP_AST_TypeExpressionNode);
-    PPType* type = NULL;
-    PPType* subtype = NULL;
+
+    PPType *temp_type = NULL;                 /* owned – can be freed on error */
+    const PPType *gtt_registered_type = NULL;/* borrowed from GTT – must not be freed here */
 
     switch (type_node->type_expression.kind) {
         case PP_AST_TYPE_KIND_VOID:
-            type = pp_type_create(PP_TK_Void);
+            temp_type = pp_type_create(PP_TK_Void);
             break;
         case PP_AST_TYPE_KIND_INT32:
-            type = pp_type_create(PP_TK_Int32);
+            temp_type = pp_type_create(PP_TK_Int32);
             break;
         case PP_AST_TYPE_KIND_FLOAT:
-            type = pp_type_create(PP_TK_Float);
+            temp_type = pp_type_create(PP_TK_Float);
             break;
         case PP_AST_TYPE_KIND_BOOL:
-            type = pp_type_create(PP_TK_Bool);
+            temp_type = pp_type_create(PP_TK_Bool);
             break;
         case PP_AST_TYPE_KIND_IDENTIFIER:
             #warning "Type identifier not yet implemented"
             abort();
             break;
-        //default:
-        //    assert(0 && "Invalid AST type kind");
-        //    abort();
     }
-    NULL_POINTER_ERROR_HANDLE(type);
+    NULL_POINTER_ERROR_HANDLE(temp_type);
 
-    // Intern
-    type = pp_global_type_table_intern(sa->gtt, type);
-    NULL_POINTER_ERROR_HANDLE(type);
+    gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+    temp_type = NULL;
+    NULL_POINTER_ERROR_HANDLE(gtt_registered_type);
 
-    // Constness
     if (type_node->type_expression.is_const) {
-        subtype = type;
-        type = NULL;
-
-        // Create const wrapper
-        type = pp_type_create(PP_TK_Const);
-        NULL_POINTER_ERROR_HANDLE(type);
-
-        // Move internal type to a leaf ot const wrapper.
-        type->type.pp_type_const.const_of = subtype;
-        subtype = NULL;
-
-        // Intern
-        type = pp_global_type_table_intern(sa->gtt, type);
-        NULL_POINTER_ERROR_HANDLE(type);
+        temp_type = pp_type_create(PP_TK_Const);
+        NULL_POINTER_ERROR_HANDLE(temp_type);
+        temp_type->type.pp_type_const.const_of = gtt_registered_type;
+        gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+        temp_type = NULL;
+        NULL_POINTER_ERROR_HANDLE(gtt_registered_type);
     }
 
-    #warning "Array/List and reference needs implementation"
-    //if (type_node->type_expression.array_spec) {
-    //    subtype = type;
-    //    type = NULL;
-
-    //    // Create array/list wrapper
-    //    type->type.pp_type_
-    //}
     if (type_node->type_expression.is_reference) {
-        subtype = type;
-        type = NULL;
-
-        type->type.pp_type_reference.reference_to = subtype;
-        subtype = NULL;
-
-        // Intern
-        type = pp_global_type_table_intern(sa->gtt, type);
-        NULL_POINTER_ERROR_HANDLE(type);
+        temp_type = pp_type_create(PP_TK_Reference);
+        NULL_POINTER_ERROR_HANDLE(temp_type);
+        temp_type->type.pp_type_reference.reference_to = gtt_registered_type;
+        gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+        temp_type = NULL;
+        NULL_POINTER_ERROR_HANDLE(gtt_registered_type);
     }
 
-    return type;
+    return gtt_registered_type;
 
 error_cleanup:
-    pp_type_free(type);
-    pp_type_free(subtype);
-
+    pp_type_free(temp_type);
     return NULL;
 }
 
@@ -243,9 +229,45 @@ error_cleanup:
 static void pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
+    assert(node->node_type == PP_AST_FunctionDeclarationNode);
+    PPType* func_type = NULL;
+    PPSymbol* func_symbol = NULL;
 
+    func_type = pp_type_create(PP_TK_Function);
+    NULL_POINTER_ERROR_HANDLE(func_type);
+
+    const PPType* return_type = pp_type_from_type_node(sa, node->function_declaration.return_type);
+    NULL_POINTER_ERROR_HANDLE(return_type);
+
+    // Assign read-only return_type pointer.
+    func_type->type.pp_type_function.return_type = return_type;
+
+    // Add parameters
+    for (size_t i = 0; i < node->function_declaration.param_count; i++) {
+        const PPType* param_type = pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
+        NULL_POINTER_ERROR_HANDLE(param_type);
+        pp_type_push_param(func_type, param_type);
+    }
+
+    // Add to type table
+    func_type = pp_global_type_table_intern(sa->gtt, func_type);
+    NULL_POINTER_ERROR_HANDLE(func_type);
+
+    // Create symbol
+    func_symbol = pp_symbol_create(func_type, false, false);
+    NULL_POINTER_ERROR_HANDLE(func_symbol);
+
+    // Register to symbol table.
+    if (!pp_symbol_table_push(sa->gst, node->function_declaration.name, func_symbol)) {
+        goto error_cleanup;
+    }
+    func_symbol = NULL;
+
+    return;
 
 error_cleanup:
+    pp_type_free(func_type);
+    pp_symbol_free(func_symbol);
     return;
 }
 
@@ -263,10 +285,24 @@ static void pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAna
     assert(node);
     assert(node->node_type == PP_AST_VariableDeclarationNode);
     assert(node->variable_declaration.var_decl->node_type == PP_AST_ParamDeclarationNode);
+    assert(node->variable_declaration.var_decl->param_declaration.identifier);
+    PPSymbol* symbol = NULL;
 
     #warning "Variable temporarily constructed"
     const PPType* var_type = pp_type_from_type_node(sa, node->variable_declaration.var_decl->param_declaration.type_expr);
 
+    symbol = pp_symbol_create(var_type, false, false);
+    NULL_POINTER_ERROR_HANDLE(symbol);
+
+    if (!pp_symbol_table_push(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, symbol)) {
+        // TODO: ERROR_MESSAGE
+        goto error_cleanup;
+    }
+    symbol = NULL;
+
+    return;
+error_cleanup:
+    pp_symbol_free(symbol);
     return;
 }
 
@@ -277,7 +313,13 @@ static void pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnal
 
     #warning "Typedef temporarily constructed"
 
-    PPType* ptr = pp_type_from_type_node(sa, node->typedef_declaration.base_type);
+    const PPType* base_type = pp_type_from_type_node(sa, node->typedef_declaration.base_type);
+    NULL_POINTER_ERROR_HANDLE(base_type);
+    
+    if (!pp_global_type_table_register_alias(sa->gtt, node->typedef_declaration.identifier, base_type)) {
+        // TODO: ERROR MESSAGE
+        goto error_cleanup;
+    }
 
     return;
 

@@ -10,6 +10,7 @@ extern "C" {
 #include "pp_ast.h"
 #include "pp_type.h"
 #include "pp_type_table.h"
+#include "pp_symbol_table.h"
 
 typedef struct {
     const char* filename;
@@ -22,6 +23,7 @@ typedef struct {
 
     /* TODO: Environment not yet implemented */
     // PP_Environment* global_env;
+    PPSymbolTable* gst;
     PP_GlobalTypeTable* gtt;
 
     const PPType* current_function_type;

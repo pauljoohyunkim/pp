@@ -143,7 +143,6 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_ParamDeclarationNode: {
-            free(node->param_declaration.identifier);
             pp_ast_root_free_internal(node->param_declaration.type_expr);
             break;
         }
@@ -153,6 +152,16 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
                 pp_ast_root_free_internal(node->type_expression.array_spec->size_expr);
                 free(node->type_expression.array_spec);
             }
+            break;
+        }
+        case PP_AST_TypedefDeclarationNode: {
+            /* typedef_declaration.identifier is pool-owned const char* – do not free */
+            pp_ast_root_free_internal(node->typedef_declaration.base_type);
+            break;
+        }
+        case PP_AST_NewtypeDeclarationNode: {
+            /* newtype_declaration.identifier is pool-owned const char* – do not free */
+            pp_ast_root_free_internal(node->newtype_declaration.base_type);
             break;
         }
         case PP_AST_StructDeclarationNode: {

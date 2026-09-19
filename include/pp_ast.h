@@ -220,7 +220,7 @@ struct PP_AST_Node {
         } array_list_access;
 
         struct { /* ParamDeclaration */
-            char* identifier;
+            const char* identifier;
             PP_AST_Node* type_expr;
             const PPType* resolved_type;
         } param_declaration;
