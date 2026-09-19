@@ -60,10 +60,45 @@ static int pp_type_equal(const PPType *a, const PPType *b) {
         case PP_TK_Float:
         case PP_TK_Bool:
             return 1;
+
+        case PP_TK_Struct:
+            /* TODO: nominal equality – compare name, optionally layout */
+            break;
+
+        case PP_TK_Array:
+            /* TODO: compare size and recursively equal element_type */
+            break;
+
+        case PP_TK_List:
+            /* TODO: recursively equal element_type */
+            break;
+
+        case PP_TK_Const:
+            /* TODO: recursively equal const_of */
+            break;
+
+        case PP_TK_Reference:
+            /* TODO: recursively equal reference_to */
+            break;
+
+        case PP_TK_Newtype:
+            /* TODO: nominal equality – compare name, optionally underlying */
+            break;
+
+        case PP_TK_Function:
+            /* TODO: compare param_count, recursively equal return_type and each param_type */
+            break;
+
+        case PP_TK_Lambda:
+            /* TODO: compare param_count, recursively equal return_type and each param_type */
+            break;
+
         default:
             #warning "For complex types, fall back to pointer equality for now"
             return a == b;
     }
+    #warning "For complex types, fall back to pointer equality for now"
+    return 0;
 }
 
 PP_GlobalTypeTable* pp_global_type_table_create(void) {
