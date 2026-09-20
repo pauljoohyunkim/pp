@@ -332,6 +332,15 @@ static void pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnal
     assert(node);
     assert(node->node_type == PP_AST_NewtypeDeclarationNode);
 
+    const PPType* base_type = pp_type_from_type_node(sa, node->newtype_declaration.base_type);
+    NULL_POINTER_ERROR_HANDLE(base_type);
+
+    if (!pp_global_type_table_register_named(sa->gtt, node->newtype_declaration.identifier, base_type)) {
+        // TODO: ERROR MESSAGE
+        goto error_cleanup;
+    }
+
+    return;
 
 error_cleanup:
     return;
