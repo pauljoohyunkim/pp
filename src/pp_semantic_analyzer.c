@@ -230,27 +230,31 @@ static void pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAna
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_FunctionDeclarationNode);
-    PPType* func_type = NULL;
+    PPType *tmp_func = NULL;
+    const PPType *func_type = NULL;
     PPSymbol* func_symbol = NULL;
 
-    func_type = pp_type_create(PP_TK_Function);
-    NULL_POINTER_ERROR_HANDLE(func_type);
+    tmp_func = pp_type_create(PP_TK_Function);
+    NULL_POINTER_ERROR_HANDLE(tmp_func);
 
     const PPType* return_type = pp_type_from_type_node(sa, node->function_declaration.return_type);
     NULL_POINTER_ERROR_HANDLE(return_type);
 
     // Assign read-only return_type pointer.
-    func_type->type.pp_type_function.return_type = return_type;
+    tmp_func->type.pp_type_function.return_type = return_type;
 
     // Add parameters
     for (size_t i = 0; i < node->function_declaration.param_count; i++) {
         const PPType* param_type = pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
         NULL_POINTER_ERROR_HANDLE(param_type);
-        pp_type_push_param(func_type, param_type);
+        if (!pp_type_push_param(tmp_func, param_type)) {
+            goto error_cleanup;
+        }
     }
 
     // Add to type table
-    func_type = pp_global_type_table_intern(sa->gtt, func_type);
+    func_type = pp_global_type_table_intern(sa->gtt, tmp_func);
+    tmp_func = NULL;
     NULL_POINTER_ERROR_HANDLE(func_type);
 
     // Create symbol
@@ -266,7 +270,7 @@ static void pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAna
     return;
 
 error_cleanup:
-    pp_type_free(func_type);
+    pp_type_free(tmp_func);
     pp_symbol_free(func_symbol);
     return;
 }

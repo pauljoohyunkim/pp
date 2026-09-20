@@ -145,12 +145,14 @@ error_cleanup:
     return 0;
 }
 
-PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candidate) {
+const PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candidate) {
     if (!gtt || !candidate) return NULL;
     /* Search for existing equivalent */
     for (size_t i = 0; i < gtt->type_count; i++) {
         if (pp_type_equal(gtt->types[i], candidate)) {
-            pp_type_free(candidate);
+            if (candidate != gtt->types[i]) {
+                pp_type_free(candidate);
+            }
             return gtt->types[i];
         }
     }
@@ -164,7 +166,7 @@ PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candidate) 
 int pp_global_type_table_register_named(PP_GlobalTypeTable *gtt, const char *name, PPType *type) {
     if (!gtt || !name || !type) return 0;
     /* Intern first so we have canonical pointer */
-    PPType *canonical = pp_global_type_table_intern(gtt, type);
+    const PPType *canonical = pp_global_type_table_intern(gtt, type);
     if (!canonical) return 0;
     if (!ensure_named_capacity(gtt)) return 0;
     gtt->named_names[gtt->named_count] = name;

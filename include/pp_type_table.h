@@ -40,7 +40,7 @@ void pp_global_type_table_free(PP_GlobalTypeTable *gtt);
  * Otherwise transfer ownership of candidate into the table and return it.
  * Returns canonical pointer on success, NULL on failure.
  */
-PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candidate);
+const PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candidate);
 
 /**
  * @brief Internal push without interning check. Ownership of type is transferred.
