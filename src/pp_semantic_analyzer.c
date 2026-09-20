@@ -8,11 +8,11 @@
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node);
 /* Pass I */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
-static void pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
-static void pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
-static void pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
-static void pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
-static void pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 
 /* Pass II */
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
@@ -122,7 +122,9 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
     if (!sa) return 0;
 #warning "Multiple passes might need return value checking for each pass."
 
-    pp_semantic_analyzer_build_global_table(sa);
+    if (!pp_semantic_analyzer_build_global_table(sa)) {
+        return 0;
+    }
     /* pp_semantic_analyzer_full_analyze(sa); */
 
     return 1;
@@ -226,7 +228,7 @@ error_cleanup:
 }
 
 
-static void pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_FunctionDeclarationNode);
@@ -267,24 +269,27 @@ static void pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAna
     }
     func_symbol = NULL;
 
-    return;
+    return 1;
 
 error_cleanup:
     pp_type_free(tmp_func);
     pp_symbol_free(func_symbol);
-    return;
+    assert(sa);
+    assert(sa->error_list);
+    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing function declaration '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+    return 0;
 }
 
-static void pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
 
-
+    return 1;
 error_cleanup:
-    return;
+    return 0;
 }
 
-static void pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_VariableDeclarationNode);
@@ -304,13 +309,16 @@ static void pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAna
     }
     symbol = NULL;
 
-    return;
+    return 1;
 error_cleanup:
     pp_symbol_free(symbol);
-    return;
+    assert(sa);
+    assert(sa->error_list);
+    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing variable declaration '%s'", node->variable_declaration.var_decl->param_declaration.identifier);
+    return 0;
 }
 
-static void pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_TypedefDeclarationNode);
@@ -325,13 +333,16 @@ static void pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnal
         goto error_cleanup;
     }
 
-    return;
+    return 1;
 
 error_cleanup:
-    return;
+    assert(sa);
+    assert(sa->error_list);
+    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing typedef declaration '%s'", node->typedef_declaration.identifier);
+    return 0;
 }
 
-static void pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_NewtypeDeclarationNode);
@@ -344,10 +355,13 @@ static void pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnal
         goto error_cleanup;
     }
 
-    return;
+    return 1;
 
 error_cleanup:
-    return;
+    assert(sa);
+    assert(sa->error_list);
+    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing newtype declaration '%s'", node->newtype_declaration.identifier);
+    return 0;
 }
 
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
