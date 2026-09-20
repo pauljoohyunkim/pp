@@ -10,6 +10,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
 static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
@@ -172,6 +173,8 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         NULL_POINTER_ERROR_HANDLE(gtt_registered_type);
     }
 
+    #warning "Array/List not yet supported"
+
     if (type_node->type_expression.is_reference) {
         temp_type = pp_type_create(PP_TK_Reference);
         NULL_POINTER_ERROR_HANDLE(temp_type);
@@ -204,7 +207,7 @@ static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa) {
                 pp_semantic_analyzer_build_global_table_lambda_decl(sa, decl);
                 break;
             case PP_AST_StructDeclarationNode:
-
+                pp_semantic_analyzer_build_global_table_struct_decl(sa, decl);
                 break;
             case PP_AST_VariableDeclarationNode:
                 pp_semantic_analyzer_build_global_table_variable_decl(sa, decl);
@@ -283,9 +286,99 @@ error_cleanup:
 static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
+    assert(node->node_type == PP_AST_LambdaDeclarationNode);
+    PPType *tmp_lambda = NULL;
+    const PPType *lambda_type = NULL;
+    PPSymbol* lambda_symbol = NULL;
+
+    tmp_lambda = pp_type_create(PP_TK_Lambda);
+    NULL_POINTER_ERROR_HANDLE(tmp_lambda);
+
+    const PPType* return_type = pp_type_from_type_node(sa, node->function_declaration.return_type);
+    NULL_POINTER_ERROR_HANDLE(return_type);
+
+    // Assign read-only return_type pointer.
+    tmp_lambda->type.pp_type_lambda.return_type = return_type;
+
+    // Add parameters
+    for (size_t i = 0; i < node->function_declaration.param_count; i++) {
+        const PPType* param_type = pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
+        NULL_POINTER_ERROR_HANDLE(param_type);
+        if (!pp_type_push_param(tmp_lambda, param_type)) {
+            goto error_cleanup;
+        }
+    }
+
+    // Add to type table
+    lambda_type = pp_global_type_table_intern(sa->gtt, tmp_lambda);
+    tmp_lambda = NULL;
+    NULL_POINTER_ERROR_HANDLE(lambda_type);
+
+    // Create symbol
+    lambda_symbol = pp_symbol_create(lambda_type, false, false);
+    NULL_POINTER_ERROR_HANDLE(lambda_symbol);
+
+    // Register to symbol table.
+    if (!pp_symbol_table_push(sa->gst, node->function_declaration.name, lambda_symbol)) {
+        goto error_cleanup;
+    }
+    lambda_symbol = NULL;
 
     return 1;
+
 error_cleanup:
+    pp_type_free(tmp_lambda);
+    pp_symbol_free(lambda_symbol);
+    assert(sa);
+    assert(sa->error_list);
+    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing function declaration '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+    return 0;
+}
+
+static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_StructDeclarationNode);
+    PPType* tmp_struct = NULL;
+    const PPType* struct_type = NULL;
+    PP_StructLayout* struct_layout = NULL;
+
+    struct_layout = pp_struct_layout_create();
+    NULL_POINTER_ERROR_HANDLE(struct_layout);
+
+    #warning "Not yet resolving types to AST"
+    for (size_t i = 0; i < node->struct_declaration.field_count; i++) {
+        const PP_AST_StructField* field = &node->struct_declaration.fields[i];
+        assert(field->field->node_type == PP_AST_ParamDeclarationNode);
+        const PPType* field_type = pp_type_from_type_node(sa, field->field->param_declaration.type_expr);
+        NULL_POINTER_ERROR_HANDLE(field_type);
+
+        if (!pp_struct_layout_push_field(struct_layout, field->field->param_declaration.identifier, field_type, field->initializer)) {
+            goto error_cleanup;
+        }
+    }
+
+    tmp_struct = pp_type_create(PP_TK_Struct);
+    NULL_POINTER_ERROR_HANDLE(tmp_struct);
+
+    /* Assign */
+    tmp_struct->type.pp_type_struct.layout = struct_layout;
+    struct_layout = NULL;
+    tmp_struct->type.pp_type_struct.name = node->struct_declaration.name;
+
+    /* Add to type table */
+    struct_type = pp_global_type_table_intern(sa->gtt, tmp_struct);
+    tmp_struct = NULL;
+    NULL_POINTER_ERROR_HANDLE(struct_type);
+
+    return 1;
+
+error_cleanup:
+    pp_type_free(tmp_struct);
+    pp_struct_layout_free(struct_layout);
+    assert(sa);
+    assert(sa->error_list);
+    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing struct declaration '%s'", node->struct_declaration.name ? node->struct_declaration.name : "<unknown>");
     return 0;
 }
 

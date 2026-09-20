@@ -163,14 +163,11 @@ const PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candi
     return candidate;
 }
 
-int pp_global_type_table_register_named(PP_GlobalTypeTable *gtt, const char *name, PPType *type) {
+int pp_global_type_table_register_named(PP_GlobalTypeTable *gtt, const char *name, const PPType *type) {
     if (!gtt || !name || !type) return 0;
-    /* Intern first so we have canonical pointer */
-    const PPType *canonical = pp_global_type_table_intern(gtt, type);
-    if (!canonical) return 0;
     if (!ensure_named_capacity(gtt)) return 0;
     gtt->named_names[gtt->named_count] = name;
-    gtt->named_types[gtt->named_count] = canonical;
+    gtt->named_types[gtt->named_count] = type;
     gtt->named_count++;
     return 1;
 }
@@ -179,7 +176,7 @@ int pp_global_type_table_register_alias(PP_GlobalTypeTable *gtt, const char *ali
     if (!gtt || !alias_name || !type) return 0;
     if (!ensure_alias_capacity(gtt)) return 0;
     gtt->alias_names[gtt->alias_count] = alias_name;
-    gtt->alias_types[gtt->alias_count] = (PPType*)type;
+    gtt->alias_types[gtt->alias_count] = type;
     gtt->alias_count++;
     return 1;
 }
