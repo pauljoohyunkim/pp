@@ -1,6 +1,8 @@
 #include "pp_type_table.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <assert.h>
 
 #define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr)==NULL) goto error_cleanup; } while(0)
 #define ENSURE_CAP(vec, cap, count, type) \
@@ -50,55 +52,65 @@ static int ensure_alias_capacity(PP_GlobalTypeTable *gtt) {
 }
 
 /* Minimal structural equality – pointer shortcut then kind match. Full recursive compare TODO */
-static int pp_type_equal(const PPType *a, const PPType *b) {
-    if (a == b) return 1;
-    if (!a || !b) return 0;
-    if (a->kind != b->kind) return 0;
+static bool pp_type_equal(const PPType *a, const PPType *b) {
+    if (a == b) return true;
+    if (!a || !b) return false;
+    if (a->kind != b->kind) return false;
     switch (a->kind) {
         case PP_TK_Void:
         case PP_TK_Int32:
         case PP_TK_Float:
         case PP_TK_Bool:
-            return 1;
+            return true;
 
         case PP_TK_Struct:
-            /* TODO: nominal equality – compare name, optionally layout */
-            break;
+            /* nominal equality – compare name,
+               optionally layout -> Not applied */
+            return (a->type.pp_type_struct.name == b->type.pp_type_struct.name) && (strcmp(a->type.pp_type_struct.name, b->type.pp_type_struct.name));
 
         case PP_TK_Array:
-            /* TODO: compare size and recursively equal element_type */
-            break;
+            /* compare size and recursively equal element_type */
+            return (a->type.pp_type_array.size == b->type.pp_type_array.size) && pp_type_equal(a->type.pp_type_array.element_type, b->type.pp_type_array.element_type);
 
         case PP_TK_List:
-            /* TODO: recursively equal element_type */
-            break;
+            /* recursively equal element_type */
+            return (a->type.pp_type_array.size == b->type.pp_type_array.size) && pp_type_equal(a->type.pp_type_array.element_type, b->type.pp_type_array.element_type);
 
         case PP_TK_Const:
-            /* TODO: recursively equal const_of */
-            break;
+            /* recursively equal const_of */
+            return pp_type_equal(a->type.pp_type_const.const_of, b->type.pp_type_const.const_of);
 
         case PP_TK_Reference:
-            /* TODO: recursively equal reference_to */
-            break;
+            /* recursively equal reference_to */
+            return pp_type_equal(a->type.pp_type_reference.reference_to, b->type.pp_type_reference.reference_to);
 
         case PP_TK_Newtype:
-            /* TODO: nominal equality – compare name, optionally underlying */
-            break;
+            /* nominal equality – compare name
+               optionally underlying -> For now, not applied. */
+            return (a->type.pp_type_newtype.name == b->type.pp_type_newtype.name) && (strcmp(a->type.pp_type_newtype.name, b->type.pp_type_newtype.name) == 0);
 
         case PP_TK_Function:
-            /* TODO: compare param_count, recursively equal return_type and each param_type */
-            break;
+            /* compare param_count, recursively equal return_type and each param_type */
+            if (a->type.pp_type_function.param_count != b->type.pp_type_function.param_count) return false;
+            if (!pp_type_equal(a->type.pp_type_function.return_type, b->type.pp_type_function.return_type)) return false;
+            for (size_t i = 0; i < a->type.pp_type_function.param_count; i++) {
+                if (!pp_type_equal(a->type.pp_type_function.param_types[i], b->type.pp_type_function.param_types[i])) return false;
+            }
+            return true;
 
         case PP_TK_Lambda:
-            /* TODO: compare param_count, recursively equal return_type and each param_type */
-            break;
+            if (a->type.pp_type_lambda.param_count != b->type.pp_type_lambda.param_count) return false;
+            if (!pp_type_equal(a->type.pp_type_lambda.return_type, b->type.pp_type_lambda.return_type)) return false;
+            for (size_t i = 0; i < a->type.pp_type_lambda.param_count; i++) {
+                if (!pp_type_equal(a->type.pp_type_lambda.param_types[i], b->type.pp_type_lambda.param_types[i])) return false;
+            }
+            return true;
 
         default:
-            #warning "For complex types, fall back to pointer equality for now"
-            return a == b;
+            assert(0 && "PP Type Equal: Unreachable case.");
+            abort();
     }
-    #warning "For complex types, fall back to pointer equality for now"
-    return 0;
+    return false;
 }
 
 PP_GlobalTypeTable* pp_global_type_table_create(void) {
