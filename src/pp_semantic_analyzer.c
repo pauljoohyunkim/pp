@@ -309,6 +309,13 @@ error_cleanup:
 }
 
 
+/* Pass 1 - Function Declaration Checklist:
+ * [x] Detect duplicate symbol
+ * [ ] Resolve return type
+ * [ ] Resolve parameter types
+ * [ ] Build function type and intern in GTT
+ * [ ] Create symbol and register in global symbol table
+ */
 static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
@@ -316,6 +323,12 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     PPType *tmp_func = NULL;
     const PPType *func_type = NULL;
     PPSymbol* func_symbol = NULL;
+
+    // Duplicate check
+    if (pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Symbol '%s' is previously defined.", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
 
     tmp_func = pp_type_create(PP_TK_Function);
     NULL_POINTER_ERROR_HANDLE(tmp_func);
@@ -361,6 +374,13 @@ error_cleanup:
     return 0;
 }
 
+/* Pass 1 - Lambda Declaration Checklist:
+ * [ ] Detect duplicate symbol
+ * [ ] Resolve return type
+ * [ ] Resolve parameter types
+ * [ ] Build lambda type and intern in GTT
+ * [ ] Create symbol and register in global symbol table
+ */
 static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
@@ -413,6 +433,11 @@ error_cleanup:
     return 0;
 }
 
+/* Pass 1 - Struct Declaration Checklist:
+ * [ ] Detect duplicate type name in GTT
+ * [ ] Create struct type with NULL layout (defer field processing to Pass 2)
+ * [ ] Intern struct type in GTT
+ */
 static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
@@ -460,6 +485,12 @@ error_cleanup:
     return 0;
 }
 
+/* Pass 1 - Variable Declaration Checklist:
+ * [ ] Detect duplicate symbol in current scope
+ * [ ] Resolve variable type
+ * [ ] Disallow reference types for global variables
+ * [ ] Create symbol and register in global symbol table
+ */
 static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
@@ -489,6 +520,12 @@ error_cleanup:
     return 0;
 }
 
+/* Pass 1 - Typedef Declaration Checklist:
+ * [ ] Ensure base type is defined
+ * [ ] Ensure base type is not const or reference
+ * [ ] Detect duplicate typedef name
+ * [ ] Register alias in GTT
+ */
 static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
@@ -513,6 +550,13 @@ error_cleanup:
     return 0;
 }
 
+/* Pass 1 - Newtype Declaration Checklist:
+ * [ ] Ensure base type is defined
+ * [ ] Ensure base type is not const or reference
+ * [ ] Detect duplicate newtype name
+ * [ ] Detect cycles in newtype definition
+ * [ ] Register named type in GTT
+ */
 static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
