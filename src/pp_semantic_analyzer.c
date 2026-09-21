@@ -385,6 +385,9 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_LambdaDeclarationNode);
+    PPType *tmp_lambda = NULL;
+    const PPType *lambda_type = NULL;
+    PPSymbol* lambda_symbol = NULL;
     
     // Duplicate symbol check
     if (pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false)) {
@@ -393,10 +396,6 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
     }
-    
-    PPType *tmp_lambda = NULL;
-    const PPType *lambda_type = NULL;
-    PPSymbol* lambda_symbol = NULL;
 
     tmp_lambda = pp_type_create(PP_TK_Lambda);
     NULL_POINTER_ERROR_HANDLE(tmp_lambda);
@@ -506,6 +505,7 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
     assert(node->node_type == PP_AST_VariableDeclarationNode);
     assert(node->variable_declaration.var_decl->node_type == PP_AST_ParamDeclarationNode);
     assert(node->variable_declaration.var_decl->param_declaration.identifier);
+    PPSymbol* symbol = NULL;
     
     // Duplicate symbol check
     if (pp_symbol_table_lookup(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, false)) {
@@ -514,8 +514,6 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
                                  node->variable_declaration.var_decl->param_declaration.identifier);
         goto error_cleanup;
     }
-
-    PPSymbol* symbol = NULL;
 
     #warning "Variable temporarily constructed"
     const PPType* var_type = pp_type_from_type_node(sa, node->variable_declaration.var_decl->param_declaration.type_expr);
