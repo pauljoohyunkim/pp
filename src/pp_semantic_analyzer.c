@@ -375,7 +375,7 @@ error_cleanup:
 }
 
 /* Pass 1 - Lambda Declaration Checklist:
- * [ ] Detect duplicate symbol
+ * [x] Detect duplicate symbol
  * [ ] Resolve return type
  * [ ] Resolve parameter types
  * [ ] Build lambda type and intern in GTT
@@ -385,6 +385,15 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_LambdaDeclarationNode);
+    
+    // Duplicate symbol check
+    if (pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Symbol '%s' previously defined.",
+                                 node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+    
     PPType *tmp_lambda = NULL;
     const PPType *lambda_type = NULL;
     PPSymbol* lambda_symbol = NULL;
@@ -486,7 +495,7 @@ error_cleanup:
 }
 
 /* Pass 1 - Variable Declaration Checklist:
- * [ ] Detect duplicate symbol in current scope
+ * [x] Detect duplicate symbol in current scope
  * [ ] Resolve variable type
  * [ ] Disallow reference types for global variables
  * [ ] Create symbol and register in global symbol table
@@ -497,6 +506,15 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
     assert(node->node_type == PP_AST_VariableDeclarationNode);
     assert(node->variable_declaration.var_decl->node_type == PP_AST_ParamDeclarationNode);
     assert(node->variable_declaration.var_decl->param_declaration.identifier);
+    
+    // Duplicate symbol check
+    if (pp_symbol_table_lookup(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, false)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Symbol '%s' previously defined.",
+                                 node->variable_declaration.var_decl->param_declaration.identifier);
+        goto error_cleanup;
+    }
+
     PPSymbol* symbol = NULL;
 
     #warning "Variable temporarily constructed"
