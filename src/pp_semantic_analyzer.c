@@ -3,6 +3,84 @@
 #include <string.h>
 #include <assert.h>
 
+/*
+ * Semantic Analysis Checks (Pass 1 and Pass 2)
+ * 
+ * Pass 1 (Build Global Table):
+ *   - Detect duplicate symbols for functions, structs, variables, typedefs, newtypes.
+ *   - For functions: check for previous definition.
+ *   - For structs: check for previous definition.
+ *   - For variables: check for previous definition in the current scope.
+ *   - For typedefs: 
+ *        * Ensure base type is defined.
+ *        * Ensure base type is not const or reference.
+ *        * Check for duplicate typedef name.
+ *   - For newtypes:
+ *        * Ensure base type is defined.
+ *        * Ensure base type is not const or reference.
+ *        * Check for duplicate newtype name.
+ *        * Detect cycles in newtype definition (e.g., newtype A = B; newtype B = A;).
+ *   - General: 
+ *        * Maintain separate symbol tables per scope (to be implemented).
+ *        * Better error handling for type resolution.
+ * 
+ * Pass 2 (Full Analysis):
+ *   - Structs:
+ *        * Ensure struct is defined and of correct kind.
+ *        * Detect duplicate field names.
+ *        * Populate struct layout with fields.
+ *        * Verify each field type is well-defined.
+ *        * For fields with initializers:
+ *             * Check expression validity and type resolution.
+ *             * Require constexpr initializer.
+ *             * Ensure type match between field and initializer (after decay).
+ *             * If field is a reference, initializer must be an l-value.
+ *             * Const-correctness: non-const reference cannot bind to const value.
+ *             * Store default initializer for the field.
+ *   - Global Variables:
+ *        * Look up variable symbol.
+ *        * If no initializer:
+ *             * Error if type is const or reference.
+ *             * For struct types, ensure all const/reference fields have default initializers.
+ *        * Check expression validity and type resolution for initializer.
+ *        * Require constexpr initializer for globals.
+ *        * If variable is a reference:
+ *             * Initializer must be an l-value.
+ *             * Const-correctness: non-const reference cannot bind to const value.
+ *        * Ensure type match between variable and initializer (after decay).
+ *        * Update symbol's constness/constexpr flags.
+ *   - Functions:
+ *        * Look up function symbol and verify kind.
+ *        * Set current function return type for checking.
+ *        * If return type is non-void, verify all control paths return a value.
+ *        * Create parameter scope.
+ *        * Verify parameter count matches declaration.
+ *        * Detect duplicate parameter names.
+ *        * Create symbols for parameters with correct types and escapable reference flag.
+ *        * Create function body scope.
+ *        * Check statement list in the body.
+ *        * Wire scopes to AST nodes.
+ *   - Lambdas (similar to functions):
+ *        * Look up lambda symbol and verify kind.
+ *        * Set current return type.
+ *        * If return type is non-void, verify all paths return.
+ *        * Create parameter scope.
+ *        * Verify parameter count and detect duplicate names.
+ *        * Create parameter symbols.
+ *        * Create body scope.
+ *        * Check statement list in body.
+ *        * Wire scopes to AST.
+ *   - Expressions (checked during Pass 2):
+ *        * Verify binary operations for type compatibility.
+ *        * Verify unary operations for type compatibility.
+ *        * Verify literal expressions.
+ *        * Verify identifier expressions (variable lookup and type).
+ *        * Verify struct access (field exists and access type matches).
+ *        * Verify struct initialization (matches struct layout).
+ *        * Verify function calls (argument types match parameter types).
+ *        * Verify cast expressions.
+ */
+
 #define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr) == NULL) goto error_cleanup; } while (0)
 
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node);
