@@ -442,7 +442,7 @@ error_cleanup:
 }
 
 /* Pass 1 - Struct Declaration Checklist:
- * [ ] Detect duplicate type name in GTT
+ * [x] Detect duplicate type name in GTT
  * [ ] Create struct type with NULL layout (defer field processing to Pass 2)
  * [ ] Intern struct type in GTT
  */
@@ -453,6 +453,13 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
     PPType* tmp_struct = NULL;
     const PPType* struct_type = NULL;
     PP_StructLayout* struct_layout = NULL;
+
+    // Duplicate type name check in GTT (named types and aliases)
+    if (pp_global_type_table_find_by_name(sa->gtt, node->struct_declaration.name) != NULL || pp_global_type_table_find_alias(sa->gtt, node->struct_declaration.name) != NULL) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Type '%s' previously defined.", node->struct_declaration.name);
+        goto error_cleanup;
+    }
 
     struct_layout = pp_struct_layout_create();
     NULL_POINTER_ERROR_HANDLE(struct_layout);
