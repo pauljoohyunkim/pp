@@ -311,10 +311,8 @@ error_cleanup:
 
 /* Pass 1 - Function Declaration Checklist:
  * [x] Detect duplicate symbol
- * [ ] Resolve return type
- * [ ] Resolve parameter types
- * [ ] Build function type and intern in GTT
- * [ ] Create symbol and register in global symbol table
+ * [x] Build function type and intern in GTT
+ * [x] Create symbol and register in global symbol table
  */
 static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
@@ -376,10 +374,8 @@ error_cleanup:
 
 /* Pass 1 - Lambda Declaration Checklist:
  * [x] Detect duplicate symbol
- * [ ] Resolve return type
- * [ ] Resolve parameter types
- * [ ] Build lambda type and intern in GTT
- * [ ] Create symbol and register in global symbol table
+ * [x] Build lambda type and intern in GTT
+ * [x] Create symbol and register in global symbol table
  */
 static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
@@ -444,7 +440,7 @@ error_cleanup:
 /* Pass 1 - Struct Declaration Checklist:
  * [x] Detect duplicate type name in GTT
  * [ ] Create struct type with NULL layout (defer field processing to Pass 2)
- * [ ] Intern struct type in GTT
+ * [x] Intern struct type in GTT
  */
 static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
@@ -464,7 +460,8 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
     struct_layout = pp_struct_layout_create();
     NULL_POINTER_ERROR_HANDLE(struct_layout);
 
-    #warning "Not yet resolving types to AST"
+    #warning "Defer struct field registration to pass 2."
+    /*
     for (size_t i = 0; i < node->struct_declaration.field_count; i++) {
         const PP_AST_StructField* field = &node->struct_declaration.fields[i];
         assert(field->field->node_type == PP_AST_ParamDeclarationNode);
@@ -475,6 +472,7 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
             goto error_cleanup;
         }
     }
+    */
 
     tmp_struct = pp_type_create(PP_TK_Struct);
     NULL_POINTER_ERROR_HANDLE(tmp_struct);
@@ -502,9 +500,8 @@ error_cleanup:
 
 /* Pass 1 - Variable Declaration Checklist:
  * [x] Detect duplicate symbol in current scope
- * [ ] Resolve variable type
  * [ ] Disallow reference types for global variables
- * [ ] Create symbol and register in global symbol table
+ * [x] Create symbol and register in global symbol table
  */
 static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
