@@ -222,7 +222,7 @@ struct PP_AST_Node {
         struct { /* ParamDeclaration */
             const char* identifier;
             PP_AST_Node* type_expr;
-            const PPType* resolved_type;
+            //const PPType* resolved_type;
         } param_declaration;
 
         struct { /* StructInitializer */
