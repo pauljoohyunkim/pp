@@ -102,3 +102,16 @@ int pp_type_push_param(PPType* type, const PPType* param_type) {
     type->type.pp_type_function.param_count = new_count;
     return 1;
 }
+
+bool pp_type_is_const(const PPType* type) {
+    if (type == NULL) return false;
+
+    return false;
+}
+
+bool pp_type_is_reference(const PPType* type) {
+    if (type == NULL) return false;
+
+    return false;
+}
+
