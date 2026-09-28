@@ -556,6 +556,10 @@ static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnaly
 
     const PPType* base_type = pp_type_from_type_node(sa, node->typedef_declaration.base_type);
     NULL_POINTER_ERROR_HANDLE(base_type);
+
+    if (pp_type_is_const(base_type) || pp_type_is_reference(base_type)) {
+        goto error_cleanup;
+    }
     
     if (!pp_global_type_table_register_alias(sa->gtt, node->typedef_declaration.identifier, base_type)) {
         // TODO: ERROR MESSAGE
@@ -573,7 +577,7 @@ error_cleanup:
 
 /* Pass 1 - Newtype Declaration Checklist:
  * [x] Ensure base type is defined
- * [ ] Ensure base type is not const or reference
+ * [x] Ensure base type is not const or reference
  * [ ] Detect duplicate newtype name
  * [ ] Detect cycles in newtype definition
  * [x] Register named type in GTT
@@ -585,6 +589,10 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
 
     const PPType* base_type = pp_type_from_type_node(sa, node->newtype_declaration.base_type);
     NULL_POINTER_ERROR_HANDLE(base_type);
+
+    if (pp_type_is_const(base_type) || pp_type_is_reference(base_type)) {
+        goto error_cleanup;
+    }
 
     if (!pp_global_type_table_register_named(sa->gtt, node->newtype_declaration.identifier, base_type)) {
         // TODO: ERROR MESSAGE
