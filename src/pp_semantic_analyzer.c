@@ -232,7 +232,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             temp_type = pp_type_create(PP_TK_Bool);
             break;
         case PP_AST_TYPE_KIND_IDENTIFIER:
-            #warning "Type identifier not yet implemented"
+            #warning "Type identifier not yet implemented: Note that this might already be dealt using named_type and alises (and their underlying types)"
             abort();
             break;
     }
@@ -439,7 +439,7 @@ error_cleanup:
 
 /* Pass 1 - Struct Declaration Checklist:
  * [x] Detect duplicate type name in GTT
- * [ ] Create struct type with NULL layout (defer field processing to Pass 2)
+ * [x] Create struct type with NULL layout (defer field processing to Pass 2)
  * [x] Intern struct type in GTT
  */
 static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
@@ -460,7 +460,7 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
     struct_layout = pp_struct_layout_create();
     NULL_POINTER_ERROR_HANDLE(struct_layout);
 
-    #warning "Defer struct field registration to pass 2."
+    //#warning "Defer struct field registration to pass 2."
     /*
     for (size_t i = 0; i < node->struct_declaration.field_count; i++) {
         const PP_AST_StructField* field = &node->struct_declaration.fields[i];
@@ -521,6 +521,7 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
 
     #warning "Variable temporarily constructed"
     const PPType* var_type = pp_type_from_type_node(sa, node->variable_declaration.var_decl->param_declaration.type_expr);
+    NULL_POINTER_ERROR_HANDLE(var_type);
 
     symbol = pp_symbol_create(var_type, false, false);
     NULL_POINTER_ERROR_HANDLE(symbol);
@@ -541,10 +542,10 @@ error_cleanup:
 }
 
 /* Pass 1 - Typedef Declaration Checklist:
- * [ ] Ensure base type is defined
+ * [x] Ensure base type is defined
  * [ ] Ensure base type is not const or reference
  * [ ] Detect duplicate typedef name
- * [ ] Register alias in GTT
+ * [x] Register alias in GTT
  */
 static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
@@ -571,11 +572,11 @@ error_cleanup:
 }
 
 /* Pass 1 - Newtype Declaration Checklist:
- * [ ] Ensure base type is defined
+ * [x] Ensure base type is defined
  * [ ] Ensure base type is not const or reference
  * [ ] Detect duplicate newtype name
  * [ ] Detect cycles in newtype definition
- * [ ] Register named type in GTT
+ * [x] Register named type in GTT
  */
 static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
