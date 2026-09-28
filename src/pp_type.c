@@ -106,12 +106,25 @@ int pp_type_push_param(PPType* type, const PPType* param_type) {
 bool pp_type_is_const(const PPType* type) {
     if (type == NULL) return false;
 
-    return false;
+    switch (type->kind) {
+        case PP_TK_Reference:
+            return pp_type_is_const(type->type.pp_type_reference.reference_to);
+        case PP_TK_Array:
+            return pp_type_is_const(type->type.pp_type_array.element_type);
+        case PP_TK_List:
+            return pp_type_is_const(type->type.pp_type_list.element_type);
+        case PP_TK_Newtype:
+            return pp_type_is_const(type->type.pp_type_newtype.underlying);
+        case PP_TK_Const:
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool pp_type_is_reference(const PPType* type) {
     if (type == NULL) return false;
 
-    return false;
+    return type->kind == PP_TK_Reference;
 }
 
