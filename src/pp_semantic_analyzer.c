@@ -793,6 +793,9 @@ static int pp_semantic_analyzer_full_analyze_variable_decl(PP_SemanticAnalyzer* 
     assert(node);
     assert(node->node_type == PP_AST_VariableDeclarationNode);
 
+    #warning "Temporary wiring for global variable initializer"
+    pp_semantic_analyzer_check_expression(sa, sa->gst, node->variable_declaration.initializer);
+
     return 1;
 }
 
@@ -831,6 +834,7 @@ error_cleanup:
 
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
+    PPType* literal_type = NULL;
     assert(sa);
     assert(symbol_table);
     assert(expr);
@@ -859,6 +863,14 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
             goto error_cleanup;
     }
 
+    // Add const type modifier
+    literal_type = pp_type_create(PP_TK_Const);
+    NULL_POINTER_ERROR_HANDLE(literal_type);
+    literal_type->type.pp_type_const.const_of = resolved_type;
+
+    resolved_type = pp_global_type_table_intern(sa->gtt, literal_type);
+    literal_type = NULL;
+
     decoration = pp_ast_decoration_create(resolved_type, PP_VALUE_CATEGORY_RVALUE, true, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
 
@@ -869,5 +881,6 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
 
 error_cleanup:
     pp_ast_decoration_free(decoration);
+    pp_type_free(literal_type);
     return 0;
 }
