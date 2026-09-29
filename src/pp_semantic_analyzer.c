@@ -104,10 +104,16 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
     PP_GlobalTypeTable* gtt = NULL;
     PPSymbolTable* gst = NULL;
 
-    NULL_POINTER_ERROR_HANDLE(parser);
+    if (!parser) {
+        pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Parser is NULL");
+        goto error_cleanup;
+    }
 
     sa = (PP_SemanticAnalyzer*)calloc(1, sizeof(PP_SemanticAnalyzer));
-    NULL_POINTER_ERROR_HANDLE(sa);
+    if (!sa) {
+        pp_error_list_push_error(NULL, 0, 0, 0, "Failed to allocate memory for semantic analyzer");
+        goto error_cleanup;
+    }
 
     /* Transfer ownership of parser resources */
     sa->filename = parser->filename;
@@ -131,10 +137,16 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
     sa->current_function_type = NULL;
 
     gtt = pp_global_type_table_create();
-    NULL_POINTER_ERROR_HANDLE(gtt);
+    if (!gtt) {
+        pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Failed to create global type table");
+        goto error_cleanup;
+    }
 
     gst = pp_symbol_table_create(0);
-    NULL_POINTER_ERROR_HANDLE(gst);
+    if (!gst) {
+        pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Failed to create symbol table");
+        goto error_cleanup;
+    }
 
     sa->gtt = gtt;
     gtt = NULL;
@@ -236,30 +248,48 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             abort();
             break;
     }
-    NULL_POINTER_ERROR_HANDLE(temp_type);
+    if (!temp_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create type");
+        goto error_cleanup;
+    }
 
     gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
     temp_type = NULL;
-    NULL_POINTER_ERROR_HANDLE(gtt_registered_type);
+    if (!gtt_registered_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern type");
+        goto error_cleanup;
+    }
 
     if (type_node->type_expression.is_const) {
         temp_type = pp_type_create(PP_TK_Const);
-        NULL_POINTER_ERROR_HANDLE(temp_type);
+        if (!temp_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create const type");
+            goto error_cleanup;
+        }
         temp_type->type.pp_type_const.const_of = gtt_registered_type;
         gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
         temp_type = NULL;
-        NULL_POINTER_ERROR_HANDLE(gtt_registered_type);
+        if (!gtt_registered_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern const type");
+            goto error_cleanup;
+        }
     }
 
     #warning "Array/List not yet supported"
 
     if (type_node->type_expression.is_reference) {
         temp_type = pp_type_create(PP_TK_Reference);
-        NULL_POINTER_ERROR_HANDLE(temp_type);
+        if (!temp_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create reference type");
+            goto error_cleanup;
+        }
         temp_type->type.pp_type_reference.reference_to = gtt_registered_type;
         gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
         temp_type = NULL;
-        NULL_POINTER_ERROR_HANDLE(gtt_registered_type);
+        if (!gtt_registered_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern reference type");
+            goto error_cleanup;
+        }
     }
 
     return gtt_registered_type;
@@ -329,10 +359,16 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     }
 
     tmp_func = pp_type_create(PP_TK_Function);
-    NULL_POINTER_ERROR_HANDLE(tmp_func);
+    if (!tmp_func) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate memory for function type");
+        goto error_cleanup;
+    }
 
     const PPType* return_type = pp_type_from_type_node(sa, node->function_declaration.return_type);
-    NULL_POINTER_ERROR_HANDLE(return_type);
+    if (!return_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid return type for function '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
 
     // Assign read-only return_type pointer.
     tmp_func->type.pp_type_function.return_type = return_type;
@@ -340,7 +376,10 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     // Add parameters
     for (size_t i = 0; i < node->function_declaration.param_count; i++) {
         const PPType* param_type = pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
-        NULL_POINTER_ERROR_HANDLE(param_type);
+        if (!param_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid parameter type for function '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
         if (!pp_type_push_param(tmp_func, param_type)) {
             goto error_cleanup;
         }
@@ -348,15 +387,22 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
 
     // Add to type table
     func_type = pp_global_type_table_intern(sa->gtt, tmp_func);
+    if (!func_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to intern function type for function '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
     tmp_func = NULL;
-    NULL_POINTER_ERROR_HANDLE(func_type);
 
     // Create symbol
     func_symbol = pp_symbol_create(func_type, false, false);
-    NULL_POINTER_ERROR_HANDLE(func_symbol);
+    if (!func_symbol) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate symbol for function '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
 
     // Register to symbol table.
     if (!pp_symbol_table_push(sa->gst, node->function_declaration.name, func_symbol)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register function '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
     }
     func_symbol = NULL;
@@ -366,9 +412,6 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
 error_cleanup:
     pp_type_free(tmp_func);
     pp_symbol_free(func_symbol);
-    assert(sa);
-    assert(sa->error_list);
-    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing function declaration '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
     return 0;
 }
 
@@ -394,10 +437,16 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     }
 
     tmp_lambda = pp_type_create(PP_TK_Lambda);
-    NULL_POINTER_ERROR_HANDLE(tmp_lambda);
+    if (!tmp_lambda) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate memory for lambda type");
+        goto error_cleanup;
+    }
 
     const PPType* return_type = pp_type_from_type_node(sa, node->function_declaration.return_type);
-    NULL_POINTER_ERROR_HANDLE(return_type);
+    if (!return_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid return type for lambda");
+        goto error_cleanup;
+    }
 
     // Assign read-only return_type pointer.
     tmp_lambda->type.pp_type_lambda.return_type = return_type;
@@ -405,7 +454,10 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     // Add parameters
     for (size_t i = 0; i < node->function_declaration.param_count; i++) {
         const PPType* param_type = pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
-        NULL_POINTER_ERROR_HANDLE(param_type);
+        if (!param_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid parameter type for lambda '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
         if (!pp_type_push_param(tmp_lambda, param_type)) {
             goto error_cleanup;
         }
@@ -413,15 +465,22 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
 
     // Add to type table
     lambda_type = pp_global_type_table_intern(sa->gtt, tmp_lambda);
+    if (!lambda_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to intern lambda type for lambda '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
     tmp_lambda = NULL;
-    NULL_POINTER_ERROR_HANDLE(lambda_type);
 
     // Create symbol
     lambda_symbol = pp_symbol_create(lambda_type, false, false);
-    NULL_POINTER_ERROR_HANDLE(lambda_symbol);
+    if (!lambda_symbol) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate symbol for lambda '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
 
     // Register to symbol table.
     if (!pp_symbol_table_push(sa->gst, node->function_declaration.name, lambda_symbol)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register lambda '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
     }
     lambda_symbol = NULL;
@@ -431,9 +490,6 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
 error_cleanup:
     pp_type_free(tmp_lambda);
     pp_symbol_free(lambda_symbol);
-    assert(sa);
-    assert(sa->error_list);
-    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing function declaration '%s'", node->function_declaration.name ? node->function_declaration.name : "<unknown>");
     return 0;
 }
 
@@ -458,24 +514,39 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
     }
 
     struct_layout = pp_struct_layout_create();
-    NULL_POINTER_ERROR_HANDLE(struct_layout);
+    if (!struct_layout) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate struct layout for struct '%s'", node->struct_declaration.name);
+        goto error_cleanup;
+    }
 
-    //#warning "Defer struct field registration to pass 2."
-    /*
+    /* Process struct fields */
     for (size_t i = 0; i < node->struct_declaration.field_count; i++) {
         const PP_AST_StructField* field = &node->struct_declaration.fields[i];
-        assert(field->field->node_type == PP_AST_ParamDeclarationNode);
+        if (field->field->node_type != PP_AST_ParamDeclarationNode) {
+            pp_error_list_push_error(sa->error_list, sa->filename, field->field->line, field->field->col,
+                                     "Expected parameter declaration for struct field");
+            goto error_cleanup;
+        }
         const PPType* field_type = pp_type_from_type_node(sa, field->field->param_declaration.type_expr);
-        NULL_POINTER_ERROR_HANDLE(field_type);
+        if (!field_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                     "Failed to create type for struct field '%s'", field->field->param_declaration.identifier);
+            goto error_cleanup;
+        }
 
         if (!pp_struct_layout_push_field(struct_layout, field->field->param_declaration.identifier, field_type, field->initializer)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, field->field->line, field->field->col,
+                                     "Failed to add struct field '%s'", field->field->param_declaration.identifier);
             goto error_cleanup;
         }
     }
-    */
+
 
     tmp_struct = pp_type_create(PP_TK_Struct);
-    NULL_POINTER_ERROR_HANDLE(tmp_struct);
+    if (!tmp_struct) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate struct type for struct '%s'", node->struct_declaration.name);
+        goto error_cleanup;
+    }
 
     /* Assign */
     tmp_struct->type.pp_type_struct.layout = struct_layout;
@@ -484,17 +555,17 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
 
     /* Add to type table */
     struct_type = pp_global_type_table_intern(sa->gtt, tmp_struct);
+    if (!struct_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to intern struct type for struct '%s'", node->struct_declaration.name);
+        goto error_cleanup;
+    }
     tmp_struct = NULL;
-    NULL_POINTER_ERROR_HANDLE(struct_type);
 
     return 1;
 
 error_cleanup:
     pp_type_free(tmp_struct);
     pp_struct_layout_free(struct_layout);
-    assert(sa);
-    assert(sa->error_list);
-    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing struct declaration '%s'", node->struct_declaration.name ? node->struct_declaration.name : "<unknown>");
     return 0;
 }
 
@@ -521,13 +592,19 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
 
     #warning "Variable temporarily constructed"
     const PPType* var_type = pp_type_from_type_node(sa, node->variable_declaration.var_decl->param_declaration.type_expr);
-    NULL_POINTER_ERROR_HANDLE(var_type);
+    if (!var_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid type for variable '%s'", node->variable_declaration.var_decl->param_declaration.identifier);
+        goto error_cleanup;
+    }
 
     symbol = pp_symbol_create(var_type, false, false);
-    NULL_POINTER_ERROR_HANDLE(symbol);
+    if (!symbol) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate symbol for variable '%s'", node->variable_declaration.var_decl->param_declaration.identifier);
+        goto error_cleanup;
+    }
 
     if (!pp_symbol_table_push(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, symbol)) {
-        // TODO: ERROR_MESSAGE
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register variable '%s'", node->variable_declaration.var_decl->param_declaration.identifier);
         goto error_cleanup;
     }
     symbol = NULL;
@@ -535,9 +612,6 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
     return 1;
 error_cleanup:
     pp_symbol_free(symbol);
-    assert(sa);
-    assert(sa->error_list);
-    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing variable declaration '%s'", node->variable_declaration.var_decl->param_declaration.identifier);
     return 0;
 }
 
@@ -555,23 +629,24 @@ static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnaly
     #warning "Typedef temporarily constructed"
 
     const PPType* base_type = pp_type_from_type_node(sa, node->typedef_declaration.base_type);
-    NULL_POINTER_ERROR_HANDLE(base_type);
+    if (!base_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid base type for typedef '%s'", node->typedef_declaration.identifier);
+        goto error_cleanup;
+    }
 
     if (pp_type_is_const(base_type) || pp_type_is_reference(base_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Base type for typedef '%s' cannot be const or reference", node->typedef_declaration.identifier);
         goto error_cleanup;
     }
     
     if (!pp_global_type_table_register_alias(sa->gtt, node->typedef_declaration.identifier, base_type)) {
-        // TODO: ERROR MESSAGE
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register typedef alias '%s'", node->typedef_declaration.identifier);
         goto error_cleanup;
     }
 
     return 1;
 
 error_cleanup:
-    assert(sa);
-    assert(sa->error_list);
-    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing typedef declaration '%s'", node->typedef_declaration.identifier);
     return 0;
 }
 
@@ -588,23 +663,24 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
     assert(node->node_type == PP_AST_NewtypeDeclarationNode);
 
     const PPType* base_type = pp_type_from_type_node(sa, node->newtype_declaration.base_type);
-    NULL_POINTER_ERROR_HANDLE(base_type);
+    if (!base_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid base type for newtype '%s'", node->newtype_declaration.identifier);
+        goto error_cleanup;
+    }
 
     if (pp_type_is_const(base_type) || pp_type_is_reference(base_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Base type for newtype '%s' cannot be const or reference", node->newtype_declaration.identifier);
         goto error_cleanup;
     }
 
     if (!pp_global_type_table_register_named(sa->gtt, node->newtype_declaration.identifier, base_type)) {
-        // TODO: ERROR MESSAGE
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register newtype '%s'", node->newtype_declaration.identifier);
         goto error_cleanup;
     }
 
     return 1;
 
 error_cleanup:
-    assert(sa);
-    assert(sa->error_list);
-    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Semantic error processing newtype declaration '%s'", node->newtype_declaration.identifier);
     return 0;
 }
 
