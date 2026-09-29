@@ -11,6 +11,7 @@
  *   - For functions: check for previous definition.
  *   - For structs: check for previous definition.
  *   - For variables: check for previous definition in the current scope.
+ *                  Disallow reference types for global variables.
  *   - For typedefs: 
  *        * Ensure base type is defined.
  *        * Ensure base type is not const or reference.
@@ -513,13 +514,13 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
         goto error_cleanup;
     }
 
+    /* Field processing deferred to Pass 2 - layout stays NULL in Pass 1 
     struct_layout = pp_struct_layout_create();
     if (!struct_layout) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate struct layout for struct '%s'", node->struct_declaration.name);
         goto error_cleanup;
     }
 
-    /* Process struct fields */
     for (size_t i = 0; i < node->struct_declaration.field_count; i++) {
         const PP_AST_StructField* field = &node->struct_declaration.fields[i];
         if (field->field->node_type != PP_AST_ParamDeclarationNode) {
@@ -540,6 +541,7 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
             goto error_cleanup;
         }
     }
+    */
 
 
     tmp_struct = pp_type_create(PP_TK_Struct);
@@ -549,8 +551,7 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
     }
 
     /* Assign */
-    tmp_struct->type.pp_type_struct.layout = struct_layout;
-    struct_layout = NULL;
+    tmp_struct->type.pp_type_struct.layout = NULL;  /* deferred to Pass 2 */
     tmp_struct->type.pp_type_struct.name = node->struct_declaration.name;
 
     /* Add to type table */
@@ -571,7 +572,7 @@ error_cleanup:
 
 /* Pass 1 - Variable Declaration Checklist:
  * [x] Detect duplicate symbol in current scope
- * [ ] Disallow reference types for global variables
+ * [x] Disallow reference types for global variables
  * [x] Create symbol and register in global symbol table
  */
 static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
@@ -590,10 +591,13 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
         goto error_cleanup;
     }
 
-    #warning "Variable temporarily constructed"
     const PPType* var_type = pp_type_from_type_node(sa, node->variable_declaration.var_decl->param_declaration.type_expr);
     if (!var_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid type for variable '%s'", node->variable_declaration.var_decl->param_declaration.identifier);
+        goto error_cleanup;
+    }
+    if (pp_type_is_reference(var_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Global variable '%s' cannot be a reference", node->variable_declaration.var_decl->param_declaration.identifier);
         goto error_cleanup;
     }
 
@@ -617,8 +621,9 @@ error_cleanup:
 
 /* Pass 1 - Typedef Declaration Checklist:
  * [x] Ensure base type is defined
- * [ ] Ensure base type is not const or reference
- * [ ] Detect duplicate typedef name
+ * [x] Ensure base type is not const or reference
+ * [x] Detect duplicate typedef name
+ * [-] Detect cycles in typedef definition  -> Dead code (though might need to be supported if later supporting forward declaration.)
  * [x] Register alias in GTT
  */
 static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
@@ -626,7 +631,10 @@ static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnaly
     assert(node);
     assert(node->node_type == PP_AST_TypedefDeclarationNode);
 
-    #warning "Typedef temporarily constructed"
+    if (pp_global_type_table_find_alias(sa->gtt, node->typedef_declaration.identifier) || pp_global_type_table_find_by_name(sa->gtt, node->typedef_declaration.identifier)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Type '%s' previously defined", node->typedef_declaration.identifier);
+        goto error_cleanup;
+    }
 
     const PPType* base_type = pp_type_from_type_node(sa, node->typedef_declaration.base_type);
     if (!base_type) {
@@ -653,14 +661,19 @@ error_cleanup:
 /* Pass 1 - Newtype Declaration Checklist:
  * [x] Ensure base type is defined
  * [x] Ensure base type is not const or reference
- * [ ] Detect duplicate newtype name
- * [ ] Detect cycles in newtype definition
+ * [x] Detect duplicate newtype name
+ * [-] Detect cycles in newtype definition  -> See comments for pass 1 typedef
  * [x] Register named type in GTT
  */
 static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_NewtypeDeclarationNode);
+
+    if (pp_global_type_table_find_alias(sa->gtt, node->newtype_declaration.identifier) || pp_global_type_table_find_by_name(sa->gtt, node->newtype_declaration.identifier)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Type '%s' previously defined", node->newtype_declaration.identifier);
+        goto error_cleanup;
+    }
 
     const PPType* base_type = pp_type_from_type_node(sa, node->newtype_declaration.base_type);
     if (!base_type) {

@@ -66,7 +66,7 @@ static bool pp_type_equal(const PPType *a, const PPType *b) {
         case PP_TK_Struct:
             /* nominal equality – compare name,
                optionally layout -> Not applied */
-            return (a->type.pp_type_struct.name == b->type.pp_type_struct.name) && (strcmp(a->type.pp_type_struct.name, b->type.pp_type_struct.name));
+            return (a->type.pp_type_struct.name == b->type.pp_type_struct.name) && (strcmp(a->type.pp_type_struct.name, b->type.pp_type_struct.name) == 0);
 
         case PP_TK_Array:
             /* compare size and recursively equal element_type */
@@ -74,7 +74,7 @@ static bool pp_type_equal(const PPType *a, const PPType *b) {
 
         case PP_TK_List:
             /* recursively equal element_type */
-            return (a->type.pp_type_array.size == b->type.pp_type_array.size) && pp_type_equal(a->type.pp_type_array.element_type, b->type.pp_type_array.element_type);
+            return pp_type_equal(a->type.pp_type_list.element_type, b->type.pp_type_list.element_type);
 
         case PP_TK_Const:
             /* recursively equal const_of */

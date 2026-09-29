@@ -115,3 +115,39 @@ TEST(SemanticTest, Pass1VariableDeclaration) {
     EXPECT_EQ(lexer_errors + parser_errors, 0);
     EXPECT_EQ(semantic_errors, 0);
 }
+
+TEST(SemanticTest, Pass1GlobalVariableReferenceError) {
+    const char* source =
+        "let g :: int32&;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Global variables cannot be references
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, Pass1TypedefDuplicateNameError) {
+    const char* source =
+        "typedef int32 Handle;\n"
+        "typedef float Handle;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Duplicate typedef name should be reported
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, Pass1NewtypeDuplicateNameError) {
+    const char* source =
+        "newtype int32 Id;\n"
+        "newtype float Id;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Duplicate newtype name should be reported
+    EXPECT_GT(semantic_errors, 0);
+}
+
