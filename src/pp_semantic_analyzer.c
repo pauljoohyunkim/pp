@@ -97,8 +97,12 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
 /* Pass II */
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
+
+static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
 /**
  * @brief Creates semantic analyzer from parser
@@ -713,13 +717,13 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
                 pp_semantic_analyzer_full_analyze_function_decl(sa, decl);
                 break;
             case PP_AST_LambdaDeclarationNode:
-                #warning "Lambda declaration check"
+                pp_semantic_analyzer_full_analyze_lambda_decl(sa, decl);
                 break;
             case PP_AST_StructDeclarationNode:
-                #warning "Struct declaration check
+                pp_semantic_analyzer_full_analyze_struct_decl(sa, decl);
                 break;
             case PP_AST_VariableDeclarationNode:
-                #warning "Variable declaration check"
+                pp_semantic_analyzer_full_analyze_variable_decl(sa, decl);
                 break;
             case PP_AST_TypedefDeclarationNode:
                 // Nothing to do
@@ -728,10 +732,9 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
                 // Nothing to do
                 break;
             default:
-                assert(0 && "Semantic Analyzer Pass 1 default case. This should have been handled at parser.");
+                assert(0 && "Semantic Analyzer Pass 2 default case. This should have been handled at parser.");
                 abort();
         }
-
     }
 
     return 1;
@@ -745,7 +748,15 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
     assert(node);
     assert(node->node_type == PP_AST_FunctionDeclarationNode);
 
+    return 1;
+}
 
+static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_StructDeclarationNode);
+
+    return 1;
 }
 
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
@@ -753,11 +764,72 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
     assert(node);
     assert(node->node_type == PP_AST_LambdaDeclarationNode);
 
+    return 1;
 }
 
 static int pp_semantic_analyzer_full_analyze_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_VariableDeclarationNode);
+
+    return 1;
+}
+
+static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+
+    switch (expr->node_type) {
+        case PP_AST_FunctionCallNode:
+            break;
+        case PP_AST_BinaryExpressionNode:
+            break;
+        case PP_AST_UnaryExpressionNode:
+            break;
+        case PP_AST_LiteralNode:
+            break;
+        case PP_AST_IdentifierNode:
+            break;
+        case PP_AST_MemberAccessNode:
+            break;
+        case PP_AST_StructInitializerNode:
+            break;
+        case PP_AST_CastExpressionNode:
+            break;
+        default:
+            goto error_cleanup;
+    }
+
+    return 1;
+
+error_cleanup:
+    return 0;
+}
+
+static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_LiteralNode);
+
+    // If already decorated, we are done.
+    if (expr->literal.decoration != NULL) return 1;
+
+    switch (expr->literal.literal_type) {
+        case PP_TT_INTEGER_LITERAL:
+            {
+
+            }
+            break;
+        case PP_TT_TRUE:
+        case PP_TT_FALSE:
+            break;
+        case PP_TT_FLOAT_LITERAL:
+            {
+
+            }
+            break;
+    }
 
 }
