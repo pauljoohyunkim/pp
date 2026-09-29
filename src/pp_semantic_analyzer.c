@@ -96,6 +96,9 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
 
 /* Pass II */
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
+static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 
 /**
  * @brief Creates semantic analyzer from parser
@@ -704,16 +707,16 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
     NULL_POINTER_ERROR_HANDLE(sa->program);
 
     for (size_t i = 0; i < sa->program->program.decl_count; i++) {
-        const PP_AST_Node* decl = sa->program->program.decls[i];
+        PP_AST_Node* decl = sa->program->program.decls[i];
         switch (decl->node_type) {
             case PP_AST_FunctionDeclarationNode:
-                #warning "Function declaration check"
+                pp_semantic_analyzer_full_analyze_function_decl(sa, decl);
                 break;
             case PP_AST_LambdaDeclarationNode:
                 #warning "Lambda declaration check"
                 break;
             case PP_AST_StructDeclarationNode:
-                // Nothing to do
+                #warning "Struct declaration check
                 break;
             case PP_AST_VariableDeclarationNode:
                 #warning "Variable declaration check"
@@ -735,4 +738,26 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
 
 error_cleanup:
     return 0;
+}
+
+static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_FunctionDeclarationNode);
+
+
+}
+
+static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_LambdaDeclarationNode);
+
+}
+
+static int pp_semantic_analyzer_full_analyze_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_VariableDeclarationNode);
+
 }
