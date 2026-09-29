@@ -167,19 +167,39 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
         PPType* t = NULL;
         t = pp_type_create(PP_TK_Void);
         if (t) {
-            pp_global_type_table_intern(sa->gtt, t);
+            const char* type_name = pp_string_pool_push(sa->sp, "void", 4);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
         }
         t = pp_type_create(PP_TK_Int32);
         if (t) {
-            pp_global_type_table_intern(sa->gtt, t);
+            const char* type_name = pp_string_pool_push(sa->sp, "int32", 5);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
         }
         t = pp_type_create(PP_TK_Float);
         if (t) {
-            pp_global_type_table_intern(sa->gtt, t);
+            const char* type_name = pp_string_pool_push(sa->sp, "float", 5);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
         }
         t = pp_type_create(PP_TK_Bool);
         if (t) {
-            pp_global_type_table_intern(sa->gtt, t);
+            const char* type_name = pp_string_pool_push(sa->sp, "bool", 4);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
         }
     }
 
@@ -192,6 +212,7 @@ error_cleanup:
             pp_error_list_free(sa->error_list);
         }
         pp_global_type_table_free(sa->gtt);
+        pp_symbol_table_free(sa->gst);
     }
     free(sa);
     return NULL;
