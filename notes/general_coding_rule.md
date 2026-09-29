@@ -5,6 +5,16 @@
 - Prefer `NULL_POINTER_ERROR_HANDLE` for all non-nullable inputs/objects at function entry and after allocations, rather than manual `if (!ptr) goto error_cleanup;`.
 - When an `error_cleanup` label exists, do not perform early returns for null pointers; let the macro jump to cleanup.
 - If a function has no `error_cleanup`, do **not** use `NULL_POINTER_ERROR_HANDLE`; use explicit early return instead. The macro requires a cleanup target.
+- Exception: when a specific diagnostic must be emitted for the failure, perform an explicit nullity check, push the error via `pp_error_list_push_error` (or equivalent), then `goto error_cleanup`. This is allowed for semantic/user-visible errors where the message needs context.
+  Example:
+  ```c
+  tmp = pp_type_create(...);
+  if (!tmp) {
+      pp_error_list_push_error(sa->error_list, sa->filename, line, col, "Failed to allocate ...");
+      goto error_cleanup;
+  }
+  ```
+  In such cases do not combine with `NULL_POINTER_ERROR_HANDLE`; the explicit check is intentional.
 
 ## Memory / Free discipline
 - Custom free functions safely handle NULL: `free(NULL)` is valid in C.
@@ -40,10 +50,10 @@
   - After moving a pointer into a parent struct/array, nullify the source pointer to avoid double-free on error paths.
 - **Token consumption**: Wrap token consumptions that only assert type in a scoped block `{ ... }` with a local temporary variable, then apply `NULL_POINTER_ERROR_HANDLE` to the consumed token.
 - **Line/column capture**: Capture `line`/`col` from the consumed token inside the scoped block, using outer-scope variables.
-- **Allocations**: Every allocation (node creation, calloc, etc.) immediately followed by `NULL_POINTER_ERROR_HANDLE(ptr)`.
+- **Allocations**: Every allocation (node creation, calloc, etc.) immediately followed by `NULL_POINTER_ERROR_HANDLE(ptr)`, unless a specific diagnostic message must be emitted – see Error handling exception above. In the latter case, check explicitly, push error, then goto cleanup.
 - **Ownership transfer**: After assigning a pointer to a parent node, set the source pointer to `NULL` to avoid double-free in error paths.
 - **Error cleanup**: Single `error_cleanup` label at end of function; free all owned resources unconditionally (free functions handle NULL). Only guard loops that would access array elements.
-- **Early returns / parser guard**: Do NOT use plain `if (parser == NULL) return NULL;`. Use `NULL_POINTER_ERROR_HANDLE(parser);` at function entry so the nullity check is expressed via the macro, consistent with cz/src/cz_parser.c. The macro communicates error handling intent and routes to `error_cleanup` where cleanup exists.
+- **Early returns / parser guard**: Do NOT use plain `if (parser == NULL) return NULL;`. Use `NULL_POINTER_ERROR_HANDLE(parser);` at function entry so the nullity check is expressed via the macro, consistent with cz/src/cz_parser.c. The macro communicates error handling intent and routes to `error_cleanup` where cleanup exists. If a diagnostic must be emitted for a null parser, use the explicit check + push error + goto pattern described in Error handling.
 
 ## Token consumption pattern
 ```c
@@ -62,11 +72,18 @@ if (!tok) return NULL;
 
 ## Allocation pattern
 ```c
-// Good: immediate error handling
+// Good: immediate error handling with macro when no diagnostic needed
 PP_AST_Node* node = pp_ast_node_create(PP_AST_FooNode, line, col);
 NULL_POINTER_ERROR_HANDLE(node);
 
-// Avoid: manual null check
+// Good: explicit check with specific diagnostic when required
+PPType* t = pp_type_create(PP_TK_Int32);
+if (!t) {
+    pp_error_list_push_error(sa->error_list, sa->filename, line, col, "Failed to allocate type");
+    goto error_cleanup;
+}
+
+// Avoid: manual null check without diagnostic or macro
 PP_AST_Node* node = pp_ast_node_create(PP_AST_FooNode, line, col);
 if (!node) goto error_cleanup;
 ```

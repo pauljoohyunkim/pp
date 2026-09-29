@@ -14,12 +14,12 @@ typedef struct {
     size_t type_capacity;
 
     const char **named_names;
-    PPType **named_types;
+    const PPType **named_types;
     size_t named_count;
     size_t named_capacity;
 
     const char **alias_names;
-    PPType **alias_types;
+    const PPType **alias_types;
     size_t alias_count;
     size_t alias_capacity;
 } PP_GlobalTypeTable;
@@ -40,7 +40,7 @@ void pp_global_type_table_free(PP_GlobalTypeTable *gtt);
  * Otherwise transfer ownership of candidate into the table and return it.
  * Returns canonical pointer on success, NULL on failure.
  */
-PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candidate);
+const PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candidate);
 
 /**
  * @brief Internal push without interning check. Ownership of type is transferred.
@@ -52,7 +52,7 @@ int pp_global_type_table_push_internal(PP_GlobalTypeTable *gtt, PPType *type);
  * @brief Register a named type. Named types are distinct types with an associated name
  * (e.g., struct, newtype). Ownership of type is transferred to the table.
  */
-int pp_global_type_table_register_named(PP_GlobalTypeTable *gtt, const char *name, PPType *type);
+int pp_global_type_table_register_named(PP_GlobalTypeTable *gtt, const char *name, const PPType *type);
 
 /**
  * @brief Register an alias name → existing type. Alias does not own the type.

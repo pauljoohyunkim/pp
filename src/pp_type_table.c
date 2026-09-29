@@ -1,6 +1,8 @@
 #include "pp_type_table.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <assert.h>
 
 #define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr)==NULL) goto error_cleanup; } while(0)
 #define ENSURE_CAP(vec, cap, count, type) \
@@ -50,20 +52,65 @@ static int ensure_alias_capacity(PP_GlobalTypeTable *gtt) {
 }
 
 /* Minimal structural equality – pointer shortcut then kind match. Full recursive compare TODO */
-static int pp_type_equal(const PPType *a, const PPType *b) {
-    if (a == b) return 1;
-    if (!a || !b) return 0;
-    if (a->kind != b->kind) return 0;
+static bool pp_type_equal(const PPType *a, const PPType *b) {
+    if (a == b) return true;
+    if (!a || !b) return false;
+    if (a->kind != b->kind) return false;
     switch (a->kind) {
         case PP_TK_Void:
         case PP_TK_Int32:
         case PP_TK_Float:
         case PP_TK_Bool:
-            return 1;
+            return true;
+
+        case PP_TK_Struct:
+            /* nominal equality – compare name,
+               optionally layout -> Not applied */
+            return (a->type.pp_type_struct.name == b->type.pp_type_struct.name) && (strcmp(a->type.pp_type_struct.name, b->type.pp_type_struct.name) == 0);
+
+        case PP_TK_Array:
+            /* compare size and recursively equal element_type */
+            return (a->type.pp_type_array.size == b->type.pp_type_array.size) && pp_type_equal(a->type.pp_type_array.element_type, b->type.pp_type_array.element_type);
+
+        case PP_TK_List:
+            /* recursively equal element_type */
+            return pp_type_equal(a->type.pp_type_list.element_type, b->type.pp_type_list.element_type);
+
+        case PP_TK_Const:
+            /* recursively equal const_of */
+            return pp_type_equal(a->type.pp_type_const.const_of, b->type.pp_type_const.const_of);
+
+        case PP_TK_Reference:
+            /* recursively equal reference_to */
+            return pp_type_equal(a->type.pp_type_reference.reference_to, b->type.pp_type_reference.reference_to);
+
+        case PP_TK_Newtype:
+            /* nominal equality – compare name
+               optionally underlying -> For now, not applied. */
+            return (a->type.pp_type_newtype.name == b->type.pp_type_newtype.name) && (strcmp(a->type.pp_type_newtype.name, b->type.pp_type_newtype.name) == 0);
+
+        case PP_TK_Function:
+            /* compare param_count, recursively equal return_type and each param_type */
+            if (a->type.pp_type_function.param_count != b->type.pp_type_function.param_count) return false;
+            if (!pp_type_equal(a->type.pp_type_function.return_type, b->type.pp_type_function.return_type)) return false;
+            for (size_t i = 0; i < a->type.pp_type_function.param_count; i++) {
+                if (!pp_type_equal(a->type.pp_type_function.param_types[i], b->type.pp_type_function.param_types[i])) return false;
+            }
+            return true;
+
+        case PP_TK_Lambda:
+            if (a->type.pp_type_lambda.param_count != b->type.pp_type_lambda.param_count) return false;
+            if (!pp_type_equal(a->type.pp_type_lambda.return_type, b->type.pp_type_lambda.return_type)) return false;
+            for (size_t i = 0; i < a->type.pp_type_lambda.param_count; i++) {
+                if (!pp_type_equal(a->type.pp_type_lambda.param_types[i], b->type.pp_type_lambda.param_types[i])) return false;
+            }
+            return true;
+
         default:
-            /* For complex types, fall back to pointer equality for now */
-            return a == b;
+            assert(0 && "PP Type Equal: Unreachable case.");
+            abort();
     }
+    return false;
 }
 
 PP_GlobalTypeTable* pp_global_type_table_create(void) {
@@ -98,12 +145,14 @@ error_cleanup:
     return 0;
 }
 
-PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candidate) {
+const PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candidate) {
     if (!gtt || !candidate) return NULL;
     /* Search for existing equivalent */
     for (size_t i = 0; i < gtt->type_count; i++) {
         if (pp_type_equal(gtt->types[i], candidate)) {
-            pp_type_free(candidate);
+            if (candidate != gtt->types[i]) {
+                pp_type_free(candidate);
+            }
             return gtt->types[i];
         }
     }
@@ -114,14 +163,11 @@ PPType* pp_global_type_table_intern(PP_GlobalTypeTable *gtt, PPType *candidate) 
     return candidate;
 }
 
-int pp_global_type_table_register_named(PP_GlobalTypeTable *gtt, const char *name, PPType *type) {
+int pp_global_type_table_register_named(PP_GlobalTypeTable *gtt, const char *name, const PPType *type) {
     if (!gtt || !name || !type) return 0;
-    /* Intern first so we have canonical pointer */
-    PPType *canonical = pp_global_type_table_intern(gtt, type);
-    if (!canonical) return 0;
     if (!ensure_named_capacity(gtt)) return 0;
     gtt->named_names[gtt->named_count] = name;
-    gtt->named_types[gtt->named_count] = canonical;
+    gtt->named_types[gtt->named_count] = type;
     gtt->named_count++;
     return 1;
 }
@@ -130,7 +176,7 @@ int pp_global_type_table_register_alias(PP_GlobalTypeTable *gtt, const char *ali
     if (!gtt || !alias_name || !type) return 0;
     if (!ensure_alias_capacity(gtt)) return 0;
     gtt->alias_names[gtt->alias_count] = alias_name;
-    gtt->alias_types[gtt->alias_count] = (PPType*)type;
+    gtt->alias_types[gtt->alias_count] = type;
     gtt->alias_count++;
     return 1;
 }

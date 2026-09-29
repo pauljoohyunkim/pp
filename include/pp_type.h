@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include <stdbool.h>
 
 // Forward declare PP_AST_Node for PPStructField
 struct PP_AST_Node;
@@ -102,6 +103,9 @@ int pp_struct_layout_push_field(PP_StructLayout* layout, const char* field_name,
 /** @brief Append a parameter type to a function or lambda type. Reallocates the
  * param_types array. Returns 1 on success, 0 on failure. */
 int pp_type_push_param(PPType* type, const PPType* param_type);
+
+bool pp_type_is_const(const PPType* type);
+bool pp_type_is_reference(const PPType* type);
 
 #ifdef __cplusplus
 }
