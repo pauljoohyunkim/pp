@@ -5,13 +5,13 @@
 
 #define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr) == NULL) goto error_cleanup; } while(0)
 
-PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueCategory value_category, bool is_constexpr, unsigned int scope_level) {
+PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueCategory value_category, bool is_constexpr, bool is_escapable_ref) {
     PP_AST_Decoration* d = (PP_AST_Decoration*)calloc(1, sizeof(PP_AST_Decoration));
     if (!d) return NULL;
     d->resolved_type = resolved_type;
     d->value_category = value_category;
     d->is_constexpr = is_constexpr;
-    (void)scope_level;
+    d->is_escapable_ref = is_escapable_ref;
     return d;
 }
 

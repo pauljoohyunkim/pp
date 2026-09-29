@@ -25,6 +25,7 @@ typedef struct {
     const PPType* resolved_type;
     PP_ValueCategory value_category;
     bool is_constexpr;
+    bool is_escapable_ref;
     /* unsigned int scope_level; // reserved */
 } PP_AST_Decoration;
 
@@ -244,7 +245,7 @@ struct PP_AST_Node {
     };
 };
 
-PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueCategory value_category, bool is_constexpr, unsigned int scope_level);
+PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueCategory value_category, bool is_constexpr, bool is_escapable_ref);
 void pp_ast_decoration_free(PP_AST_Decoration* decor);
 
 PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, unsigned int col);
