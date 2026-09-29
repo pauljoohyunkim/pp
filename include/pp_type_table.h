@@ -75,6 +75,12 @@ const PPType* pp_global_type_table_find_alias(PP_GlobalTypeTable *gtt, const cha
  */
 const PPType* pp_global_type_table_find_type(PP_GlobalTypeTable *gtt, const PPType *query);
 
+/**
+ * @brief Print the global type table.
+ * @param gtt Pointer to the global type table.
+ */
+void pp_global_type_table_print(const PP_GlobalTypeTable *gtt);
+
 #ifdef __cplusplus
 }
 #endif

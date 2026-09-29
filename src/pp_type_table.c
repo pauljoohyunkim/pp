@@ -1,4 +1,5 @@
 #include "pp_type_table.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -209,4 +210,29 @@ const PPType* pp_global_type_table_find_type(PP_GlobalTypeTable *gtt, const PPTy
         }
     }
     return NULL;
+}
+
+/**
+ * @brief Print the global type table.
+ * @param gtt Pointer to the global type table.
+ */
+void pp_global_type_table_print(const PP_GlobalTypeTable *gtt) {
+    if (gtt == NULL) {
+        printf("NULL global type table\n");
+        return;
+    }
+
+    printf("Global Type Table:\n");
+    printf("  Named types (struct/newtype) (%zu/%zu):\n", gtt->named_count, gtt->named_capacity);
+    for (size_t i = 0; i < gtt->named_count; i++) {
+        printf("    [%zu] Name: %s, Type: %p\n", i, gtt->named_names[i], (void*)gtt->named_types[i]);
+    }
+    printf("  Alias types (typedef) (%zu/%zu):\n", gtt->alias_count, gtt->alias_capacity);
+    for (size_t i = 0; i < gtt->alias_count; i++) {
+        printf("    [%zu] Alias: %s, Type: %p\n", i, gtt->alias_names[i], (void*)gtt->alias_types[i]);
+    }
+    printf("  Interned types (%zu/%zu):\n", gtt->type_count, gtt->type_capacity);
+    for (size_t i = 0; i < gtt->type_count; i++) {
+        printf("    [%zu] Type: %p\n", i, (void*)gtt->types[i]);
+    }
 }

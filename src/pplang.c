@@ -106,6 +106,8 @@ int main(int argc, char** argv) {
         }
     } else {
         printf("Semantic analysis succeeded.\n");
+        printf("Type Table:\n");
+        pp_global_type_table_print(sa->gtt);
     }
 
     // Free in reverse order of creation
