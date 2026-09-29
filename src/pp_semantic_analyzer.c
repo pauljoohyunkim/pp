@@ -217,7 +217,9 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
     if (!pp_semantic_analyzer_build_global_table(sa)) {
         return 0;
     }
-    /* pp_semantic_analyzer_full_analyze(sa); */
+    if (!pp_semantic_analyzer_full_analyze(sa)) {
+        return 0;
+    }
 
     return 1;
 }
@@ -698,6 +700,39 @@ error_cleanup:
 }
 
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
-    (void)sa;
+    NULL_POINTER_ERROR_HANDLE(sa);
+    NULL_POINTER_ERROR_HANDLE(sa->program);
+
+    for (size_t i = 0; i < sa->program->program.decl_count; i++) {
+        const PP_AST_Node* decl = sa->program->program.decls[i];
+        switch (decl->node_type) {
+            case PP_AST_FunctionDeclarationNode:
+                #warning "Function declaration check"
+                break;
+            case PP_AST_LambdaDeclarationNode:
+                #warning "Lambda declaration check"
+                break;
+            case PP_AST_StructDeclarationNode:
+                // Nothing to do
+                break;
+            case PP_AST_VariableDeclarationNode:
+                #warning "Variable declaration check"
+                break;
+            case PP_AST_TypedefDeclarationNode:
+                // Nothing to do
+                break;
+            case PP_AST_NewtypeDeclarationNode:
+                // Nothing to do
+                break;
+            default:
+                assert(0 && "Semantic Analyzer Pass 1 default case. This should have been handled at parser.");
+                abort();
+        }
+
+    }
+
+    return 1;
+
+error_cleanup:
     return 0;
 }
