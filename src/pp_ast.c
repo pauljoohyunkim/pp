@@ -28,6 +28,23 @@ PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, un
     return node;
 }
 
+const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node *node) {
+    if (!node) return NULL;
+    switch (node->node_type) {
+        case PP_AST_BinaryExpressionNode:    return node->binary_expression.decoration;
+        case PP_AST_UnaryExpressionNode:     return node->unary_expression.decoration;
+        case PP_AST_CastExpressionNode:      return node->cast_expression.decoration;
+        case PP_AST_LiteralNode:             return node->literal.decoration;
+        case PP_AST_IdentifierNode:          return node->identifier.decoration;
+        case PP_AST_FunctionCallNode:        return node->function_call.decoration;
+        case PP_AST_MemberAccessNode:        return node->member_access.decoration;
+        case PP_AST_ArrayListAccessNode:     return node->array_list_access.decoration;
+        case PP_AST_StructInitializerNode:    return node->struct_initializer.decoration;
+        case PP_AST_CollectionInitializerNode: return node->collection_initializer.decoration;
+        default: return NULL;
+    }
+}
+
 static void pp_ast_root_free_internal(PP_AST_Node* node) {
     if (!node) return;
     switch (node->node_type) {

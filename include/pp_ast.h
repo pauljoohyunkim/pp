@@ -248,6 +248,8 @@ struct PP_AST_Node {
 PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueCategory value_category, bool is_constexpr, bool is_escapable_ref);
 void pp_ast_decoration_free(PP_AST_Decoration* decor);
 
+const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node *node);
+
 PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, unsigned int col);
 void pp_ast_root_free(PP_AST_Node* node);
 void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth);

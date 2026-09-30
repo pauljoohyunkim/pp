@@ -861,15 +861,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         }
 
         // Require constexpr
-        const PP_AST_Decoration* decor = NULL;
-        switch (node->variable_declaration.initializer->node_type) {
-            case PP_AST_LiteralNode:
-                decor = node->variable_declaration.initializer->literal.decoration;
-                break;
-            default:
-                assert(0 && "Not yet implemented.");
-                break;
-        }
+        const PP_AST_Decoration* decor = pp_ast_get_decoration(node->variable_declaration.initializer);
         NULL_POINTER_ERROR_HANDLE(decor);
         if (!decor->is_constexpr) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
