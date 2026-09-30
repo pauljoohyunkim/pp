@@ -826,7 +826,7 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
  * [x] Require constexpr initializer for globals.
  * [-] If variable is a reference: initializer must be l-value and const-correctness. -> Global variable cannot be reference.
  * [ ] Ensure type match between variable and initializer (after decay).
- * [ ] Update symbol's constness/constexpr flags.
+ * [x] Update symbol's constexpr flags. (Const variables track this. Non-const variables do not.)
  */
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
@@ -869,7 +869,12 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
             goto error_cleanup;
         }
 
-
+        // For const variable, track constexpr, and mark it escapable.
+        if (pp_type_is_const(variable_symbol->type)) {
+            #warning "Hacky solution! Create a mutable variant to fetching from symbol table."
+            ((PPSymbol*)variable_symbol)->is_constexpr = true;
+            ((PPSymbol*)variable_symbol)->is_escapable_ref = true;
+        }
     }
 
     #warning "Temporary wiring for global variable initializer"
