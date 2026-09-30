@@ -764,6 +764,18 @@ error_cleanup:
     return 0;
 }
 
+/* Pass 2 - Function Declaration Checklist:
+ * [ ] Look up function symbol and verify kind.
+ * [ ] Set current function return type for checking.
+ * [ ] If return type is non-void, verify all control paths return a value.
+ * [ ] Create parameter scope.
+ * [ ] Verify parameter count matches declaration.
+ * [ ] Detect duplicate parameter names.
+ * [ ] Create symbols for parameters with correct types and escapable reference flag.
+ * [ ] Create function body scope.
+ * [ ] Check statement list in the body.
+ * [ ] Wire scopes to AST nodes.
+ */
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
     assert(node);
@@ -772,6 +784,13 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
     return 1;
 }
 
+/* Pass 2 - Struct Declaration Checklist:
+ * [ ] Ensure struct is defined and of correct kind.
+ * [ ] Detect duplicate field names.
+ * [ ] Populate struct layout with fields.
+ * [ ] Verify each field type is well-defined.
+ * [ ] For fields with initializers: check expression validity, require constexpr, type match, reference lvalue rules, const-correctness, store default initializer.
+ */
 static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
     assert(node);
@@ -780,6 +799,17 @@ static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa
     return 1;
 }
 
+/* Pass 2 - Lambda Declaration Checklist:
+ * [ ] Look up lambda symbol and verify kind.
+ * [ ] Set current return type.
+ * [ ] If return type is non-void, verify all paths return.
+ * [ ] Create parameter scope.
+ * [ ] Verify parameter count and detect duplicate names.
+ * [ ] Create parameter symbols.
+ * [ ] Create body scope.
+ * [ ] Check statement list in body.
+ * [ ] Wire scopes to AST.
+ */
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
     assert(node);
@@ -788,6 +818,15 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
     return 1;
 }
 
+/* Pass 2 - Variable Declaration Checklist:
+ * [ ] Look up variable symbol.
+ * [ ] If no initializer: error if type is const or reference; for struct types ensure const/reference fields have default initializers.
+ * [ ] Check expression validity and type resolution for initializer.
+ * [ ] Require constexpr initializer for globals.
+ * [ ] If variable is a reference: initializer must be l-value and const-correctness.
+ * [ ] Ensure type match between variable and initializer (after decay).
+ * [ ] Update symbol's constness/constexpr flags.
+ */
 static int pp_semantic_analyzer_full_analyze_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
     assert(node);
