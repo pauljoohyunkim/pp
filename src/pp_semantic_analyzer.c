@@ -99,7 +99,7 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
-static int pp_semantic_analyzer_full_analyze_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
@@ -744,7 +744,7 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
                 pp_semantic_analyzer_full_analyze_struct_decl(sa, decl);
                 break;
             case PP_AST_VariableDeclarationNode:
-                pp_semantic_analyzer_full_analyze_variable_decl(sa, decl);
+                pp_semantic_analyzer_full_analyze_global_variable_decl(sa, decl);
                 break;
             case PP_AST_TypedefDeclarationNode:
                 // Nothing to do
@@ -819,23 +819,73 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
 }
 
 /* Pass 2 - Variable Declaration Checklist:
- * [ ] Look up variable symbol.
- * [ ] If no initializer: error if type is const or reference; for struct types ensure const/reference fields have default initializers.
+ * [x] Look up variable symbol.
+ * [x] If no initializer: error if type is const or reference;
+ * [ ] For struct types ensure const/reference fields have default initializers.
  * [ ] Check expression validity and type resolution for initializer.
- * [ ] Require constexpr initializer for globals.
- * [ ] If variable is a reference: initializer must be l-value and const-correctness.
+ * [x] Require constexpr initializer for globals.
+ * [-] If variable is a reference: initializer must be l-value and const-correctness. -> Global variable cannot be reference.
  * [ ] Ensure type match between variable and initializer (after decay).
  * [ ] Update symbol's constness/constexpr flags.
  */
-static int pp_semantic_analyzer_full_analyze_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_VariableDeclarationNode);
+    assert(node->variable_declaration.var_decl->node_type == PP_AST_ParamDeclarationNode);
+
+    const PPSymbol* variable_symbol = pp_symbol_table_lookup(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, false);
+    NULL_POINTER_ERROR_HANDLE(variable_symbol);
+
+    // Global variable cannot be reference.
+    if (pp_type_is_reference(variable_symbol->type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Global variable \"%s\" declared as reference, which is not allowed.", node->variable_declaration.var_decl->param_declaration.identifier);
+        goto error_cleanup;
+
+    }
+
+    // Check for initializer.
+    if (!node->variable_declaration.initializer) {
+        if (pp_type_is_const(variable_symbol->type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Variable \"%s\" declared as const or reference must have initializer.", node->variable_declaration.var_decl->param_declaration.identifier);
+            goto error_cleanup;
+        }
+    } else {
+        // Initializer exists here.
+        if (!pp_semantic_analyzer_check_expression(sa, sa->gst, node->variable_declaration.initializer)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Variable \"%s\" has an invalid initializer.", node->variable_declaration.var_decl->param_declaration.identifier);
+            goto error_cleanup;
+        }
+
+        // Require constexpr
+        const PP_AST_Decoration* decor = NULL;
+        switch (node->variable_declaration.initializer->node_type) {
+            case PP_AST_LiteralNode:
+                decor = node->variable_declaration.initializer->literal.decoration;
+                break;
+            default:
+                assert(0 && "Not yet implemented.");
+                break;
+        }
+        NULL_POINTER_ERROR_HANDLE(decor);
+        if (!decor->is_constexpr) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Global variable \"%s\" has a non constexpr initializer.", node->variable_declaration.var_decl->param_declaration.identifier);
+            goto error_cleanup;
+        }
+
+
+    }
 
     #warning "Temporary wiring for global variable initializer"
-    pp_semantic_analyzer_check_expression(sa, sa->gst, node->variable_declaration.initializer);
 
     return 1;
+
+error_cleanup:
+    return 0;
 }
 
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
