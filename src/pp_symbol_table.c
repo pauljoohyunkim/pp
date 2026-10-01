@@ -111,7 +111,6 @@ PPSymbol* pp_symbol_table_lookup_mut(PPSymbolTable* st, const char* name, bool c
     return NULL;
 }
 
-
 const PPSymbol* pp_symbol_table_lookup(const PPSymbolTable* st, const char* name, bool cascade) {
     return pp_symbol_table_lookup_mut((PPSymbolTable*) st, name, cascade);
 }
