@@ -212,6 +212,66 @@ const PPType* pp_global_type_table_find_type(PP_GlobalTypeTable *gtt, const PPTy
     return NULL;
 }
 
+const PPType* pp_type_decay(PP_GlobalTypeTable* gtt, const PPType* type) {
+    PPType* tmp_type = NULL;
+    if (!gtt || !type) goto error_cleanup;
+
+    switch (type->kind) {
+        case PP_TK_Reference:
+            return pp_type_decay(gtt, type->type.pp_type_reference.reference_to);
+        case PP_TK_Array:
+            {
+                const PPType* decayed_internal_type = pp_type_decay(gtt, type->type.pp_type_array.element_type);
+                NULL_POINTER_ERROR_HANDLE(decayed_internal_type);
+
+                // Re-create array wrapper.
+                tmp_type = pp_type_create(PP_TK_Array);
+                NULL_POINTER_ERROR_HANDLE(tmp_type);
+
+                tmp_type->type.pp_type_array.size = type->type.pp_type_array.size;
+                tmp_type->type.pp_type_array.element_type = decayed_internal_type;
+
+                const PPType* decayed_array_type = pp_global_type_table_intern(gtt, tmp_type);
+                tmp_type = NULL;
+                NULL_POINTER_ERROR_HANDLE(decayed_array_type);
+
+                return decayed_array_type;
+            }
+        case PP_TK_List:
+            {
+                const PPType* decayed_internal_type = pp_type_decay(gtt, type->type.pp_type_list.element_type);
+                NULL_POINTER_ERROR_HANDLE(decayed_internal_type);
+
+                // Re-create array wrapper.
+                tmp_type = pp_type_create(PP_TK_List);
+                NULL_POINTER_ERROR_HANDLE(tmp_type);
+
+                tmp_type->type.pp_type_list.element_type = decayed_internal_type;
+
+                const PPType* decayed_list_type = pp_global_type_table_intern(gtt, tmp_type);
+                tmp_type = NULL;
+                NULL_POINTER_ERROR_HANDLE(decayed_list_type);
+
+                return decayed_list_type;
+            }
+        case PP_TK_Const:
+            // Strip away constness
+            return pp_type_decay(gtt, type->type.pp_type_const.const_of);
+        case PP_TK_Bool:
+        case PP_TK_Float:
+        case PP_TK_Int32:
+        case PP_TK_Void:
+        case PP_TK_Struct:
+            return type;
+        default:
+            assert(0 && "Not yet implemented");
+            break;
+    }
+
+error_cleanup:
+    return NULL;
+}
+
 /**
  * @brief Print the global type table.
  * @param gtt Pointer to the global type table.
