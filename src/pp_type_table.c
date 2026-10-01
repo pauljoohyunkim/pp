@@ -53,7 +53,7 @@ static int ensure_alias_capacity(PP_GlobalTypeTable *gtt) {
 }
 
 /* Minimal structural equality – pointer shortcut then kind match. Full recursive compare TODO */
-static bool pp_type_equal(const PPType *a, const PPType *b) {
+bool pp_type_equal(const PPType *a, const PPType *b) {
     if (a == b) return true;
     if (!a || !b) return false;
     if (a->kind != b->kind) return false;

@@ -76,6 +76,16 @@ const PPType* pp_global_type_table_find_alias(PP_GlobalTypeTable *gtt, const cha
 const PPType* pp_global_type_table_find_type(PP_GlobalTypeTable *gtt, const PPType *query);
 
 /**
+ * @brief Check structural equality of two types.
+ */
+bool pp_type_equal(const PPType *a, const PPType *b);
+
+/**
+ * @brief Strip away const and references from a type, interning if necessary.
+ */
+const PPType* pp_type_decay(PP_GlobalTypeTable* gtt, const PPType* type);
+
+/**
  * @brief Print the global type table.
  * @param gtt Pointer to the global type table.
  */

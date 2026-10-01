@@ -822,6 +822,7 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
  * [x] Look up variable symbol.
  * [x] If no initializer: error if type is const or reference;
  * [ ] For struct types ensure const/reference fields have default initializers.
+ * [ ] Struct type with reference fields cannot be in global variables (Check recursively! (Struct field of struct field may have references too.))
  * [ ] Check expression validity and type resolution for initializer.
  * [x] Require constexpr initializer for globals.
  * [-] If variable is a reference: initializer must be l-value and const-correctness. -> Global variable cannot be reference.
@@ -842,7 +843,6 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
         "Global variable \"%s\" declared as reference, which is not allowed.", node->variable_declaration.var_decl->param_declaration.identifier);
         goto error_cleanup;
-
     }
 
     // Check for initializer.
@@ -866,6 +866,16 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         if (!decor->is_constexpr) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
             "Global variable \"%s\" has a non constexpr initializer.", node->variable_declaration.var_decl->param_declaration.identifier);
+            goto error_cleanup;
+        }
+
+        // Check if types match
+        const PPType* decayed_lhs_type = pp_type_decay(sa->gtt, variable_symbol->type);
+        const PPType* decayed_rhs_type = pp_type_decay(sa->gtt, decor->resolved_type);
+        NULL_POINTER_ERROR_HANDLE(decayed_lhs_type);
+        NULL_POINTER_ERROR_HANDLE(decayed_rhs_type);
+        if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Type mismatch during variable declaration.");
             goto error_cleanup;
         }
 
