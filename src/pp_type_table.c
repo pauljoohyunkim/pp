@@ -183,10 +183,14 @@ int pp_global_type_table_register_alias(PP_GlobalTypeTable *gtt, const char *ali
 }
 
 const PPType* pp_global_type_table_find_by_name(PP_GlobalTypeTable *gtt, const char *name) {
+    return (const PPType*) pp_global_type_table_find_by_name_mut(gtt, name);
+}
+
+PPType* pp_global_type_table_find_by_name_mut(PP_GlobalTypeTable *gtt, const char *name) {
     if (!gtt || !name) return NULL;
     for (size_t i = 0; i < gtt->named_count; i++) {
         if (gtt->named_names[i] == name || strcmp(gtt->named_names[i], name) == 0) {
-            return gtt->named_types[i];
+            return (PPType*)gtt->named_types[i];
         }
     }
     return NULL;

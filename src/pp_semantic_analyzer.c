@@ -3,6 +3,9 @@
 #include <string.h>
 #include <assert.h>
 
+// TODO: There are two passes, and certain checks in pass 2 are unnecessary if pass 1 does not allow them.
+// In which case, either push as error, or abort immediately (marking as "unreachable")
+
 /*
  * Semantic Analysis Checks (Pass 1 and Pass 2)
  * 
@@ -544,35 +547,7 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
         goto error_cleanup;
     }
 
-    /* Field processing deferred to Pass 2 - layout stays NULL in Pass 1 
-    struct_layout = pp_struct_layout_create();
-    if (!struct_layout) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate struct layout for struct '%s'", node->struct_declaration.name);
-        goto error_cleanup;
-    }
-
-    for (size_t i = 0; i < node->struct_declaration.field_count; i++) {
-        const PP_AST_StructField* field = &node->struct_declaration.fields[i];
-        if (field->field->node_type != PP_AST_ParamDeclarationNode) {
-            pp_error_list_push_error(sa->error_list, sa->filename, field->field->line, field->field->col,
-                                     "Expected parameter declaration for struct field");
-            goto error_cleanup;
-        }
-        const PPType* field_type = pp_type_from_type_node(sa, field->field->param_declaration.type_expr);
-        if (!field_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
-                                     "Failed to create type for struct field '%s'", field->field->param_declaration.identifier);
-            goto error_cleanup;
-        }
-
-        if (!pp_struct_layout_push_field(struct_layout, field->field->param_declaration.identifier, field_type, field->initializer)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, field->field->line, field->field->col,
-                                     "Failed to add struct field '%s'", field->field->param_declaration.identifier);
-            goto error_cleanup;
-        }
-    }
-    */
-
+    // Field processing deferred to Pass 2 - layout stays NULL in Pass 1 
 
     tmp_struct = pp_type_create(PP_TK_Struct);
     if (!tmp_struct) {
@@ -591,6 +566,11 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
         goto error_cleanup;
     }
     tmp_struct = NULL;
+
+    if (!pp_global_type_table_register_named(sa->gtt, node->struct_declaration.name, struct_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register struct type for struct '%s'", node->struct_declaration.name);
+        goto error_cleanup;
+    }
 
     return 1;
 
@@ -785,18 +765,65 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
 }
 
 /* Pass 2 - Struct Declaration Checklist:
- * [ ] Ensure struct is defined and of correct kind.
+ * [x] Ensure struct is defined and of correct kind.
  * [ ] Detect duplicate field names.
- * [ ] Populate struct layout with fields.
- * [ ] Verify each field type is well-defined.
+ * [x] Populate struct layout with fields.
+ * [x] Verify each field type is well-defined.
  * [ ] For fields with initializers: check expression validity, require constexpr, type match, reference lvalue rules, const-correctness, store default initializer.
  */
 static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    PP_StructLayout* struct_layout = NULL;
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_StructDeclarationNode);
 
+    const char* struct_name = node->struct_declaration.name;
+    NULL_POINTER_ERROR_HANDLE(struct_name);
+
+    // Get mutable reference so that fields can be filled.
+    // Note that this is not an allocation.
+    PPType* struct_type = pp_global_type_table_find_by_name_mut(sa->gtt, struct_name);
+    if (!struct_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Could not find struct '%s' from type table from pass 1.", node->struct_declaration.name);
+        goto error_cleanup;
+    }
+
+    // Create layout and push fields.
+    struct_layout = pp_struct_layout_create();
+    if (!struct_layout) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate struct layout for struct '%s'", node->struct_declaration.name);
+        goto error_cleanup;
+    }
+
+    for (size_t i = 0; i < node->struct_declaration.field_count; i++) {
+        const PP_AST_StructField* field = &node->struct_declaration.fields[i];
+        if (field->field->node_type != PP_AST_ParamDeclarationNode) {
+            pp_error_list_push_error(sa->error_list, sa->filename, field->field->line, field->field->col,
+                                     "Expected parameter declaration for struct field");
+            goto error_cleanup;
+        }
+        const PPType* field_type = pp_type_from_type_node(sa, field->field->param_declaration.type_expr);
+        if (!field_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                     "Failed to create type for struct field '%s'", field->field->param_declaration.identifier);
+            goto error_cleanup;
+        }
+
+        if (!pp_struct_layout_push_field(struct_layout, field->field->param_declaration.identifier, field_type, field->initializer)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, field->field->line, field->field->col,
+                                     "Failed to add struct field '%s'", field->field->param_declaration.identifier);
+            goto error_cleanup;
+        }
+    }
+
+    // Link the struct layout to the type.
+    struct_type->type.pp_type_struct.layout = struct_layout;
+    struct_layout = NULL;
+
     return 1;
+error_cleanup:
+    pp_struct_layout_free(struct_layout);
+    return 0;
 }
 
 /* Pass 2 - Lambda Declaration Checklist:

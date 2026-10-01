@@ -65,6 +65,11 @@ int pp_global_type_table_register_alias(PP_GlobalTypeTable *gtt, const char *ali
 const PPType* pp_global_type_table_find_by_name(PP_GlobalTypeTable *gtt, const char *name);
 
 /**
+ * @brief Find a named type by name, mutable pointer. Returns NULL if not found.
+ */
+PPType* pp_global_type_table_find_by_name_mut(PP_GlobalTypeTable *gtt, const char *name);
+
+/**
  * @brief Find an alias type by name. Returns NULL if not found.
  */
 const PPType* pp_global_type_table_find_alias(PP_GlobalTypeTable *gtt, const char *name);
