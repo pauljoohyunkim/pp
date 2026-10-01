@@ -834,7 +834,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
     assert(node->node_type == PP_AST_VariableDeclarationNode);
     assert(node->variable_declaration.var_decl->node_type == PP_AST_ParamDeclarationNode);
 
-    const PPSymbol* variable_symbol = pp_symbol_table_lookup(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, false);
+    PPSymbol* variable_symbol = pp_symbol_table_lookup_mut(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, false);
     NULL_POINTER_ERROR_HANDLE(variable_symbol);
 
     // Global variable cannot be reference.
@@ -869,12 +869,13 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
             goto error_cleanup;
         }
 
-        // For const variable, track constexpr, and mark it escapable.
+        // For const variable, track constexpr.
         if (pp_type_is_const(variable_symbol->type)) {
-            #warning "Hacky solution! Create a mutable variant to fetching from symbol table."
-            ((PPSymbol*)variable_symbol)->is_constexpr = true;
-            ((PPSymbol*)variable_symbol)->is_escapable_ref = true;
+            variable_symbol->is_constexpr = true;
         }
+
+        // Global variable is always escapable.
+        variable_symbol->is_escapable_ref = true;
     }
 
     #warning "Temporary wiring for global variable initializer"
