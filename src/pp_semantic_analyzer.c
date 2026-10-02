@@ -262,6 +262,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     assert(type_node->node_type == PP_AST_TypeExpressionNode);
 
     PPType *temp_type = NULL;                 /* owned – can be freed on error */
+    const PPType* gtt_lookedup_type = NULL;   /* For alias and named types */
     const PPType *gtt_registered_type = NULL;/* borrowed from GTT – must not be freed here */
 
     switch (type_node->type_expression.kind) {
@@ -278,16 +279,26 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             temp_type = pp_type_create(PP_TK_Bool);
             break;
         case PP_AST_TYPE_KIND_IDENTIFIER:
-            #warning "Type identifier not yet implemented: Note that this might already be dealt using named_type and alises (and their underlying types)"
+            gtt_lookedup_type = pp_global_type_table_find_by_name(sa->gtt, type_node->type_expression.identifier_name);
+            if (gtt_lookedup_type) {
+                break;
+            }
+            gtt_lookedup_type = pp_global_type_table_find_alias(sa->gtt, type_node->type_expression.identifier_name);
+            if (gtt_lookedup_type) {
+                break;
+            }
+            break;
+        default:
+            #warning "Type from type node default case not implemented"
             abort();
             break;
     }
-    if (!temp_type) {
+    if (!temp_type && !gtt_lookedup_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create type");
         goto error_cleanup;
     }
 
-    gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+    gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type ? temp_type : gtt_lookedup_type);
     temp_type = NULL;
     if (!gtt_registered_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern type");
