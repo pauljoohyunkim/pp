@@ -104,6 +104,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 
+/* Expression Checking */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
@@ -859,12 +860,12 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
 /* Pass 2 - Variable Declaration Checklist:
  * [x] Look up variable symbol.
  * [x] If no initializer: error if type is const or reference;
- * [ ] For struct types ensure const/reference fields have default initializers.
- * [ ] Struct type with reference fields cannot be in global variables (Check recursively! (Struct field of struct field may have references too.))
+ * [x] Struct type with reference fields cannot be in global variables.
+ * [ ] For struct types ensure const fields have default initializers.
  * [ ] Check expression validity and type resolution for initializer.
  * [x] Require constexpr initializer for globals.
  * [-] If variable is a reference: initializer must be l-value and const-correctness. -> Global variable cannot be reference.
- * [ ] Ensure type match between variable and initializer (after decay).
+ * [x] Ensure type match between variable and initializer (after decay).
  * [x] Update symbol's constexpr flags. (Const variables track this. Non-const variables do not.)
  */
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
@@ -875,6 +876,19 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
 
     PPSymbol* variable_symbol = pp_symbol_table_lookup_mut(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, false);
     NULL_POINTER_ERROR_HANDLE(variable_symbol);
+
+    // If struct type, it should not contain any reference fields (as this is a global variable.)
+    if (variable_symbol->type->kind == PP_TK_Struct) {
+        const PP_StructLayout* struct_layout = variable_symbol->type->type.pp_type_struct.layout;
+        for (size_t i = 0; i < struct_layout->field_count; i++) {
+            if (pp_type_is_reference(struct_layout->fields[i].field_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "Global variable \"%s\" is a struct, but global variable cannot contain any references.",
+                node->variable_declaration.var_decl->param_declaration.identifier);
+                goto error_cleanup;
+            }
+        }
+    }
 
     // Global variable cannot be reference.
     if (pp_type_is_reference(variable_symbol->type)) {
