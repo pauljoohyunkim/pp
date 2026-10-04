@@ -894,7 +894,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
                 node->variable_declaration.var_decl->param_declaration.identifier);
                 goto error_cleanup;
         }
-        for (size_t i = 0; i < node->variable_declaration.var_decl->param_declaration.type_expr->struct_declaration.fields; i++) {
+        for (size_t i = 0; i < node->variable_declaration.var_decl->param_declaration.type_expr->struct_declaration.field_count; i++) {
             if (pp_type_is_reference(struct_layout->fields[i].field_type)) {
                 pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                 "Global variable \"%s\" is a struct, but global variable cannot contain any references.",
