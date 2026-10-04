@@ -778,10 +778,11 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
 
 /* Pass 2 - Struct Declaration Checklist:
  * [x] Ensure struct is defined and of correct kind.
- * [ ] Detect duplicate field names.
+ * [x] Detect duplicate field names.
  * [x] Populate struct layout with fields.
  * [x] Verify each field type is well-defined.
  * [ ] For fields with initializers: check expression validity, require constexpr, type match, reference lvalue rules, const-correctness, store default initializer.
+ * [ ] Detect cycle
  */
 static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     PP_StructLayout* struct_layout = NULL;
@@ -809,11 +810,17 @@ static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa
 
     for (size_t i = 0; i < node->struct_declaration.field_count; i++) {
         const PP_AST_StructField* field = &node->struct_declaration.fields[i];
-        if (field->field->node_type != PP_AST_ParamDeclarationNode) {
-            pp_error_list_push_error(sa->error_list, sa->filename, field->field->line, field->field->col,
-                                     "Expected parameter declaration for struct field");
-            goto error_cleanup;
+        assert(field->field->node_type == PP_AST_ParamDeclarationNode);
+
+        // Duplicate field check
+        for (size_t j = 0; j < i; j++) {
+            if (struct_layout->fields[j].field_name == field->field->param_declaration.identifier) {
+                pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                        "Struct field '%s' is duplicate", field->field->param_declaration.identifier);
+                goto error_cleanup;
+            }
         }
+
         const PPType* field_type = pp_type_from_type_node(sa, field->field->param_declaration.type_expr);
         if (!field_type) {
             pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
@@ -880,7 +887,13 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
     // If struct type, it should not contain any reference fields (as this is a global variable.)
     if (variable_symbol->type->kind == PP_TK_Struct) {
         const PP_StructLayout* struct_layout = variable_symbol->type->type.pp_type_struct.layout;
-        for (size_t i = 0; i < struct_layout->field_count; i++) {
+        if (!struct_layout) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "Struct \"%s\" could not be previously analyzed.",
+                node->variable_declaration.var_decl->param_declaration.identifier);
+                goto error_cleanup;
+        }
+        for (size_t i = 0; i < node->variable_declaration.var_decl->param_declaration.type_expr->struct_declaration.fields; i++) {
             if (pp_type_is_reference(struct_layout->fields[i].field_type)) {
                 pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                 "Global variable \"%s\" is a struct, but global variable cannot contain any references.",
