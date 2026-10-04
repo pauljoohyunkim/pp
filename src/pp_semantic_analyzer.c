@@ -996,6 +996,112 @@ error_cleanup:
     return 0;
 }
 
+static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    PPType* binary_type = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_BinaryExpressionNode);
+
+    if (!expr->binary_expression.decoration) return 1;
+
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->binary_expression.left)) {
+        goto error_cleanup;
+    }
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->binary_expression.right)) {
+        goto error_cleanup;
+    }
+
+    const PP_AST_Decoration* lhs_decoration = pp_ast_get_decoration(expr->binary_expression.left);
+    assert(lhs_decoration);
+    const PP_AST_Decoration* rhs_decoration = pp_ast_get_decoration(expr->binary_expression.right);
+    assert(rhs_decoration);
+
+    const PPType* lhs_type = lhs_decoration->resolved_type;
+    assert(lhs_type);
+    const PPType* rhs_type = rhs_decoration->resolved_type;
+    assert(lhs_type);
+
+    const PPType* decayed_lhs_type = pp_type_decay(sa->gtt, lhs_type);
+    if (!decayed_lhs_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Decaying type failure");
+        goto error_cleanup;
+    }
+    const PPType* decayed_rhs_type = pp_type_decay(sa->gtt, rhs_type);
+    if (!decayed_rhs_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Decaying type failure");
+        goto error_cleanup;
+    }
+
+    switch (expr->binary_expression.op) {
+        case PP_TT_BAR_BAR:
+        case PP_TT_AMPERSAND_AMPERSAND:
+            if (decayed_lhs_type->kind == PP_TK_Bool && decayed_rhs_type->kind == PP_TK_Bool) {
+                binary_type = pp_type_create(PP_TK_Bool);
+            }
+            break;
+        case PP_TT_EQUAL_EQUAL:
+        case PP_TT_EXCLAMATION_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Bool && decayed_rhs_type->kind == PP_TK_Bool) ||
+                (decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
+                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32)
+            ) {
+                binary_type = pp_type_create(PP_TK_Bool);
+            }
+            #warning "Array/List handling"
+            break;
+        case PP_TT_LESS:
+        case PP_TT_GREATER:
+        case PP_TT_LESS_EQUAL:
+        case PP_TT_GREATER_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
+                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32)
+            ) {
+                binary_type = pp_type_create(PP_TK_Bool);
+            }
+            break;
+        case PP_TT_BAR:
+            #warning "unsigned int32"
+            break;
+        case PP_TT_CARET:
+            break;
+        case PP_TT_AMPERSAND:
+            break;
+        case PP_TT_PLUS:
+            break;
+        case PP_TT_MINUS:
+            break;
+        case PP_TT_STAR:
+            break;
+        case PP_TT_SLASH:
+            break;
+        case PP_TT_PERCENT:
+            break;
+        default:
+            abort();
+    }
+
+    NULL_POINTER_ERROR_HANDLE(binary_type);
+
+    decoration = pp_ast_decoration_create(binary_type, PP_VALUE_CATEGORY_RVALUE, lhs_decoration->is_constexpr && rhs_decoration->is_constexpr, false);
+    NULL_POINTER_ERROR_HANDLE(decoration);
+    binary_type = NULL;
+
+    expr->binary_expression.decoration = decoration;
+    decoration = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    pp_type_free(binary_type);
+    return 0;
+
+}
+
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* unary_type = NULL;
@@ -1016,9 +1122,16 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
     const PPType* operand_type = operand_decoration->resolved_type;
     assert(operand_type);
 
+    const PPType* decayed_operand_type = pp_type_decay(sa->gtt, operand_type);
+    if (!decayed_operand_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Failure decaying type");
+        goto error_cleanup;
+    }
+
     switch (expr->unary_expression.op) {
         case PP_TT_MINUS:
-            switch (operand_type->kind) {
+            switch (decayed_operand_type->kind) {
                 case PP_TK_Int32:
                     unary_type = pp_type_create(PP_TK_Int32);
                     break;
@@ -1030,7 +1143,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
             }
             break;
         case PP_TT_EXCLAMATION:
-            if (operand_type->kind == PP_TK_Bool) {
+            if (decayed_operand_type->kind == PP_TK_Bool) {
                 unary_type = pp_type_create(PP_TK_Bool);
             } else {
                 abort();
