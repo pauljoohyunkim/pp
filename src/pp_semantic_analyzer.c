@@ -106,6 +106,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
 
 /* Expression Checking */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
 /**
@@ -972,6 +973,7 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
         case PP_AST_BinaryExpressionNode:
             break;
         case PP_AST_UnaryExpressionNode:
+            if (!pp_semantic_analyzer_check_unary_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_LiteralNode:
             if (!pp_semantic_analyzer_check_literal_expression(sa, symbol_table, expr)) goto error_cleanup;
@@ -994,6 +996,67 @@ error_cleanup:
     return 0;
 }
 
+static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    PPType* unary_type = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_UnaryExpressionNode);
+
+    if (!expr->unary_expression.decoration) return 1;
+
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->unary_expression.operand)) {
+        goto error_cleanup;
+    }
+
+    const PP_AST_Decoration* operand_decoration = pp_ast_get_decoration(expr->unary_expression.operand);
+    assert(operand_decoration);
+
+    const PPType* operand_type = operand_decoration->resolved_type;
+    assert(operand_type);
+
+    switch (expr->unary_expression.op) {
+        case PP_TT_MINUS:
+            switch (operand_type->kind) {
+                case PP_TK_Int32:
+                    unary_type = pp_type_create(PP_TK_Int32);
+                    break;
+                case PP_TK_Float:
+                    unary_type = pp_type_create(PP_TK_Float);
+                    break;
+                default:
+                    abort();
+            }
+            break;
+        case PP_TT_EXCLAMATION:
+            if (operand_type->kind == PP_TK_Bool) {
+                unary_type = pp_type_create(PP_TK_Bool);
+            } else {
+                abort();
+            }
+            break;
+        default:
+            abort();
+    }
+
+    NULL_POINTER_ERROR_HANDLE(unary_type);
+
+    decoration = pp_ast_decoration_create(unary_type, PP_VALUE_CATEGORY_RVALUE, operand_decoration->is_constexpr, false);
+    NULL_POINTER_ERROR_HANDLE(decoration);
+    unary_type = NULL;
+
+    expr->unary_expression.decoration = decoration;
+    decoration = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    pp_type_free(unary_type);
+    return 0;
+}
+
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* literal_type = NULL;
@@ -1003,7 +1066,7 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
     assert(expr->node_type == PP_AST_LiteralNode);
 
     // If already decorated, we are done.
-    if (expr->literal.decoration != NULL) return 1;
+    if (!expr->literal.decoration) return 1;
 
     const PPType* resolved_type = NULL;
 
