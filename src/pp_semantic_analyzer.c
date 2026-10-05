@@ -189,6 +189,15 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
             if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
             t = NULL;
         }
+        t = pp_type_create(PP_TK_UInt32);
+        if (t) {
+            const char* type_name = pp_string_pool_push(sa->sp, "uint32", 6);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
+        }
         t = pp_type_create(PP_TK_Float);
         if (t) {
             const char* type_name = pp_string_pool_push(sa->sp, "float", 5);
@@ -275,6 +284,9 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         case PP_AST_TYPE_KIND_INT32:
             temp_type = pp_type_create(PP_TK_Int32);
             break;
+        case PP_AST_TYPE_KIND_UINT32:
+            temp_type = pp_type_create(PP_TK_UInt32);
+            break;
         case PP_AST_TYPE_KIND_FLOAT:
             temp_type = pp_type_create(PP_TK_Float);
             break;
@@ -301,7 +313,8 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         goto error_cleanup;
     }
 
-    gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type ? temp_type : gtt_lookedup_type);
+    //gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type ? temp_type : gtt_lookedup_type);
+    gtt_registered_type = temp_type ? pp_global_type_table_intern(sa->gtt, temp_type) : gtt_lookedup_type;
     temp_type = NULL;
     if (!gtt_registered_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern type");
@@ -1049,7 +1062,8 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
         case PP_TT_EXCLAMATION_EQUAL:
             if ((decayed_lhs_type->kind == PP_TK_Bool && decayed_rhs_type->kind == PP_TK_Bool) ||
                 (decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32)
+                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)
             ) {
                 binary_type = pp_type_create(PP_TK_Bool);
             }
@@ -1060,50 +1074,58 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
         case PP_TT_LESS_EQUAL:
         case PP_TT_GREATER_EQUAL:
             if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32)
+                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)
             ) {
                 binary_type = pp_type_create(PP_TK_Bool);
             }
             break;
         case PP_TT_BAR:
-            #warning "unsigned int32"
-            break;
         case PP_TT_CARET:
-            break;
         case PP_TT_AMPERSAND:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)
+            ) {
+                binary_type = pp_type_create(decayed_lhs_type->kind);
+            }
             break;
         case PP_TT_PLUS:
             if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32)
+                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)
             ) {
                 binary_type = pp_type_create(decayed_lhs_type->kind);
             }
             break;
         case PP_TT_MINUS:
             if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32)
+                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)
             ) {
                 binary_type = pp_type_create(decayed_lhs_type->kind);
             }
             break;
         case PP_TT_STAR:
             if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32)
+                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)
             ) {
                 binary_type = pp_type_create(decayed_lhs_type->kind);
             }
             break;
         case PP_TT_SLASH:
             if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32)
+                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)
             ) {
                 binary_type = pp_type_create(decayed_lhs_type->kind);
             }
             break;
         case PP_TT_PERCENT:
-            if (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)
             ) {
-                binary_type = pp_type_create(PP_TK_Int32);
+                binary_type = pp_type_create(decayed_lhs_type->kind);
             }
             break;
         default:
@@ -1159,6 +1181,9 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
             switch (decayed_operand_type->kind) {
                 case PP_TK_Int32:
                     unary_type = pp_type_create(PP_TK_Int32);
+                    break;
+                case PP_TK_UInt32:
+                    unary_type = pp_type_create(PP_TK_UInt32);
                     break;
                 case PP_TK_Float:
                     unary_type = pp_type_create(PP_TK_Float);

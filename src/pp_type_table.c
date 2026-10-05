@@ -60,6 +60,7 @@ bool pp_type_equal(const PPType *a, const PPType *b) {
     switch (a->kind) {
         case PP_TK_Void:
         case PP_TK_Int32:
+        case PP_TK_UInt32:
         case PP_TK_Float:
         case PP_TK_Bool:
             return true;
@@ -264,6 +265,7 @@ const PPType* pp_type_decay(PP_GlobalTypeTable* gtt, const PPType* type) {
         case PP_TK_Bool:
         case PP_TK_Float:
         case PP_TK_Int32:
+        case PP_TK_UInt32:
         case PP_TK_Void:
         case PP_TK_Struct:
             return type;

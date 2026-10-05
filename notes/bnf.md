@@ -57,6 +57,7 @@
 <mutability>                ::= "const" | ""
 <base_type>                 ::= "void"
                               | "int32" [ <array_specifier> ]
+                              | "uint32" [ <array_specifier> ]
                               | "float" [ <array_specifier> ]
                               | "bool"  [ <array_specifier> ]
                               | <identifier> [ <array_specifier> ]

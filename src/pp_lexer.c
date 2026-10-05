@@ -325,6 +325,7 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 } else if (isdigit((unsigned char)c)) {
                     size_t len = 1;
                     bool is_float = false;
+                    bool is_unsigned = false;
                     while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer,len))) len++;
                     if (!is_at_end(lexer) && peek_pp(lexer,len) == '.') {
                         is_float = true; len++;
@@ -335,8 +336,12 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                         if (!is_at_end(lexer) && (peek_pp(lexer,len)=='+'||peek_pp(lexer,len)=='-')) len++;
                         while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer,len))) len++;
                     }
-                    if (!is_at_end(lexer) && (peek_pp(lexer,len)=='u'||peek_pp(lexer,len)=='U')) len++;
+                    if (!is_float && !is_at_end(lexer) && (peek_pp(lexer,len)=='u'||peek_pp(lexer,len)=='U')) {
+                        is_unsigned = true;
+                        len++;
+                    }
                     if (is_float) { if (!pp_lexer_push_token_helper(lexer, PP_TT_FLOAT_LITERAL, len)) return 0; }
+                    else if (is_unsigned) { if (!pp_lexer_push_token_helper(lexer, PP_TT_UNSIGNED_INTEGER_LITERAL, len)) return 0; }
                     else { if (!pp_lexer_push_token_helper(lexer, PP_TT_INTEGER_LITERAL, len)) return 0; }
                     advance_pp(lexer, len);
                 } else if (c == '"') {

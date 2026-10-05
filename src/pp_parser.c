@@ -432,6 +432,7 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
     switch (tt) {
         case PP_TT_VOID: kind = PP_AST_TYPE_KIND_VOID; tok = pp_parser_consume_token(parser, PP_TT_VOID); break;
         case PP_TT_INT32: kind = PP_AST_TYPE_KIND_INT32; tok = pp_parser_consume_token(parser, PP_TT_INT32); break;
+        case PP_TT_UINT32: kind = PP_AST_TYPE_KIND_UINT32; tok = pp_parser_consume_token(parser, PP_TT_UINT32); break;
         case PP_TT_FLOAT: kind = PP_AST_TYPE_KIND_FLOAT; tok = pp_parser_consume_token(parser, PP_TT_FLOAT); break;
         case PP_TT_BOOL: kind = PP_AST_TYPE_KIND_BOOL; tok = pp_parser_consume_token(parser, PP_TT_BOOL); break;
         case PP_TT_IDENTIFIER: kind = PP_AST_TYPE_KIND_IDENTIFIER; tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER); break;

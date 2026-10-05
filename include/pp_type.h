@@ -26,6 +26,7 @@ typedef struct {
 typedef enum {
     PP_TK_Void,
     PP_TK_Int32,
+    PP_TK_UInt32,
     PP_TK_Float,
     PP_TK_Bool,
     PP_TK_Struct,
