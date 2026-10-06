@@ -128,3 +128,15 @@ bool pp_type_is_reference(const PPType* type) {
     return type->kind == PP_TK_Reference;
 }
 
+bool pp_type_is_numerical(const PPType* type) {
+    if (type == NULL) return false;
+
+    switch (type->kind) {
+        case PP_TK_Float:
+        case PP_TK_Int32:
+        case PP_TK_UInt32:
+            return true;
+        default:
+            return false;
+    }
+}

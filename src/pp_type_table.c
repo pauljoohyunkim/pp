@@ -268,6 +268,7 @@ const PPType* pp_type_decay(PP_GlobalTypeTable* gtt, const PPType* type) {
         case PP_TK_UInt32:
         case PP_TK_Void:
         case PP_TK_Struct:
+        case PP_TK_Newtype:
             return type;
         default:
             assert(0 && "Not yet implemented");

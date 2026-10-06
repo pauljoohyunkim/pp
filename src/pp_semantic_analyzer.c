@@ -6,6 +6,8 @@
 // TODO: There are two passes, and certain checks in pass 2 are unnecessary if pass 1 does not allow them.
 // In which case, either push as error, or abort immediately (marking as "unreachable")
 
+// TODO: Check building decoration again.
+
 /*
  * Semantic Analysis Checks (Pass 1 and Pass 2)
  * 
@@ -110,6 +112,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
 /**
  * @brief Creates semantic analyzer from parser
@@ -1003,6 +1006,7 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
         case PP_AST_StructInitializerNode:
             break;
         case PP_AST_CastExpressionNode:
+            if (!pp_semantic_analyzer_check_cast_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         default:
             goto error_cleanup;
@@ -1306,6 +1310,62 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     
     expr->identifier.decoration = decoration;
     decoration = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    return 0;
+}
+
+static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_CastExpressionNode);
+
+    // If already decorated, we are done.
+    if (!expr->cast_expression.decoration) return 1;
+
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->cast_expression.expression)) {
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* expr_decoration = pp_ast_get_decoration(expr->cast_expression.expression);
+    assert(expr_decoration);
+
+    const PPType* target_type = pp_type_from_type_node(sa, expr->cast_expression.type_expr);
+    assert(target_type);
+
+    if (pp_type_is_reference(target_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Casting to reference is not allowed.");
+        goto error_cleanup;
+    }
+
+    const PPType* decayed_expr_type = pp_type_decay(sa->gtt, expr_decoration->resolved_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_expr_type);
+    const PPType* decayed_target_type = pp_type_decay(sa->gtt, target_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_expr_type);
+
+    const PPType* primitive_expr_type = decayed_expr_type->kind == PP_TK_Newtype ? decayed_expr_type->type.pp_type_newtype.underlying : decayed_expr_type;
+    assert(primitive_expr_type);
+    const PPType* primitive_target_type = decayed_target_type->kind == PP_TK_Newtype ? decayed_target_type->type.pp_type_newtype.underlying : decayed_target_type;
+    assert(decayed_expr_type);
+    
+    #warning "List/Array not supported yet"
+    if (primitive_expr_type->kind == primitive_target_type->kind) {
+        // Same machine type (OK)
+    } else if (pp_type_is_numerical(primitive_expr_type) && pp_type_is_numerical(primitive_target_type)) {
+        // Numerical types can be casted to each other (OK)
+    } else {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Casting is not supported from the given expression to the given target type.");
+        goto error_cleanup;
+    }
+
+    decoration = pp_ast_decoration_create(target_type, PP_VALUE_CATEGORY_RVALUE, expr_decoration->is_constexpr, expr_decoration->is_escapable_ref);
+    NULL_POINTER_ERROR_HANDLE(decoration);
 
     return 1;
 
