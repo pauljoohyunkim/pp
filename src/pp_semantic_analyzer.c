@@ -109,6 +109,7 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
 static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
 /**
  * @brief Creates semantic analyzer from parser
@@ -701,6 +702,7 @@ error_cleanup:
  * [x] Detect duplicate newtype name
  * [-] Detect cycles in newtype definition  -> See comments for pass 1 typedef
  * [x] Register named type in GTT
+ * [ ] Do not allow function or lambda types as newtype.
  */
 static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
     assert(sa);
@@ -994,6 +996,7 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
             if (!pp_semantic_analyzer_check_literal_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_IdentifierNode:
+            if (!pp_semantic_analyzer_check_identifier_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_MemberAccessNode:
             break;
@@ -1270,5 +1273,43 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
 error_cleanup:
     pp_ast_decoration_free(decoration);
     pp_type_free(literal_type);
+    return 0;
+}
+
+static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_IdentifierNode);
+
+    // If already decorated, we are done.
+    if (!expr->identifier.decoration) return 1;
+
+    // TODO: In the case that we are inside a lambda function body, need to take care.
+
+
+    const PPSymbol* identifier_symbol = pp_symbol_table_lookup(symbol_table, expr->identifier.identifier, true);
+    if (!identifier_symbol) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "\"%s\" is not previously defined.", expr->identifier.identifier);
+        goto error_cleanup;
+    }
+
+    const PPType* identifier_type = identifier_symbol->type;
+    assert(identifier_type);
+
+    decoration = pp_ast_decoration_create(identifier_type,
+                                          identifier_type->kind == PP_TK_Function || identifier_type->kind == PP_TK_Lambda ? PP_VALUE_CATEGORY_RVALUE : PP_VALUE_CATEGORY_LVALUE,
+                                          false, identifier_symbol->is_escapable_ref);
+    NULL_POINTER_ERROR_HANDLE(decoration);
+    
+    expr->identifier.decoration = decoration;
+    decoration = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
     return 0;
 }
