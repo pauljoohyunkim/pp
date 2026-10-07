@@ -887,22 +887,103 @@ error_cleanup:
 }
 
 /* Pass 2 - Lambda Declaration Checklist:
- * [ ] Look up lambda symbol and verify kind.
- * [ ] Set current return type.
+ * [x] Look up lambda symbol and verify kind.
+ * [x] Set current return type.     -> Set the whole "current function" to lambda
  * [ ] If return type is non-void, verify all paths return.
- * [ ] Create parameter scope.
- * [ ] Verify parameter count and detect duplicate names.
- * [ ] Create parameter symbols.
- * [ ] Create body scope.
- * [ ] Check statement list in body.
- * [ ] Wire scopes to AST.
+ * [x] Create parameter scope.
+ * [x] Verify parameter count and detect duplicate names.
+ * [x] Create parameter symbols.
+ * [x] Create body scope.
+ * [x] Check statement list in body.
+ * [x] Wire scopes to AST.
  */
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    PPSymbolTable* lambda_param_symbol_table = NULL;
+    PPSymbol* param_symbol = NULL;
+    PPSymbolTable* lambda_body_symbol_table = NULL;
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_LambdaDeclarationNode);
 
+    assert(sa->current_function_type == NULL);
+
+    // Name
+    const char* func_name = node->function_declaration.name;
+    assert(func_name);
+
+    // Get Symbol
+    const PPSymbol* lambda_symbol = pp_symbol_table_lookup(sa->gst, func_name, false);
+    NULL_POINTER_ERROR_HANDLE(lambda_symbol);
+
+    // Check if the type is actually function
+    // Since newtype does not allow function types and lambda types, this is justified.
+    if (lambda_symbol->type->kind != PP_TK_Lambda) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "\"%s\" is not a lambda function", func_name);
+        goto error_cleanup;
+    }
+
+    // Set the current function type
+    sa->current_function_type = lambda_symbol->type;
+
+    // Create parameter scope.
+    lambda_param_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_PARAMS);
+    NULL_POINTER_ERROR_HANDLE(lambda_param_symbol_table);
+    lambda_param_symbol_table->parent = sa->gst;
+
+    // Check number of parameters in declaration = number of parameters in symbol type.
+    // TODO: This might actually be a dead code. Check this later.
+    if (lambda_symbol->type->type.pp_type_function.param_count != node->function_declaration.param_count) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Function \"%s\" has wrong number of types.", func_name);
+        goto error_cleanup;
+    }
+
+    // Fill in the parameter scope, checking for duplicate symbol.
+    for (size_t i = 0; i < node->function_declaration.param_count; i++) {
+        assert(node->function_declaration.params[i]->node_type == PP_AST_ParamDeclarationNode);
+        const char* param_name = node->function_declaration.params[i]->param_declaration.identifier;
+        if (pp_symbol_table_lookup(lambda_param_symbol_table, param_name, false)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line, node->function_declaration.params[i]->col,
+            "Duplicate parameter \"%s\" detected", param_name);
+            goto error_cleanup;
+        }
+
+        const PPType* param_type = pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
+        NULL_POINTER_ERROR_HANDLE(param_type);
+        
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type));
+        if (!pp_symbol_table_push(lambda_param_symbol_table, param_name, param_symbol)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line, node->function_declaration.params[i]->col,
+            "Could not push parameter \"%s\" to parameter scope", param_name);
+            goto error_cleanup;
+        }
+        param_symbol = NULL;
+    }
+    
+    // Create body environment
+    lambda_body_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_BODY);
+    NULL_POINTER_ERROR_HANDLE(lambda_body_symbol_table);
+    lambda_body_symbol_table->parent = lambda_param_symbol_table;
+
+    // TODO: Handle error.
+    pp_semantic_analyzer_full_analyze_statement_list(sa, lambda_body_symbol_table, node->function_declaration.body);
+    
+    // Wire everything up.
+    node->function_declaration.body->statement_list.symbol_table = lambda_body_symbol_table;
+    lambda_body_symbol_table = NULL;
+    node->function_declaration.param_symbol_table = lambda_param_symbol_table;
+    lambda_param_symbol_table = NULL;
+    
+    // Nullify current function type.
+    sa->current_function_type = NULL;
     return 1;
+error_cleanup:
+    pp_symbol_table_free(lambda_param_symbol_table);
+    pp_symbol_free(param_symbol);
+    pp_symbol_table_free(lambda_body_symbol_table);
+    sa->current_function_type = NULL;
+    return 0;
 }
 
 /* Pass 2 - Struct Declaration Checklist:
@@ -1003,7 +1084,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
                 node->variable_declaration.var_decl->param_declaration.identifier);
                 goto error_cleanup;
         }
-        for (size_t i = 0; i < node->variable_declaration.var_decl->param_declaration.type_expr->struct_declaration.field_count; i++) {
+        for (size_t i = 0; i < struct_layout->field_count; i++) {
             if (pp_type_is_reference(struct_layout->fields[i].field_type)) {
                 pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                 "Global variable \"%s\" is a struct, but global variable cannot contain any references.",

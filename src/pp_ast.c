@@ -68,6 +68,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             /* function_declaration.name is pool-owned const char* – do not free */
             pp_ast_root_free_internal(node->function_declaration.return_type);
             pp_ast_root_free_internal(node->function_declaration.body);
+            pp_symbol_table_free(node->function_declaration.param_symbol_table);
             break;
         }
         case PP_AST_StatementListNode: {
@@ -77,6 +78,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
                 }
                 free(node->statement_list.stmts);
             }
+            pp_symbol_table_free(node->statement_list.symbol_table);
             break;
         }
         case PP_AST_VariableDeclarationNode: {
