@@ -797,6 +797,27 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
     assert(node);
     assert(node->node_type == PP_AST_FunctionDeclarationNode);
 
+    
+
+    return 1;
+}
+
+/* Pass 2 - Lambda Declaration Checklist:
+ * [ ] Look up lambda symbol and verify kind.
+ * [ ] Set current return type.
+ * [ ] If return type is non-void, verify all paths return.
+ * [ ] Create parameter scope.
+ * [ ] Verify parameter count and detect duplicate names.
+ * [ ] Create parameter symbols.
+ * [ ] Create body scope.
+ * [ ] Check statement list in body.
+ * [ ] Wire scopes to AST.
+ */
+static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_LambdaDeclarationNode);
+
     return 1;
 }
 
@@ -867,25 +888,6 @@ static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa
 error_cleanup:
     pp_struct_layout_free(struct_layout);
     return 0;
-}
-
-/* Pass 2 - Lambda Declaration Checklist:
- * [ ] Look up lambda symbol and verify kind.
- * [ ] Set current return type.
- * [ ] If return type is non-void, verify all paths return.
- * [ ] Create parameter scope.
- * [ ] Verify parameter count and detect duplicate names.
- * [ ] Create parameter symbols.
- * [ ] Create body scope.
- * [ ] Check statement list in body.
- * [ ] Wire scopes to AST.
- */
-static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
-    assert(sa);
-    assert(node);
-    assert(node->node_type == PP_AST_LambdaDeclarationNode);
-
-    return 1;
 }
 
 /* Pass 2 - Variable Declaration Checklist:
