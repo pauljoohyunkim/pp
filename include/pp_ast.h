@@ -162,6 +162,7 @@ struct PP_AST_Node {
             PP_AST_Node** params; /* ParamDeclaration nodes */
             unsigned int param_count;
             unsigned int param_capacity;
+            PPSymbolTable* param_symbol_table;
             PP_AST_Node* return_type;
             PP_AST_Node* body; /* StatementList */
         } function_declaration;

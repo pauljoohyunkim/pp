@@ -3,6 +3,10 @@
 #include <string.h>
 #include <assert.h>
 
+#define SCOPE_LEVEL_GLOBAL (0)
+#define SCOPE_LEVEL_FUNC_PARAMS (1)
+#define SCOPE_LEVEL_FUNC_BODY (2)
+
 // TODO: There are two passes, and certain checks in pass 2 are unnecessary if pass 1 does not allow them.
 // In which case, either push as error, or abort immediately (marking as "unreachable")
 
@@ -109,6 +113,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
 /* Function Bodies */
 static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
 
 /* Expression Checking */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
@@ -164,7 +169,7 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
         goto error_cleanup;
     }
 
-    gst = pp_symbol_table_create(0);
+    gst = pp_symbol_table_create(SCOPE_LEVEL_GLOBAL);
     if (!gst) {
         pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Failed to create symbol table");
         goto error_cleanup;
@@ -781,25 +786,104 @@ error_cleanup:
 }
 
 /* Pass 2 - Function Declaration Checklist:
- * [ ] Look up function symbol and verify kind.
- * [ ] Set current function return type for checking.
+ * [x] Look up function symbol and verify kind.
+ * [x] Set current function return type for checking. -> Instead of return type, set it to function type for disambiguation with lambda function
  * [ ] If return type is non-void, verify all control paths return a value.
- * [ ] Create parameter scope.
- * [ ] Verify parameter count matches declaration.
- * [ ] Detect duplicate parameter names.
- * [ ] Create symbols for parameters with correct types and escapable reference flag.
- * [ ] Create function body scope.
- * [ ] Check statement list in the body.
- * [ ] Wire scopes to AST nodes.
+ * [x] Create parameter scope.
+ * [x] Verify parameter count matches declaration.
+ * [x] Detect duplicate parameter names.
+ * [x] Create symbols for parameters with correct types and escapable reference flag.
+ * [x] Create function body scope.
+ * [x] Check statement list in the body.
+ * [x] Wire scopes to AST nodes.
  */
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    PPSymbolTable* func_param_symbol_table = NULL;
+    PPSymbol* param_symbol = NULL;
+    PPSymbolTable* func_body_symbol_table = NULL;
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_FunctionDeclarationNode);
 
-    
+    assert(sa->current_function_type == NULL);
 
+    // Name
+    const char* func_name = node->function_declaration.name;
+    assert(func_name);
+
+    // Get Symbol
+    const PPSymbol* func_symbol = pp_symbol_table_lookup(sa->gst, func_name, false);
+    NULL_POINTER_ERROR_HANDLE(func_symbol);
+
+    // Check if the type is actually function
+    // Since newtype does not allow function types and lambda types, this is justified.
+    if (func_symbol->type->kind != PP_TK_Function) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "\"%s\" is not a function", func_name);
+        goto error_cleanup;
+    }
+
+    // Set the current function type
+    sa->current_function_type = func_symbol->type;
+
+    // Create parameter scope.
+    func_param_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_PARAMS);
+    NULL_POINTER_ERROR_HANDLE(func_param_symbol_table);
+    func_param_symbol_table->parent = sa->gst;
+
+    // Check number of parameters in declaration = number of parameters in symbol type.
+    // TODO: This might actually be a dead code. Check this later.
+    if (func_symbol->type->type.pp_type_function.param_count != node->function_declaration.param_count) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Function \"%s\" has wrong number of types.", func_name);
+        goto error_cleanup;
+    }
+
+    // Fill in the parameter scope, checking for duplicate symbol.
+    for (size_t i = 0; i < node->function_declaration.param_count; i++) {
+        assert(node->function_declaration.params[i]->node_type == PP_AST_ParamDeclarationNode);
+        const char* param_name = node->function_declaration.params[i]->param_declaration.identifier;
+        if (pp_symbol_table_lookup(func_param_symbol_table, param_name, false)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line, node->function_declaration.params[i]->col,
+            "Duplicate parameter \"%s\" detected", param_name);
+            goto error_cleanup;
+        }
+
+        const PPType* param_type = pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
+        NULL_POINTER_ERROR_HANDLE(param_type);
+        
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type));
+        if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line, node->function_declaration.params[i]->col,
+            "Could not push parameter \"%s\" to parameter scope", param_name);
+            goto error_cleanup;
+        }
+        param_symbol = NULL;
+    }
+    
+    // Create body environment
+    func_body_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_BODY);
+    NULL_POINTER_ERROR_HANDLE(func_body_symbol_table);
+    func_body_symbol_table->parent = func_param_symbol_table;
+
+    // TODO: Handle error.
+    pp_semantic_analyzer_full_analyze_statement_list(sa, func_body_symbol_table, node->function_declaration.body);
+    
+    // Wire everything up.
+    node->function_declaration.body->statement_list.symbol_table = func_body_symbol_table;
+    func_body_symbol_table = NULL;
+    node->function_declaration.param_symbol_table = func_param_symbol_table;
+    func_param_symbol_table = NULL;
+    
+    // Nullify current function type.
+    sa->current_function_type = NULL;
     return 1;
+error_cleanup:
+    pp_symbol_table_free(func_param_symbol_table);
+    pp_symbol_free(param_symbol);
+    pp_symbol_table_free(func_body_symbol_table);
+    sa->current_function_type = NULL;
+    return 0;
 }
 
 /* Pass 2 - Lambda Declaration Checklist:
@@ -1042,6 +1126,15 @@ static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, 
 
 error_cleanup:
     pp_symbol_table_free(inner_symbol_table);
+    return 0;
+}
+
+static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+
+error_cleanup:
     return 0;
 }
 

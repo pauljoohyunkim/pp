@@ -287,6 +287,7 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             for (unsigned int i = 0; i < node->function_declaration.param_count; i++) pp_ast_root_print(node->function_declaration.params[i], depth+1);
             if (node->function_declaration.return_type) pp_ast_root_print(node->function_declaration.return_type, depth+1);
             if (node->function_declaration.body) pp_ast_root_print(node->function_declaration.body, depth+1);
+            if (node->function_declaration.param_symbol_table) pp_symbol_table_free(node->function_declaration.param_symbol_table);
             break;
         case PP_AST_StatementListNode:
             printf("StatementList\n");
