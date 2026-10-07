@@ -106,6 +106,10 @@ static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 
+/* Function Bodies */
+static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+
 /* Expression Checking */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
@@ -976,6 +980,33 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
     #warning "Temporary wiring for global variable initializer"
 
     return 1;
+
+error_cleanup:
+    return 0;
+}
+
+static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_StatementListNode);
+
+    for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) {
+        PP_AST_Node* stmt = node->statement_list.stmts[i];
+        #warning "Decide what to do when there is an error while checking statement."
+        pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, stmt);
+    }
+
+    return 1;
+
+error_cleanup:
+    return 0;
+}
+
+static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
 
 error_cleanup:
     return 0;
