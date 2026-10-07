@@ -291,6 +291,7 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
         case PP_AST_StatementListNode:
             printf("StatementList\n");
             for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) pp_ast_root_print(node->statement_list.stmts[i], depth+1);
+            pp_symbol_table_free(node->statement_list.symbol_table);
             break;
         case PP_AST_BinaryExpressionNode:
             {

@@ -1006,11 +1006,42 @@ error_cleanup:
 }
 
 static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    PPSymbolTable* inner_symbol_table = NULL;
     assert(sa);
     assert(symbol_table);
     assert(node);
 
+    switch (node->node_type) {
+        case PP_AST_VariableDeclarationNode:
+            break;
+        case PP_AST_AssignmentNode:
+            break;
+        case PP_AST_ReturnStatementNode:
+            break;
+        case PP_AST_IfStatementNode:
+            break;
+        case PP_AST_ForStatementNode:
+            break;
+        case PP_AST_WhileStatementNode:
+            break;
+        case PP_AST_StatementListNode:
+            inner_symbol_table = pp_symbol_table_create(symbol_table->scope_level + 1);
+            NULL_POINTER_ERROR_HANDLE(inner_symbol_table);
+
+            inner_symbol_table->parent = symbol_table;
+            if (!pp_semantic_analyzer_full_analyze_statement_list(sa, inner_symbol_table, node)) {
+                goto error_cleanup;
+            }
+            
+            node->statement_list.symbol_table = inner_symbol_table;
+            inner_symbol_table = NULL;
+            break;
+        default:
+            break;
+    }
+
 error_cleanup:
+    pp_symbol_table_free(inner_symbol_table);
     return 0;
 }
 
