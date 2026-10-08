@@ -111,9 +111,14 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 
 /* Function Bodies */
-static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_if_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_while_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
 
 /* Expression Checking */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
@@ -785,17 +790,19 @@ error_cleanup:
     return 0;
 }
 
-/* Pass 2 - Function Declaration Checklist:
- * [x] Look up function symbol and verify kind.
- * [x] Set current function return type for checking. -> Instead of return type, set it to function type for disambiguation with lambda function
- * [ ] If return type is non-void, verify all control paths return a value.
- * [x] Create parameter scope.
- * [x] Verify parameter count matches declaration.
- * [x] Detect duplicate parameter names.
- * [x] Create symbols for parameters with correct types and escapable reference flag.
- * [x] Create function body scope.
- * [x] Check statement list in the body.
- * [x] Wire scopes to AST nodes.
+/* Pass 2 - Function Declaration Checklist (based on cz_semantic_analyzer_check_function_body):
+ * [x] Look up function symbol from global table and verify kind is FUNCTION.
+ * [x] Set sa->current_function_type (or return type) for checking inside body.
+ * [ ] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
+ * [x] Create parameter scope (SCOPE_LEVEL_FUNC_PARAMS) with parent = global table.
+ * [x] Verify parameter count in AST matches parameter count in function type.
+ * [x] Detect duplicate parameter names within parameter scope.
+ * [x] Create symbols for parameters with correct types and escapable reference flag (is_escapable_ref = pp_type_is_reference).
+ * [x] Push parameter symbols into parameter scope.
+ * [x] Create function body scope (SCOPE_LEVEL_FUNC_BODY) with parent = parameter scope.
+ * [x] Check statement list in the body using full analyze.
+ * [x] Wire scopes to AST nodes: param_symbol_table and body symbol table.
+ * [x] Reset sa->current_function_type after processing.
  */
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     PPSymbolTable* func_param_symbol_table = NULL;
@@ -886,16 +893,19 @@ error_cleanup:
     return 0;
 }
 
-/* Pass 2 - Lambda Declaration Checklist:
- * [x] Look up lambda symbol and verify kind.
- * [x] Set current return type.     -> Set the whole "current function" to lambda
- * [ ] If return type is non-void, verify all paths return.
- * [x] Create parameter scope.
- * [x] Verify parameter count and detect duplicate names.
- * [x] Create parameter symbols.
- * [x] Create body scope.
- * [x] Check statement list in body.
- * [x] Wire scopes to AST.
+/* Pass 2 - Lambda Declaration Checklist (based on cz_semantic_analyzer_check_function_body):
+ * [x] Look up lambda symbol from global table and verify kind is LAMBDA.
+ * [x] Set sa->current_function_type to lambda type for checking inside body.
+ * [ ] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
+ * [x] Create parameter scope (SCOPE_LEVEL_FUNC_PARAMS) with parent = global table.
+ * [x] Verify parameter count in AST matches parameter count in lambda type.
+ * [x] Detect duplicate parameter names within parameter scope.
+ * [x] Create symbols for parameters with correct types and escapable reference flag.
+ * [x] Push parameter symbols into parameter scope.
+ * [x] Create body scope (SCOPE_LEVEL_FUNC_BODY) with parent = parameter scope.
+ * [x] Check statement list in the body using full analyze.
+ * [x] Wire scopes to AST nodes: param_symbol_table and body symbol table.
+ * [x] Reset sa->current_function_type after processing.
  */
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     PPSymbolTable* lambda_param_symbol_table = NULL;
@@ -986,13 +996,18 @@ error_cleanup:
     return 0;
 }
 
-/* Pass 2 - Struct Declaration Checklist:
- * [x] Ensure struct is defined and of correct kind.
- * [x] Detect duplicate field names.
- * [x] Populate struct layout with fields.
- * [x] Verify each field type is well-defined.
- * [ ] For fields with initializers: check expression validity, require constexpr, type match, reference lvalue rules, const-correctness, store default initializer.
- * [ ] Detect cycle
+/* Pass 2 - Struct Declaration Checklist (based on cz_semantic_analyzer_check_struct_fields):
+ * [x] Ensure struct is defined in GTT and of correct kind STRUCT.
+ * [x] Detect duplicate field names while populating layout.
+ * [x] Populate struct layout with fields from AST.
+ * [x] Verify each field type is well-defined in GTT.
+ * [ ] For fields with initializers:
+ *      - Check expression validity and type resolution via check_expression.
+ *      - Require constexpr initializer.
+ *      - Ensure type match between field and initializer after decay.
+ *      - If field is reference: initializer must be l-value, const-correctness (non-const ref cannot bind to const).
+ *      - Store default initializer in struct layout field.
+ * [ ] Detect struct recursive cycles via separate pass (cz_semantic_analyzer_struct_cycle_detect).
  */
 static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     PP_StructLayout* struct_layout = NULL;
@@ -1055,16 +1070,21 @@ error_cleanup:
     return 0;
 }
 
-/* Pass 2 - Variable Declaration Checklist:
- * [x] Look up variable symbol.
- * [x] If no initializer: error if type is const or reference;
- * [x] Struct type with reference fields cannot be in global variables.
- * [ ] For struct types ensure const fields have default initializers.
- * [ ] Check expression validity and type resolution for initializer.
+/* Pass 2 - Variable Declaration Checklist (based on cz_semantic_analyzer_check_global_var_init):
+ * [x] Look up variable symbol mutably from global table.
+ * [ ] If struct type, ensure it does not contain reference fields (global rule).
+ * [x] If no initializer:
+ *      - Error if type is const or reference.
+ *      - If struct type, ensure all const/reference fields have default initializers; otherwise error.
+ *      - Return early.
+ * [x] Check expression validity and type resolution for initializer via check_expression.
  * [x] Require constexpr initializer for globals.
- * [-] If variable is a reference: initializer must be l-value and const-correctness. -> Global variable cannot be reference.
- * [x] Ensure type match between variable and initializer (after decay).
- * [x] Update symbol's constexpr flags. (Const variables track this. Non-const variables do not.)
+ * [ ] If variable is reference:
+ *      - Initializer must be l-value.
+ *      - Const-correctness: non-const reference cannot bind to const value.
+ *      - Mark symbol as escapable_ref.
+ * [x] Ensure type match between variable and initializer after decay.
+ * [x] Update symbol's constexpr flag for const variables: is_constexpr = type is const && initializer is constexpr.
  */
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
@@ -1152,24 +1172,6 @@ error_cleanup:
     return 0;
 }
 
-static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
-    assert(sa);
-    assert(symbol_table);
-    assert(node);
-    assert(node->node_type == PP_AST_StatementListNode);
-
-    for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) {
-        PP_AST_Node* stmt = node->statement_list.stmts[i];
-        #warning "Decide what to do when there is an error while checking statement."
-        pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, stmt);
-    }
-
-    return 1;
-
-error_cleanup:
-    return 0;
-}
-
 static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
     PPSymbolTable* inner_symbol_table = NULL;
     assert(sa);
@@ -1178,16 +1180,39 @@ static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, 
 
     switch (node->node_type) {
         case PP_AST_VariableDeclarationNode:
+            if (!pp_semantic_analyzer_full_analyze_variable_declaration(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
             break;
         case PP_AST_AssignmentNode:
+            /* Assignment Statement Checklist (based on cz_semantic_analyzer_check_assignment_statement) */
+            if (!pp_semantic_analyzer_full_analyze_assignment_statement(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
             break;
         case PP_AST_ReturnStatementNode:
+            /* Return Statement Checklist (based on cz_semantic_analyzer_check_return_statement) */
+            if (!pp_semantic_analyzer_full_analyze_return_statement(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
             break;
         case PP_AST_IfStatementNode:
+            /* If Statement Checklist (based on cz_semantic_analyzer_check_if_statement) */
+            if (!pp_semantic_analyzer_full_analyze_if_statement(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
             break;
         case PP_AST_ForStatementNode:
+            /* For Statement Checklist (based on cz_semantic_analyzer_check_for_statement) */
+            if (!pp_semantic_analyzer_full_analyze_for_statement(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
             break;
         case PP_AST_WhileStatementNode:
+            /* While Statement Checklist (based on cz_semantic_analyzer_check_while_statement) */
+            if (!pp_semantic_analyzer_full_analyze_while_statement(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
             break;
         case PP_AST_StatementListNode:
             inner_symbol_table = pp_symbol_table_create(symbol_table->scope_level + 1);
@@ -1210,6 +1235,16 @@ error_cleanup:
     return 0;
 }
 
+/* Variable Declaration Statement Checklist (based on cz_semantic_analyzer_check_variable_declaration_statement):
+ * [ ] Lookup existing symbol; prevent shadowing function parameters and redeclaration in same scope.
+ * [ ] Resolve type from type node.
+ * [ ] If type is reference or const, initializer must exist.
+ * [ ] If initializer exists: check expression validity.
+ * [ ] If type is reference: initializer must be l-value; const-correctness check.
+ * [ ] If struct type without initializer: ensure all const/reference fields have default initializers.
+ * [ ] Ensure decayed types match between variable and initializer.
+ * [ ] Create symbol with type, constexpr flag, escapable reference flag, and push to symbol table.
+ */
 static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
     assert(sa);
     assert(symbol_table);
@@ -1217,6 +1252,103 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
 
 error_cleanup:
     return 0;
+}
+
+/* Return Statement Checklist (based on cz_semantic_analyzer_check_return_statement):
+ * [ ] Verify current function return type is set.
+ * [ ] If return type is void, expression must be NULL; otherwise expression must exist.
+ * [ ] Check expression validity via check_expression.
+ * [ ] Ensure decayed types match between return type and expression.
+ * [ ] If return type is reference:
+ *      - Expression must be l-value.
+ *      - Expression must be escapable (not local stack).
+ *      - Const-correctness: non-const return cannot bind to const value.
+ */
+static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_ReturnStatementNode);
+
+    return 1;
+}
+
+/* Assignment Statement Checklist (based on cz_semantic_analyzer_check_assignment_statement):
+ * [ ] Verify operator is an assignment operator.
+ * [ ] Check LHS and RHS expressions via check_expression.
+ * [ ] Ensure LHS decoration exists and is l-value.
+ * [ ] Ensure LHS is mutable (not const).
+ * [ ] After decay, ensure both sides are primitive and types match.
+ * [ ] Validate compound assignment operators against allowed primitive combinations.
+ */
+static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_AssignmentNode);
+
+    return 1;
+}
+
+/* If Statement Checklist (based on cz_semantic_analyzer_check_if_statement):
+ * [ ] Check condition expression via check_expression.
+ * [ ] Ensure decayed condition type is bool.
+ * [ ] Analyze then branch statement.
+ * [ ] If else branch exists, analyze it.
+ */
+static int pp_semantic_analyzer_full_analyze_if_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_IfStatementNode);
+
+    return 1;
+}
+
+/* For Statement Checklist (based on cz_semantic_analyzer_check_for_statement):
+ * [ ] Create sub-symbol table for loop scope with parent.
+ * [ ] If initializer exists: analyze as variable declaration or assignment in sub scope.
+ * [ ] If condition exists: check expression and ensure bool type after decay.
+ * [ ] If iteration step exists: analyze as statement in sub scope.
+ * [ ] Analyze body statement in sub scope.
+ * [ ] Wire loop scope to AST node.
+ */
+static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_ForStatementNode);
+
+    return 1;
+}
+
+/* While Statement Checklist (based on cz_semantic_analyzer_check_while_statement):
+ * [ ] Check condition expression via check_expression.
+ * [ ] Ensure decayed condition type is bool.
+ * [ ] Analyze body statement in same scope.
+ */
+static int pp_semantic_analyzer_full_analyze_while_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_WhileStatementNode);
+
+    return 1;
+}
+
+static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_StatementListNode);
+
+    for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) {
+        PP_AST_Node* stmt = node->statement_list.stmts[i];
+        #warning "Decide what to do when there is an error while checking statement."
+        pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, stmt);
+    }
+
+    return 1;
 }
 
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
@@ -1264,7 +1396,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
     assert(expr);
     assert(expr->node_type == PP_AST_BinaryExpressionNode);
 
-    if (!expr->binary_expression.decoration) return 1;
+    if (expr->binary_expression.decoration) return 1;
 
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->binary_expression.left)) {
         goto error_cleanup;
@@ -1402,7 +1534,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
     assert(expr);
     assert(expr->node_type == PP_AST_UnaryExpressionNode);
 
-    if (!expr->unary_expression.decoration) return 1;
+    if (expr->unary_expression.decoration) return 1;
 
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->unary_expression.operand)) {
         goto error_cleanup;
@@ -1474,7 +1606,7 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
     assert(expr->node_type == PP_AST_LiteralNode);
 
     // If already decorated, we are done.
-    if (!expr->literal.decoration) return 1;
+    if (expr->literal.decoration) return 1;
 
     const PPType* resolved_type = NULL;
 
@@ -1526,7 +1658,7 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     assert(expr->node_type == PP_AST_IdentifierNode);
 
     // If already decorated, we are done.
-    if (!expr->identifier.decoration) return 1;
+    if (expr->identifier.decoration) return 1;
 
     // TODO: In the case that we are inside a lambda function body, need to take care.
 
@@ -1564,7 +1696,7 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     assert(expr->node_type == PP_AST_CastExpressionNode);
 
     // If already decorated, we are done.
-    if (!expr->cast_expression.decoration) return 1;
+    if (expr->cast_expression.decoration) return 1;
 
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->cast_expression.expression)) {
         goto error_cleanup;
@@ -1602,8 +1734,11 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
         goto error_cleanup;
     }
 
-    decoration = pp_ast_decoration_create(target_type, PP_VALUE_CATEGORY_RVALUE, expr_decoration->is_constexpr, expr_decoration->is_escapable_ref);
+    decoration = pp_ast_decoration_create(target_type, PP_VALUE_CATEGORY_RVALUE, expr_decoration->is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
+
+    expr->cast_expression.decoration = decoration;
+    decoration = NULL;
 
     return 1;
 
