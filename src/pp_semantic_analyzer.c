@@ -1580,10 +1580,10 @@ error_cleanup:
 }
 
 /* If Statement Checklist (based on cz_semantic_analyzer_check_if_statement):
- * [ ] Check condition expression via check_expression.
- * [ ] Ensure decayed condition type is bool.
- * [ ] Analyze then branch statement.
- * [ ] If else branch exists, analyze it.
+ * [x] Check condition expression via check_expression.
+ * [x] Ensure decayed condition type is bool.
+ * [x] Analyze then branch statement.
+ * [x] If else branch exists, analyze it.
  */
 static int pp_semantic_analyzer_full_analyze_if_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
     assert(sa);
@@ -1591,7 +1591,43 @@ static int pp_semantic_analyzer_full_analyze_if_statement(PP_SemanticAnalyzer* s
     assert(node);
     assert(node->node_type == PP_AST_IfStatementNode);
 
+    // Check condition
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->if_statement.cond)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Condition for if statement could not be analyzed.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* cond_decor = pp_ast_get_decoration(node->if_statement.cond);
+    assert(cond_decor);
+
+    // Check if condition is actually boolean
+    const PPType* decayed_cond_type = pp_type_decay(sa->gtt, cond_decor->resolved_type);
+    assert(decayed_cond_type);
+    if (decayed_cond_type->kind != PP_TK_Bool) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Condition for if statement must be boolean");
+        goto error_cleanup;
+    }
+
+    // Then branch
+    if (!pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, node->if_statement.then_branch)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Then branch for if statement is invalid");
+        goto error_cleanup;
+    }
+
+    // Else branch
+    if (node->if_statement.else_branch) {
+        if (!pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, node->if_statement.else_branch)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Else branch for if statement is invalid");
+            goto error_cleanup;
+        }
+    }
+
     return 1;
+error_cleanup:
+    return 0;
 }
 
 /* For Statement Checklist (based on cz_semantic_analyzer_check_for_statement):
