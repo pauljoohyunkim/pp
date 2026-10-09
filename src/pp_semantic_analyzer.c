@@ -1648,9 +1648,9 @@ static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* 
 }
 
 /* While Statement Checklist (based on cz_semantic_analyzer_check_while_statement):
- * [ ] Check condition expression via check_expression.
- * [ ] Ensure decayed condition type is bool.
- * [ ] Analyze body statement in same scope.
+ * [x] Check condition expression via check_expression.
+ * [x] Ensure decayed condition type is bool.
+ * [x] Analyze body statement in same scope.
  */
 static int pp_semantic_analyzer_full_analyze_while_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
     assert(sa);
@@ -1658,7 +1658,34 @@ static int pp_semantic_analyzer_full_analyze_while_statement(PP_SemanticAnalyzer
     assert(node);
     assert(node->node_type == PP_AST_WhileStatementNode);
 
+    // Check condition
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->while_statement.cond)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Condition for while statement could not be analyzed.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* cond_decor = pp_ast_get_decoration(node->while_statement.cond);
+    assert(cond_decor);
+
+    // Check if condition is actually boolean
+    const PPType* decayed_cond_type = pp_type_decay(sa->gtt, cond_decor->resolved_type);
+    assert(decayed_cond_type);
+    if (decayed_cond_type->kind != PP_TK_Bool) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Condition for whilte statement must be boolean");
+        goto error_cleanup;
+    }
+
+    // Then branch
+    if (!pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, node->while_statement.body)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Body of while statement is invalid");
+        goto error_cleanup;
+    }
+
     return 1;
+error_cleanup:
+    return 0;
 }
 
 static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
