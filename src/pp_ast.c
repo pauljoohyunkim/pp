@@ -111,6 +111,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_root_free_internal(node->for_statement.cond);
             pp_ast_root_free_internal(node->for_statement.update);
             pp_ast_root_free_internal(node->for_statement.body);
+            pp_symbol_table_free(node->for_statement.for_init_symbol_table);
             break;
         }
         case PP_AST_BinaryExpressionNode: {

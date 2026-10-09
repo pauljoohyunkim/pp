@@ -1631,20 +1631,95 @@ error_cleanup:
 }
 
 /* For Statement Checklist (based on cz_semantic_analyzer_check_for_statement):
- * [ ] Create sub-symbol table for loop scope with parent.
- * [ ] If initializer exists: analyze as variable declaration or assignment in sub scope.
- * [ ] If condition exists: check expression and ensure bool type after decay.
- * [ ] If iteration step exists: analyze as statement in sub scope.
- * [ ] Analyze body statement in sub scope.
- * [ ] Wire loop scope to AST node.
+ * [x] Create sub-symbol table for loop scope with parent.
+ * [x] If initializer exists: analyze as variable declaration or assignment in sub scope.
+ * [x] If condition exists: check expression and ensure bool type after decay.
+ * [x] If iteration step exists: analyze as statement in sub scope.
+ * [x] Analyze body statement in sub scope.
+ * [x] Wire loop scope to AST node.
  */
 static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    PPSymbolTable* for_init_symbol_table = NULL;
     assert(sa);
     assert(symbol_table);
     assert(node);
     assert(node->node_type == PP_AST_ForStatementNode);
 
+    // For init symbol table: A single symbol table bring between symbol_table and for body symbol_table, where it may or may not hold the initialization variable.
+    for_init_symbol_table = pp_symbol_table_create(symbol_table->scope_level+1);
+    NULL_POINTER_ERROR_HANDLE(for_init_symbol_table);
+    for_init_symbol_table->parent = symbol_table;
+
+
+    // Initialization
+    if (node->for_statement.init) {
+        if (node->for_statement.init->node_type == PP_AST_VariableDeclarationNode) {
+            // Variable declaration
+            if (!pp_semantic_analyzer_full_analyze_variable_declaration(sa, for_init_symbol_table, node->for_statement.init)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->for_statement.init->line, node->for_statement.init->col,
+                "Invalid for statement initialization (nothing, variable declaration, or assignments only)");
+                goto error_cleanup;
+            }
+        } else if (node->for_statement.init->node_type == PP_AST_AssignmentNode) {
+            // Assignment
+            if (!pp_semantic_analyzer_full_analyze_assignment_statement(sa, for_init_symbol_table, node->for_statement.init)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->for_statement.init->line, node->for_statement.init->col,
+                "Invalid for statement initialization (nothing, variable declaration, or assignments only)");
+                goto error_cleanup;
+            }
+        } else {
+            // Unreachable.
+            abort();
+        }
+    }
+
+    // Condition
+    if (node->for_statement.cond) {
+        if (!pp_semantic_analyzer_check_expression(sa, for_init_symbol_table, node->for_statement.cond)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Condition for for statement could not be analyzed.");
+            goto error_cleanup;
+        }
+        const PP_AST_Decoration* cond_decor = pp_ast_get_decoration(node->for_statement.cond);
+        assert(cond_decor);
+
+        // Check if condition is actually boolean
+        const PPType* decayed_cond_type = pp_type_decay(sa->gtt, cond_decor->resolved_type);
+        assert(decayed_cond_type);
+        if (decayed_cond_type->kind != PP_TK_Bool) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Condition for for statement must be boolean");
+            goto error_cleanup;
+        }
+    }
+
+    // Update
+    if (node->for_statement.update) {
+        if (!pp_semantic_analyzer_full_analyze_statement(sa, for_init_symbol_table, node->for_statement.update)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Update for for statement is invalid");
+            goto error_cleanup;
+        }
+    }
+
+    // Body
+    assert(node->for_statement.body);
+    assert(node->for_statement.body->node_type == PP_AST_StatementListNode);
+    if (!pp_semantic_analyzer_full_analyze_statement(sa, for_init_symbol_table, node->for_statement.body)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Body for for statement is invalid");
+            goto error_cleanup;
+    }
+
+    // Link to AST node.
+    node->for_statement.for_init_symbol_table = for_init_symbol_table;
+    for_init_symbol_table = NULL;
+
     return 1;
+
+error_cleanup:
+    pp_symbol_table_free(for_init_symbol_table);
+    return 0;
 }
 
 /* While Statement Checklist (based on cz_semantic_analyzer_check_while_statement):

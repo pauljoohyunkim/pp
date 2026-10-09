@@ -137,6 +137,7 @@ struct PP_AST_Node {
             PP_AST_Node* cond;    /* optional expression */
             PP_AST_Node* update;  /* optional expression/assignment */
             PP_AST_Node* body;    /* StatementList */
+            PPSymbolTable* for_init_symbol_table;
         } for_statement;
 
         struct { /* TypeExpression */
