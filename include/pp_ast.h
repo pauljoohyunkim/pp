@@ -9,6 +9,7 @@ extern "C" {
 #include "pp_tokens.h"
 #include "pp_string_pool.h"
 #include "pp_type.h"
+#include "pp_symbol_table.h"
 
 #ifndef AST_VECTOR_INIT_CAP
 #define AST_VECTOR_INIT_CAP 8
@@ -136,6 +137,7 @@ struct PP_AST_Node {
             PP_AST_Node* cond;    /* optional expression */
             PP_AST_Node* update;  /* optional expression/assignment */
             PP_AST_Node* body;    /* StatementList */
+            PPSymbolTable* for_init_symbol_table;
         } for_statement;
 
         struct { /* TypeExpression */
@@ -161,6 +163,7 @@ struct PP_AST_Node {
             PP_AST_Node** params; /* ParamDeclaration nodes */
             unsigned int param_count;
             unsigned int param_capacity;
+            PPSymbolTable* param_symbol_table;
             PP_AST_Node* return_type;
             PP_AST_Node* body; /* StatementList */
         } function_declaration;
@@ -169,6 +172,7 @@ struct PP_AST_Node {
             PP_AST_Node** stmts;
             unsigned int stmt_count;
             unsigned int capacity;
+            PPSymbolTable* symbol_table;
         } statement_list;
 
         struct { /* BinaryExpression */

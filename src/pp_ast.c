@@ -68,6 +68,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             /* function_declaration.name is pool-owned const char* – do not free */
             pp_ast_root_free_internal(node->function_declaration.return_type);
             pp_ast_root_free_internal(node->function_declaration.body);
+            pp_symbol_table_free(node->function_declaration.param_symbol_table);
             break;
         }
         case PP_AST_StatementListNode: {
@@ -77,6 +78,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
                 }
                 free(node->statement_list.stmts);
             }
+            pp_symbol_table_free(node->statement_list.symbol_table);
             break;
         }
         case PP_AST_VariableDeclarationNode: {
@@ -109,6 +111,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_root_free_internal(node->for_statement.cond);
             pp_ast_root_free_internal(node->for_statement.update);
             pp_ast_root_free_internal(node->for_statement.body);
+            pp_symbol_table_free(node->for_statement.for_init_symbol_table);
             break;
         }
         case PP_AST_BinaryExpressionNode: {
@@ -287,10 +290,12 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             for (unsigned int i = 0; i < node->function_declaration.param_count; i++) pp_ast_root_print(node->function_declaration.params[i], depth+1);
             if (node->function_declaration.return_type) pp_ast_root_print(node->function_declaration.return_type, depth+1);
             if (node->function_declaration.body) pp_ast_root_print(node->function_declaration.body, depth+1);
+            if (node->function_declaration.param_symbol_table) pp_symbol_table_free(node->function_declaration.param_symbol_table);
             break;
         case PP_AST_StatementListNode:
             printf("StatementList\n");
             for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) pp_ast_root_print(node->statement_list.stmts[i], depth+1);
+            pp_symbol_table_free(node->statement_list.symbol_table);
             break;
         case PP_AST_BinaryExpressionNode:
             {

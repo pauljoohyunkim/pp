@@ -3,6 +3,10 @@
 #include <string.h>
 #include <assert.h>
 
+#define SCOPE_LEVEL_GLOBAL (0)
+#define SCOPE_LEVEL_FUNC_PARAMS (1)
+#define SCOPE_LEVEL_FUNC_BODY (2)
+
 // TODO: There are two passes, and certain checks in pass 2 are unnecessary if pass 1 does not allow them.
 // In which case, either push as error, or abort immediately (marking as "unreachable")
 
@@ -106,6 +110,16 @@ static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 
+/* Function Bodies */
+static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_if_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_while_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node);
+
 /* Expression Checking */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
@@ -160,7 +174,7 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
         goto error_cleanup;
     }
 
-    gst = pp_symbol_table_create(0);
+    gst = pp_symbol_table_create(SCOPE_LEVEL_GLOBAL);
     if (!gst) {
         pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Failed to create symbol table");
         goto error_cleanup;
@@ -776,33 +790,224 @@ error_cleanup:
     return 0;
 }
 
-/* Pass 2 - Function Declaration Checklist:
- * [ ] Look up function symbol and verify kind.
- * [ ] Set current function return type for checking.
- * [ ] If return type is non-void, verify all control paths return a value.
- * [ ] Create parameter scope.
- * [ ] Verify parameter count matches declaration.
- * [ ] Detect duplicate parameter names.
- * [ ] Create symbols for parameters with correct types and escapable reference flag.
- * [ ] Create function body scope.
- * [ ] Check statement list in the body.
- * [ ] Wire scopes to AST nodes.
+/* Pass 2 - Function Declaration Checklist (based on cz_semantic_analyzer_check_function_body):
+ * [x] Look up function symbol from global table and verify kind is FUNCTION.
+ * [x] Set sa->current_function_type (or return type) for checking inside body.
+ * [ ] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
+ * [x] Create parameter scope (SCOPE_LEVEL_FUNC_PARAMS) with parent = global table.
+ * [x] Verify parameter count in AST matches parameter count in function type.
+ * [x] Detect duplicate parameter names within parameter scope.
+ * [x] Create symbols for parameters with correct types and escapable reference flag (is_escapable_ref = pp_type_is_reference).
+ * [x] Push parameter symbols into parameter scope.
+ * [x] Create function body scope (SCOPE_LEVEL_FUNC_BODY) with parent = parameter scope.
+ * [x] Check statement list in the body using full analyze.
+ * [x] Wire scopes to AST nodes: param_symbol_table and body symbol table.
+ * [x] Reset sa->current_function_type after processing.
  */
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    PPSymbolTable* func_param_symbol_table = NULL;
+    PPSymbol* param_symbol = NULL;
+    PPSymbolTable* func_body_symbol_table = NULL;
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_FunctionDeclarationNode);
 
+    assert(sa->current_function_type == NULL);
+
+    // Name
+    const char* func_name = node->function_declaration.name;
+    assert(func_name);
+
+    // Get Symbol
+    const PPSymbol* func_symbol = pp_symbol_table_lookup(sa->gst, func_name, false);
+    NULL_POINTER_ERROR_HANDLE(func_symbol);
+
+    // Check if the type is actually function
+    // Since newtype does not allow function types and lambda types, this is justified.
+    if (func_symbol->type->kind != PP_TK_Function) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "\"%s\" is not a function", func_name);
+        goto error_cleanup;
+    }
+
+    // Set the current function type
+    sa->current_function_type = func_symbol->type;
+
+    // Create parameter scope.
+    func_param_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_PARAMS);
+    NULL_POINTER_ERROR_HANDLE(func_param_symbol_table);
+    func_param_symbol_table->parent = sa->gst;
+
+    // Check number of parameters in declaration = number of parameters in symbol type.
+    // TODO: This might actually be a dead code. Check this later.
+    if (func_symbol->type->type.pp_type_function.param_count != node->function_declaration.param_count) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Function \"%s\" has wrong number of types.", func_name);
+        goto error_cleanup;
+    }
+
+    // Fill in the parameter scope, checking for duplicate symbol.
+    for (size_t i = 0; i < node->function_declaration.param_count; i++) {
+        assert(node->function_declaration.params[i]->node_type == PP_AST_ParamDeclarationNode);
+        const char* param_name = node->function_declaration.params[i]->param_declaration.identifier;
+        if (pp_symbol_table_lookup(func_param_symbol_table, param_name, false)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line, node->function_declaration.params[i]->col,
+            "Duplicate parameter \"%s\" detected", param_name);
+            goto error_cleanup;
+        }
+
+        const PPType* param_type = pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
+        NULL_POINTER_ERROR_HANDLE(param_type);
+        
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type));
+        if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line, node->function_declaration.params[i]->col,
+            "Could not push parameter \"%s\" to parameter scope", param_name);
+            goto error_cleanup;
+        }
+        param_symbol = NULL;
+    }
+    
+    // Create body environment
+    func_body_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_BODY);
+    NULL_POINTER_ERROR_HANDLE(func_body_symbol_table);
+    func_body_symbol_table->parent = func_param_symbol_table;
+
+    // TODO: Handle error.
+    pp_semantic_analyzer_full_analyze_statement_list(sa, func_body_symbol_table, node->function_declaration.body);
+    
+    // Wire everything up.
+    node->function_declaration.body->statement_list.symbol_table = func_body_symbol_table;
+    func_body_symbol_table = NULL;
+    node->function_declaration.param_symbol_table = func_param_symbol_table;
+    func_param_symbol_table = NULL;
+    
+    // Nullify current function type.
+    sa->current_function_type = NULL;
     return 1;
+error_cleanup:
+    pp_symbol_table_free(func_param_symbol_table);
+    pp_symbol_free(param_symbol);
+    pp_symbol_table_free(func_body_symbol_table);
+    sa->current_function_type = NULL;
+    return 0;
 }
 
-/* Pass 2 - Struct Declaration Checklist:
- * [x] Ensure struct is defined and of correct kind.
- * [x] Detect duplicate field names.
- * [x] Populate struct layout with fields.
- * [x] Verify each field type is well-defined.
- * [ ] For fields with initializers: check expression validity, require constexpr, type match, reference lvalue rules, const-correctness, store default initializer.
- * [ ] Detect cycle
+/* Pass 2 - Lambda Declaration Checklist (based on cz_semantic_analyzer_check_function_body):
+ * [x] Look up lambda symbol from global table and verify kind is LAMBDA.
+ * [x] Set sa->current_function_type to lambda type for checking inside body.
+ * [ ] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
+ * [x] Create parameter scope (SCOPE_LEVEL_FUNC_PARAMS) with parent = global table.
+ * [x] Verify parameter count in AST matches parameter count in lambda type.
+ * [x] Detect duplicate parameter names within parameter scope.
+ * [x] Create symbols for parameters with correct types and escapable reference flag.
+ * [x] Push parameter symbols into parameter scope.
+ * [x] Create body scope (SCOPE_LEVEL_FUNC_BODY) with parent = parameter scope.
+ * [x] Check statement list in the body using full analyze.
+ * [x] Wire scopes to AST nodes: param_symbol_table and body symbol table.
+ * [x] Reset sa->current_function_type after processing.
+ */
+static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    PPSymbolTable* lambda_param_symbol_table = NULL;
+    PPSymbol* param_symbol = NULL;
+    PPSymbolTable* lambda_body_symbol_table = NULL;
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_LambdaDeclarationNode);
+
+    assert(sa->current_function_type == NULL);
+
+    // Name
+    const char* func_name = node->function_declaration.name;
+    assert(func_name);
+
+    // Get Symbol
+    const PPSymbol* lambda_symbol = pp_symbol_table_lookup(sa->gst, func_name, false);
+    NULL_POINTER_ERROR_HANDLE(lambda_symbol);
+
+    // Check if the type is actually function
+    // Since newtype does not allow function types and lambda types, this is justified.
+    if (lambda_symbol->type->kind != PP_TK_Lambda) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "\"%s\" is not a lambda function", func_name);
+        goto error_cleanup;
+    }
+
+    // Set the current function type
+    sa->current_function_type = lambda_symbol->type;
+
+    // Create parameter scope.
+    lambda_param_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_PARAMS);
+    NULL_POINTER_ERROR_HANDLE(lambda_param_symbol_table);
+    lambda_param_symbol_table->parent = sa->gst;
+
+    // Check number of parameters in declaration = number of parameters in symbol type.
+    // TODO: This might actually be a dead code. Check this later.
+    if (lambda_symbol->type->type.pp_type_function.param_count != node->function_declaration.param_count) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Function \"%s\" has wrong number of types.", func_name);
+        goto error_cleanup;
+    }
+
+    // Fill in the parameter scope, checking for duplicate symbol.
+    for (size_t i = 0; i < node->function_declaration.param_count; i++) {
+        assert(node->function_declaration.params[i]->node_type == PP_AST_ParamDeclarationNode);
+        const char* param_name = node->function_declaration.params[i]->param_declaration.identifier;
+        if (pp_symbol_table_lookup(lambda_param_symbol_table, param_name, false)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line, node->function_declaration.params[i]->col,
+            "Duplicate parameter \"%s\" detected", param_name);
+            goto error_cleanup;
+        }
+
+        const PPType* param_type = pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
+        NULL_POINTER_ERROR_HANDLE(param_type);
+        
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type));
+        if (!pp_symbol_table_push(lambda_param_symbol_table, param_name, param_symbol)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line, node->function_declaration.params[i]->col,
+            "Could not push parameter \"%s\" to parameter scope", param_name);
+            goto error_cleanup;
+        }
+        param_symbol = NULL;
+    }
+    
+    // Create body environment
+    lambda_body_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_BODY);
+    NULL_POINTER_ERROR_HANDLE(lambda_body_symbol_table);
+    lambda_body_symbol_table->parent = lambda_param_symbol_table;
+
+    // TODO: Handle error.
+    pp_semantic_analyzer_full_analyze_statement_list(sa, lambda_body_symbol_table, node->function_declaration.body);
+    
+    // Wire everything up.
+    node->function_declaration.body->statement_list.symbol_table = lambda_body_symbol_table;
+    lambda_body_symbol_table = NULL;
+    node->function_declaration.param_symbol_table = lambda_param_symbol_table;
+    lambda_param_symbol_table = NULL;
+    
+    // Nullify current function type.
+    sa->current_function_type = NULL;
+    return 1;
+error_cleanup:
+    pp_symbol_table_free(lambda_param_symbol_table);
+    pp_symbol_free(param_symbol);
+    pp_symbol_table_free(lambda_body_symbol_table);
+    sa->current_function_type = NULL;
+    return 0;
+}
+
+/* Pass 2 - Struct Declaration Checklist (based on cz_semantic_analyzer_check_struct_fields):
+ * [x] Ensure struct is defined in GTT and of correct kind STRUCT.
+ * [x] Detect duplicate field names while populating layout.
+ * [x] Populate struct layout with fields from AST.
+ * [x] Verify each field type is well-defined in GTT.
+ * [ ] For fields with initializers:
+ *      - Check expression validity and type resolution via check_expression.
+ *      - Require constexpr initializer.
+ *      - Ensure type match between field and initializer after decay.
+ *      - If field is reference: initializer must be l-value, const-correctness (non-const ref cannot bind to const).
+ *      - Store default initializer in struct layout field.
+ * [ ] Detect struct recursive cycles via separate pass (cz_semantic_analyzer_struct_cycle_detect).
  */
 static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     PP_StructLayout* struct_layout = NULL;
@@ -865,35 +1070,21 @@ error_cleanup:
     return 0;
 }
 
-/* Pass 2 - Lambda Declaration Checklist:
- * [ ] Look up lambda symbol and verify kind.
- * [ ] Set current return type.
- * [ ] If return type is non-void, verify all paths return.
- * [ ] Create parameter scope.
- * [ ] Verify parameter count and detect duplicate names.
- * [ ] Create parameter symbols.
- * [ ] Create body scope.
- * [ ] Check statement list in body.
- * [ ] Wire scopes to AST.
- */
-static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
-    assert(sa);
-    assert(node);
-    assert(node->node_type == PP_AST_LambdaDeclarationNode);
-
-    return 1;
-}
-
-/* Pass 2 - Variable Declaration Checklist:
- * [x] Look up variable symbol.
- * [x] If no initializer: error if type is const or reference;
- * [x] Struct type with reference fields cannot be in global variables.
- * [ ] For struct types ensure const fields have default initializers.
- * [ ] Check expression validity and type resolution for initializer.
+/* Pass 2 - Variable Declaration Checklist (based on cz_semantic_analyzer_check_global_var_init):
+ * [x] Look up variable symbol mutably from global table.
+ * [ ] If struct type, ensure it does not contain reference fields (global rule).
+ * [x] If no initializer:
+ *      - Error if type is const or reference.
+ *      - If struct type, ensure all const/reference fields have default initializers; otherwise error.
+ *      - Return early.
+ * [x] Check expression validity and type resolution for initializer via check_expression.
  * [x] Require constexpr initializer for globals.
- * [-] If variable is a reference: initializer must be l-value and const-correctness. -> Global variable cannot be reference.
- * [x] Ensure type match between variable and initializer (after decay).
- * [x] Update symbol's constexpr flags. (Const variables track this. Non-const variables do not.)
+ * [ ] If variable is reference:
+ *      - Initializer must be l-value.
+ *      - Const-correctness: non-const reference cannot bind to const value.
+ *      - Mark symbol as escapable_ref.
+ * [x] Ensure type match between variable and initializer after decay.
+ * [x] Update symbol's constexpr flag for const variables: is_constexpr = type is const && initializer is constexpr.
  */
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
@@ -913,7 +1104,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
                 node->variable_declaration.var_decl->param_declaration.identifier);
                 goto error_cleanup;
         }
-        for (size_t i = 0; i < node->variable_declaration.var_decl->param_declaration.type_expr->struct_declaration.field_count; i++) {
+        for (size_t i = 0; i < struct_layout->field_count; i++) {
             if (pp_type_is_reference(struct_layout->fields[i].field_type)) {
                 pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                 "Global variable \"%s\" is a struct, but global variable cannot contain any references.",
@@ -981,6 +1172,612 @@ error_cleanup:
     return 0;
 }
 
+static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    PPSymbolTable* inner_symbol_table = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+
+    switch (node->node_type) {
+        case PP_AST_VariableDeclarationNode:
+            if (!pp_semantic_analyzer_full_analyze_variable_declaration(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
+            break;
+        case PP_AST_AssignmentNode:
+            /* Assignment Statement Checklist (based on cz_semantic_analyzer_check_assignment_statement) */
+            if (!pp_semantic_analyzer_full_analyze_assignment_statement(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
+            break;
+        case PP_AST_ReturnStatementNode:
+            /* Return Statement Checklist (based on cz_semantic_analyzer_check_return_statement) */
+            if (!pp_semantic_analyzer_full_analyze_return_statement(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
+            break;
+        case PP_AST_IfStatementNode:
+            /* If Statement Checklist (based on cz_semantic_analyzer_check_if_statement) */
+            if (!pp_semantic_analyzer_full_analyze_if_statement(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
+            break;
+        case PP_AST_ForStatementNode:
+            /* For Statement Checklist (based on cz_semantic_analyzer_check_for_statement) */
+            if (!pp_semantic_analyzer_full_analyze_for_statement(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
+            break;
+        case PP_AST_WhileStatementNode:
+            /* While Statement Checklist (based on cz_semantic_analyzer_check_while_statement) */
+            if (!pp_semantic_analyzer_full_analyze_while_statement(sa, symbol_table, node)) {
+                goto error_cleanup;
+            }
+            break;
+        case PP_AST_StatementListNode:
+            inner_symbol_table = pp_symbol_table_create(symbol_table->scope_level + 1);
+            NULL_POINTER_ERROR_HANDLE(inner_symbol_table);
+
+            inner_symbol_table->parent = symbol_table;
+            if (!pp_semantic_analyzer_full_analyze_statement_list(sa, inner_symbol_table, node)) {
+                goto error_cleanup;
+            }
+            
+            node->statement_list.symbol_table = inner_symbol_table;
+            inner_symbol_table = NULL;
+            break;
+        default:
+            break;
+    }
+
+error_cleanup:
+    pp_symbol_table_free(inner_symbol_table);
+    return 0;
+}
+
+/* Variable Declaration Statement Checklist (based on cz_semantic_analyzer_check_variable_declaration_statement):
+ * [x] Lookup existing symbol; prevent shadowing function parameters and redeclaration in same scope. -> Shadowing banned for all parent scopes.
+ * [x] Resolve type from type node.
+ * [x] If type is reference or const, initializer must exist.
+ * [x] If initializer exists: check expression validity.
+ * [x] If type is reference: initializer must be l-value; const-correctness check.
+ * [ ] If struct type without initializer: ensure all const/reference fields have default initializers.
+ * [x] Ensure decayed types match between variable and initializer.
+ * [x] Create symbol with type, constexpr flag, escapable reference flag, and push to symbol table.
+ */
+static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    PPSymbol* variable_symbol = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_VariableDeclarationNode);
+
+    const char* symbol_name = node->variable_declaration.var_decl->param_declaration.identifier;
+    assert(symbol_name);
+
+    // Look up symbol.
+    {
+        const PPSymbol* symbol = pp_symbol_table_lookup(symbol_table, symbol_name, true);
+        if (symbol) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Shadowing \"%s\" is not allowed.", symbol_name);
+            goto error_cleanup;
+        }
+    }
+
+    // Deduce type
+    const PPType* symbol_type = pp_type_from_type_node(sa, node->variable_declaration.var_decl->param_declaration.type_expr);
+    if (!symbol_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Deducing type for \"%s\" failed", symbol_name);
+        goto error_cleanup;
+    }
+
+    // If reference or const, initializer must exist.
+    if (pp_type_is_const(symbol_type) || pp_type_is_reference(symbol_type)) {
+        if (!node->variable_declaration.initializer) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Variable \"%s\" is declared as const or reference, but initializer does not exist.", symbol_name);
+            goto error_cleanup;
+        }
+    }
+
+    // If initializer exists, check validity.
+    if (node->variable_declaration.initializer) {
+        if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->variable_declaration.initializer)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Initializer for variable \"%s\" is not valid", symbol_name);
+            goto error_cleanup;
+        }
+
+        const PP_AST_Decoration* initializer_decor = pp_ast_get_decoration(node->variable_declaration.initializer);
+        assert(initializer_decor);
+
+        // If reference variable
+        if (pp_type_is_reference(symbol_type)) {
+            // l-value
+            if (initializer_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "Variable \"%s\" is a reference, but initializer is not an l-value", symbol_name);
+                goto error_cleanup;
+            }
+            // const-correctness
+            if (!pp_type_is_const(symbol_type) && pp_type_is_const(initializer_decor->resolved_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "Variable \"%s\" is a mutable reference, but initializer is const. Cannot remove constness", symbol_name);
+                goto error_cleanup;
+            }
+        }
+
+        // Decayed type match
+        const PPType* decayed_symbol_type = pp_type_decay(sa->gtt, symbol_type);
+        const PPType* decayed_initializer_type = pp_type_decay(sa->gtt, initializer_decor->resolved_type);
+        assert(decayed_symbol_type);
+        assert(decayed_initializer_type);
+        if (!pp_type_equal(decayed_symbol_type, decayed_initializer_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Type of variable \"%s\" does not match its initializer", symbol_name);
+            goto error_cleanup;
+        }
+
+        // Create symbol
+        // is_constexpr: variable has to be constant, and initializer should also be constexpr (so the value that variable has is determined at compile time)
+        // is_escapable_ref: Note that this reference can refer to variable from outside, then return it back. For this, it must be reference, and initializer must be escapable.
+        variable_symbol = pp_symbol_create(symbol_type,
+                                           pp_type_is_const(symbol_type) && initializer_decor->is_constexpr,
+                                           pp_type_is_reference(symbol_type) && initializer_decor->is_escapable_ref);
+    } else {
+        variable_symbol = pp_symbol_create(symbol_type, false, false);
+    }
+    NULL_POINTER_ERROR_HANDLE(variable_symbol);
+
+    pp_symbol_table_push(symbol_table, symbol_name, variable_symbol);
+    variable_symbol = NULL;
+                                       
+    return 1;
+error_cleanup:
+    pp_symbol_free(variable_symbol);
+    return 0;
+}
+
+/* Return Statement Checklist (based on cz_semantic_analyzer_check_return_statement):
+ * [x] Verify current function return type is set.
+ * [x] If return type is void, expression must be NULL; otherwise expression must exist.
+ * [x] Check expression validity via check_expression.
+ * [x] Ensure decayed types match between return type and expression.
+ * [x] If return type is reference:
+ *      - Expression must be l-value.
+ *      - Expression must be escapable (not local stack).
+ *      - Const-correctness: non-const return cannot bind to const value.
+ */
+static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_ReturnStatementNode);
+
+    assert(sa->current_function_type);
+    assert(sa->current_function_type->kind == PP_TK_Function || sa->current_function_type->kind == PP_TK_Lambda);
+
+    // If return type is void, expression must be NULL.
+    // If return type is not void, expression must exist.
+    if (sa->current_function_type->type.pp_type_function.return_type->kind == PP_TK_Void && node->return_statement.expr) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Return type is void, but an expression is returned.");
+        goto error_cleanup;
+    }
+    if (sa->current_function_type->type.pp_type_function.return_type->kind != PP_TK_Void && !node->return_statement.expr) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Expected a return expression.");
+        goto error_cleanup;
+    }
+
+    // If void return, end early.
+    if (sa->current_function_type->type.pp_type_function.return_type->kind == PP_TK_Void) {
+        return 1;
+    }
+
+    // Check expression
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->return_statement.expr)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Invalid expression");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* expr_decor = pp_ast_get_decoration(node->return_statement.expr);
+    assert(expr_decor);
+
+    // Check type equality.
+    const PPType* decayed_return_type = pp_type_decay(sa->gtt, sa->current_function_type->type.pp_type_function.return_type);
+    const PPType* decayed_expr_type = pp_type_decay(sa->gtt, expr_decor->resolved_type);
+    if (!pp_type_equal(decayed_return_type, decayed_expr_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Return type and expression type in the return statement do not match.");
+        goto error_cleanup;
+    }
+    
+    // Return type reference handling.
+    if (pp_type_is_reference(sa->current_function_type->type.pp_type_function.return_type)) {
+        // L-value
+        if (expr_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Return type is reference, but the return expression is not an l-value.");
+            goto error_cleanup;
+        }
+
+        // Dangling reference check
+        if (!expr_decor->is_escapable_ref) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Cannot return a dangling reference");
+            goto error_cleanup;
+        }
+
+        // Const-dropping detection
+        if (!pp_type_is_const(sa->current_function_type->type.pp_type_function.return_type) &&
+            pp_type_is_const(expr_decor->resolved_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Cannot strip away constness when function return type is non-const.");
+            goto error_cleanup;
+        }
+    }
+
+    return 1;
+error_cleanup:
+    return 0;
+}
+
+/* Assignment Statement Checklist (based on cz_semantic_analyzer_check_assignment_statement):
+ * [x] Verify operator is an assignment operator.
+ * [x] Check LHS and RHS expressions via check_expression.
+ * [x] Ensure LHS decoration exists and is l-value.
+ * [x] Ensure LHS is mutable (not const).
+ * [-] After decay, ensure both sides are primitive and types match.
+ *      -> Not necessarily primitive? (Struct assignment, list assignment are possible.)
+ * [ ] Validate compound assignment operators against allowed primitive combinations.
+ */
+static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_AssignmentNode);
+    assert(pp_token_type_is_assignment(node->assignment.op));
+
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->assignment.lhs)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "LHS of assignment is an invalid expression.");
+        goto error_cleanup;
+    }
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->assignment.rhs)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "RHS of assignment is an invalid expression.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* lhs_decor = pp_ast_get_decoration(node->assignment.lhs);
+    const PP_AST_Decoration* rhs_decor = pp_ast_get_decoration(node->assignment.rhs);
+    assert(lhs_decor);
+    assert(rhs_decor);
+
+    // LHS must be l-value
+    if (lhs_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "LHS of assignment should be an l-value.");
+        goto error_cleanup;
+    }
+    // LHS must be mutable.
+    if (pp_type_is_const(lhs_decor->resolved_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "LHS of assignment should be mutable (non-const)");
+        goto error_cleanup;
+    }
+
+    const PPType* decayed_lhs_type = pp_type_decay(sa->gtt, lhs_decor->resolved_type);
+    const PPType* decayed_rhs_type = pp_type_decay(sa->gtt, rhs_decor->resolved_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_lhs_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_rhs_type);
+    if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "LHS and RHS of assignment must have the same type.");
+        goto error_cleanup;
+    }
+
+    // Validate compound assignment operators against allowed primitive combinations
+    switch (node->assignment.op) {
+        case PP_TT_EQUAL:
+            // Simple assignment already validated by type equality
+            break;
+        case PP_TT_PLUS_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                (decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "+= only defined for int32, uint32, or float.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_MINUS_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                (decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "-= only defined for int32, uint32, or float.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_STAR_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                (decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "*= only defined for int32, uint32, or float.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_SLASH_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                (decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "/= only defined for int32, uint32, or float.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_PERCENT_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "%= only defined for int32 or uint32.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_AMPERSAND_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "&= only defined for int32 or uint32.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_BAR_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "|= only defined for int32 or uint32.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_CARET_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "^= only defined for int32 or uint32.");
+                goto error_cleanup;
+            }
+            break;
+        default:
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Unknown assignment operator.");
+            goto error_cleanup;
+    }
+
+    return 1;
+error_cleanup:
+    return 0;
+}
+
+/* If Statement Checklist (based on cz_semantic_analyzer_check_if_statement):
+ * [x] Check condition expression via check_expression.
+ * [x] Ensure decayed condition type is bool.
+ * [x] Analyze then branch statement.
+ * [x] If else branch exists, analyze it.
+ */
+static int pp_semantic_analyzer_full_analyze_if_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_IfStatementNode);
+
+    // Check condition
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->if_statement.cond)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Condition for if statement could not be analyzed.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* cond_decor = pp_ast_get_decoration(node->if_statement.cond);
+    assert(cond_decor);
+
+    // Check if condition is actually boolean
+    const PPType* decayed_cond_type = pp_type_decay(sa->gtt, cond_decor->resolved_type);
+    assert(decayed_cond_type);
+    if (decayed_cond_type->kind != PP_TK_Bool) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Condition for if statement must be boolean");
+        goto error_cleanup;
+    }
+
+    // Then branch
+    if (!pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, node->if_statement.then_branch)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Then branch for if statement is invalid");
+        goto error_cleanup;
+    }
+
+    // Else branch
+    if (node->if_statement.else_branch) {
+        if (!pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, node->if_statement.else_branch)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Else branch for if statement is invalid");
+            goto error_cleanup;
+        }
+    }
+
+    return 1;
+error_cleanup:
+    return 0;
+}
+
+/* For Statement Checklist (based on cz_semantic_analyzer_check_for_statement):
+ * [x] Create sub-symbol table for loop scope with parent.
+ * [x] If initializer exists: analyze as variable declaration or assignment in sub scope.
+ * [x] If condition exists: check expression and ensure bool type after decay.
+ * [x] If iteration step exists: analyze as statement in sub scope.
+ * [x] Analyze body statement in sub scope.
+ * [x] Wire loop scope to AST node.
+ */
+static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    PPSymbolTable* for_init_symbol_table = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_ForStatementNode);
+
+    // For init symbol table: A single symbol table bring between symbol_table and for body symbol_table, where it may or may not hold the initialization variable.
+    for_init_symbol_table = pp_symbol_table_create(symbol_table->scope_level+1);
+    NULL_POINTER_ERROR_HANDLE(for_init_symbol_table);
+    for_init_symbol_table->parent = symbol_table;
+
+
+    // Initialization
+    if (node->for_statement.init) {
+        if (node->for_statement.init->node_type == PP_AST_VariableDeclarationNode) {
+            // Variable declaration
+            if (!pp_semantic_analyzer_full_analyze_variable_declaration(sa, for_init_symbol_table, node->for_statement.init)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->for_statement.init->line, node->for_statement.init->col,
+                "Invalid for statement initialization (nothing, variable declaration, or assignments only)");
+                goto error_cleanup;
+            }
+        } else if (node->for_statement.init->node_type == PP_AST_AssignmentNode) {
+            // Assignment
+            if (!pp_semantic_analyzer_full_analyze_assignment_statement(sa, for_init_symbol_table, node->for_statement.init)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->for_statement.init->line, node->for_statement.init->col,
+                "Invalid for statement initialization (nothing, variable declaration, or assignments only)");
+                goto error_cleanup;
+            }
+        } else {
+            // Unreachable.
+            abort();
+        }
+    }
+
+    // Condition
+    if (node->for_statement.cond) {
+        if (!pp_semantic_analyzer_check_expression(sa, for_init_symbol_table, node->for_statement.cond)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Condition for for statement could not be analyzed.");
+            goto error_cleanup;
+        }
+        const PP_AST_Decoration* cond_decor = pp_ast_get_decoration(node->for_statement.cond);
+        assert(cond_decor);
+
+        // Check if condition is actually boolean
+        const PPType* decayed_cond_type = pp_type_decay(sa->gtt, cond_decor->resolved_type);
+        assert(decayed_cond_type);
+        if (decayed_cond_type->kind != PP_TK_Bool) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Condition for for statement must be boolean");
+            goto error_cleanup;
+        }
+    }
+
+    // Update
+    if (node->for_statement.update) {
+        if (!pp_semantic_analyzer_full_analyze_statement(sa, for_init_symbol_table, node->for_statement.update)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Update for for statement is invalid");
+            goto error_cleanup;
+        }
+    }
+
+    // Body
+    assert(node->for_statement.body);
+    assert(node->for_statement.body->node_type == PP_AST_StatementListNode);
+    if (!pp_semantic_analyzer_full_analyze_statement(sa, for_init_symbol_table, node->for_statement.body)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Body for for statement is invalid");
+            goto error_cleanup;
+    }
+
+    // Link to AST node.
+    node->for_statement.for_init_symbol_table = for_init_symbol_table;
+    for_init_symbol_table = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_symbol_table_free(for_init_symbol_table);
+    return 0;
+}
+
+/* While Statement Checklist (based on cz_semantic_analyzer_check_while_statement):
+ * [x] Check condition expression via check_expression.
+ * [x] Ensure decayed condition type is bool.
+ * [x] Analyze body statement in same scope.
+ */
+static int pp_semantic_analyzer_full_analyze_while_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_WhileStatementNode);
+
+    // Check condition
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->while_statement.cond)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Condition for while statement could not be analyzed.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* cond_decor = pp_ast_get_decoration(node->while_statement.cond);
+    assert(cond_decor);
+
+    // Check if condition is actually boolean
+    const PPType* decayed_cond_type = pp_type_decay(sa->gtt, cond_decor->resolved_type);
+    assert(decayed_cond_type);
+    if (decayed_cond_type->kind != PP_TK_Bool) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Condition for whilte statement must be boolean");
+        goto error_cleanup;
+    }
+
+    // Then branch
+    if (!pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, node->while_statement.body)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Body of while statement is invalid");
+        goto error_cleanup;
+    }
+
+    return 1;
+error_cleanup:
+    return 0;
+}
+
+static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    assert(sa);
+    assert(symbol_table);
+    assert(node);
+    assert(node->node_type == PP_AST_StatementListNode);
+
+    for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) {
+        PP_AST_Node* stmt = node->statement_list.stmts[i];
+        #warning "Decide what to do when there is an error while checking statement."
+        pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, stmt);
+    }
+
+    return 1;
+}
+
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     assert(sa);
     assert(symbol_table);
@@ -1026,7 +1823,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
     assert(expr);
     assert(expr->node_type == PP_AST_BinaryExpressionNode);
 
-    if (!expr->binary_expression.decoration) return 1;
+    if (expr->binary_expression.decoration) return 1;
 
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->binary_expression.left)) {
         goto error_cleanup;
@@ -1164,7 +1961,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
     assert(expr);
     assert(expr->node_type == PP_AST_UnaryExpressionNode);
 
-    if (!expr->unary_expression.decoration) return 1;
+    if (expr->unary_expression.decoration) return 1;
 
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->unary_expression.operand)) {
         goto error_cleanup;
@@ -1236,7 +2033,7 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
     assert(expr->node_type == PP_AST_LiteralNode);
 
     // If already decorated, we are done.
-    if (!expr->literal.decoration) return 1;
+    if (expr->literal.decoration) return 1;
 
     const PPType* resolved_type = NULL;
 
@@ -1288,7 +2085,7 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     assert(expr->node_type == PP_AST_IdentifierNode);
 
     // If already decorated, we are done.
-    if (!expr->identifier.decoration) return 1;
+    if (expr->identifier.decoration) return 1;
 
     // TODO: In the case that we are inside a lambda function body, need to take care.
 
@@ -1326,7 +2123,7 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     assert(expr->node_type == PP_AST_CastExpressionNode);
 
     // If already decorated, we are done.
-    if (!expr->cast_expression.decoration) return 1;
+    if (expr->cast_expression.decoration) return 1;
 
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->cast_expression.expression)) {
         goto error_cleanup;
@@ -1364,8 +2161,11 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
         goto error_cleanup;
     }
 
-    decoration = pp_ast_decoration_create(target_type, PP_VALUE_CATEGORY_RVALUE, expr_decoration->is_constexpr, expr_decoration->is_escapable_ref);
+    decoration = pp_ast_decoration_create(target_type, PP_VALUE_CATEGORY_RVALUE, expr_decoration->is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
+
+    expr->cast_expression.decoration = decoration;
+    decoration = NULL;
 
     return 1;
 
