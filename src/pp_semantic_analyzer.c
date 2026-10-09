@@ -1393,6 +1393,101 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
         goto error_cleanup;
     }
 
+    // Validate compound assignment operators against allowed primitive combinations
+    switch (node->assignment.op) {
+        case PP_TT_EQUAL:
+            // Simple assignment already validated by type equality
+            break;
+        case PP_TT_PLUS_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                (decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "+= only defined for int32, uint32, or float.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_MINUS_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                (decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "-= only defined for int32, uint32, or float.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_STAR_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                (decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "*= only defined for int32, uint32, or float.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_SLASH_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                (decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "/= only defined for int32, uint32, or float.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_PERCENT_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "%= only defined for int32 or uint32.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_AMPERSAND_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "&= only defined for int32 or uint32.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_BAR_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "|= only defined for int32 or uint32.");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_CARET_EQUAL:
+            if ((decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32)) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "^= only defined for int32 or uint32.");
+                goto error_cleanup;
+            }
+            break;
+        default:
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Unknown assignment operator.");
+            goto error_cleanup;
+    }
+
     return 1;
 error_cleanup:
     return 0;

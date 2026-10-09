@@ -220,4 +220,3 @@ TEST(SemanticTest, Pass2FunctionParamDuplicateError) {
     EXPECT_GT(semantic_errors, 0);
 }
 
-
