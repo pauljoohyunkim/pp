@@ -1340,11 +1340,12 @@ error_cleanup:
 }
 
 /* Assignment Statement Checklist (based on cz_semantic_analyzer_check_assignment_statement):
- * [ ] Verify operator is an assignment operator.
- * [ ] Check LHS and RHS expressions via check_expression.
- * [ ] Ensure LHS decoration exists and is l-value.
- * [ ] Ensure LHS is mutable (not const).
- * [ ] After decay, ensure both sides are primitive and types match.
+ * [x] Verify operator is an assignment operator.
+ * [x] Check LHS and RHS expressions via check_expression.
+ * [x] Ensure LHS decoration exists and is l-value.
+ * [x] Ensure LHS is mutable (not const).
+ * [-] After decay, ensure both sides are primitive and types match.
+ *      -> Not necessarily primitive? (Struct assignment, list assignment are possible.)
  * [ ] Validate compound assignment operators against allowed primitive combinations.
  */
 static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
@@ -1352,8 +1353,49 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     assert(symbol_table);
     assert(node);
     assert(node->node_type == PP_AST_AssignmentNode);
+    assert(pp_token_type_is_assignment(node->assignment.op));
+
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->assignment.lhs)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "LHS of assignment is an invalid expression.");
+        goto error_cleanup;
+    }
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->assignment.rhs)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "RHS of assignment is an invalid expression.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* lhs_decor = pp_ast_get_decoration(node->assignment.lhs);
+    const PP_AST_Decoration* rhs_decor = pp_ast_get_decoration(node->assignment.rhs);
+    assert(lhs_decor);
+    assert(rhs_decor);
+
+    // LHS must be l-value
+    if (lhs_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "LHS of assignment should be an l-value.");
+        goto error_cleanup;
+    }
+    // LHS must be mutable.
+    if (pp_type_is_const(lhs_decor->resolved_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "LHS of assignment should be mutable (non-const)");
+        goto error_cleanup;
+    }
+
+    const PPType* decayed_lhs_type = pp_type_decay(sa->gtt, lhs_decor->resolved_type);
+    const PPType* decayed_rhs_type = pp_type_decay(sa->gtt, rhs_decor->resolved_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_lhs_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_rhs_type);
+    if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "LHS and RHS of assignment must have the same type.");
+        goto error_cleanup;
+    }
 
     return 1;
+error_cleanup:
+    return 0;
 }
 
 /* If Statement Checklist (based on cz_semantic_analyzer_check_if_statement):
