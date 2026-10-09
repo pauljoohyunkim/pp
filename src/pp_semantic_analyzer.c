@@ -1255,11 +1255,11 @@ error_cleanup:
 }
 
 /* Return Statement Checklist (based on cz_semantic_analyzer_check_return_statement):
- * [ ] Verify current function return type is set.
- * [ ] If return type is void, expression must be NULL; otherwise expression must exist.
- * [ ] Check expression validity via check_expression.
- * [ ] Ensure decayed types match between return type and expression.
- * [ ] If return type is reference:
+ * [x] Verify current function return type is set.
+ * [x] If return type is void, expression must be NULL; otherwise expression must exist.
+ * [x] Check expression validity via check_expression.
+ * [x] Ensure decayed types match between return type and expression.
+ * [x] If return type is reference:
  *      - Expression must be l-value.
  *      - Expression must be escapable (not local stack).
  *      - Const-correctness: non-const return cannot bind to const value.
@@ -1270,7 +1270,73 @@ static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyze
     assert(node);
     assert(node->node_type == PP_AST_ReturnStatementNode);
 
+    assert(sa->current_function_type);
+    assert(sa->current_function_type->kind == PP_TK_Function || sa->current_function_type->kind == PP_TK_Lambda);
+
+    // If return type is void, expression must be NULL.
+    // If return type is not void, expression must not be NULL.
+    if (sa->current_function_type->type.pp_type_function.return_type->kind == PP_TK_Void && !node->return_statement.expr) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Expected a return expression.");
+        goto error_cleanup;
+    }
+    if (sa->current_function_type->type.pp_type_function.return_type->kind != PP_TK_Void && node->return_statement.expr) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Return type is void, but an expression is returned.");
+        goto error_cleanup;
+    }
+
+    // If void return, end early.
+    if (sa->current_function_type->type.pp_type_function.return_type == PP_TK_Void) {
+        return 1;
+    }
+
+    // Check expression
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->return_statement.expr)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Invalid expression");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* expr_decor = pp_ast_get_decoration(node->return_statement.expr);
+    assert(expr_decor);
+
+    // Check type equality.
+    const PPType* decayed_return_type = pp_type_decay(sa->gtt, sa->current_function_type->type.pp_type_function.return_type);
+    const PPType* decayed_expr_type = pp_type_decay(sa->gtt, expr_decor->resolved_type);
+    if (!pp_type_equal(decayed_return_type, decayed_expr_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Return type and expression type in the return statement do not match.");
+        goto error_cleanup;
+    }
+    
+    // Return type reference handling.
+    if (pp_type_is_reference(sa->current_function_type->type.pp_type_function.return_type)) {
+        // L-value
+        if (expr_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Return type is reference, but the return expression is not an l-value.");
+            goto error_cleanup;
+        }
+
+        // Dangling reference check
+        if (!expr_decor->is_escapable_ref) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Cannot return a dangling reference");
+            goto error_cleanup;
+        }
+
+        // Const-dropping detection
+        if (!pp_type_is_const(sa->current_function_type->type.pp_type_function.return_type) &&
+            pp_type_is_const(expr_decor->resolved_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Cannot strip away constness when function return type is non-const.");
+            goto error_cleanup;
+        }
+    }
+
     return 1;
+error_cleanup:
+    return 0;
 }
 
 /* Assignment Statement Checklist (based on cz_semantic_analyzer_check_assignment_statement):
