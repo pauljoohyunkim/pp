@@ -151,3 +151,73 @@ TEST(SemanticTest, Pass1NewtypeDuplicateNameError) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, Pass1FunctionDuplicateNameError) {
+    const char* source =
+        "func foo :: () -> void {}\n"
+        "func foo :: () -> void {}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Duplicate function name should be reported in Pass 1
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, Pass1StructDuplicateNameError) {
+    const char* source =
+        "struct S { x :: int32; }\n"
+        "struct S { y :: int32; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Duplicate struct name should be reported in Pass 1
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, Pass2StructDuplicateFieldError) {
+    const char* source =
+        "struct S { x :: int32; x :: float; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Duplicate field name should be reported in Pass 2
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, Pass2GlobalVariableConstNoInitializerError) {
+    const char* source =
+        "let c :: const int32;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Const global variable without initializer should be an error
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, Pass2GlobalVariableNonConstexprInitializerError) {
+    const char* source =
+        "func foo :: () -> int32 { return 1; }\n"
+        "let g :: int32 = foo();\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Global variable initialized with non-constexpr expression should be an error
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, Pass2FunctionParamDuplicateError) {
+    const char* source =
+        "func foo :: (a :: int32, a :: float) -> void {}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Duplicate parameter names should be reported in Pass 2
+    EXPECT_GT(semantic_errors, 0);
+}
+
+
