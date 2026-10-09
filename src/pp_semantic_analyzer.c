@@ -1236,21 +1236,107 @@ error_cleanup:
 }
 
 /* Variable Declaration Statement Checklist (based on cz_semantic_analyzer_check_variable_declaration_statement):
- * [ ] Lookup existing symbol; prevent shadowing function parameters and redeclaration in same scope.
- * [ ] Resolve type from type node.
- * [ ] If type is reference or const, initializer must exist.
- * [ ] If initializer exists: check expression validity.
- * [ ] If type is reference: initializer must be l-value; const-correctness check.
+ * [x] Lookup existing symbol; prevent shadowing function parameters and redeclaration in same scope. -> Shadowing banned for all parent scopes.
+ * [x] Resolve type from type node.
+ * [x] If type is reference or const, initializer must exist.
+ * [x] If initializer exists: check expression validity.
+ * [x] If type is reference: initializer must be l-value; const-correctness check.
  * [ ] If struct type without initializer: ensure all const/reference fields have default initializers.
- * [ ] Ensure decayed types match between variable and initializer.
- * [ ] Create symbol with type, constexpr flag, escapable reference flag, and push to symbol table.
+ * [x] Ensure decayed types match between variable and initializer.
+ * [x] Create symbol with type, constexpr flag, escapable reference flag, and push to symbol table.
  */
 static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
+    PPSymbol* variable_symbol = NULL;
     assert(sa);
     assert(symbol_table);
     assert(node);
+    assert(node->node_type == PP_AST_VariableDeclarationNode);
 
+    const char* symbol_name = node->variable_declaration.var_decl->param_declaration.identifier;
+    assert(symbol_name);
+
+    // Look up symbol.
+    {
+        const PPSymbol* symbol = pp_symbol_table_lookup(symbol_table, symbol_name, true);
+        if (symbol) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Shadowing \"%s\" is not allowed.", symbol_name);
+            goto error_cleanup;
+        }
+    }
+
+    // Deduce type
+    const PPType* symbol_type = pp_type_from_type_node(sa, node->variable_declaration.var_decl->param_declaration.type_expr);
+    if (!symbol_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Deducing type for \"%s\" failed", symbol_name);
+        goto error_cleanup;
+    }
+
+    // If reference or const, initializer must exist.
+    if (pp_type_is_const(symbol_type) || pp_type_is_reference(symbol_type)) {
+        if (!node->variable_declaration.initializer) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Variable \"%s\" is declared as const or reference, but initializer does not exist.", symbol_name);
+            goto error_cleanup;
+        }
+    }
+
+    // If initializer exists, check validity.
+    if (node->variable_declaration.initializer) {
+        if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->variable_declaration.initializer)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Initializer for variable \"%s\" is not valid", symbol_name);
+            goto error_cleanup;
+        }
+
+        const PP_AST_Decoration* initializer_decor = pp_ast_get_decoration(node->variable_declaration.initializer);
+        assert(initializer_decor);
+
+        // If reference variable
+        if (pp_type_is_reference(symbol_type)) {
+            // l-value
+            if (initializer_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "Variable \"%s\" is a reference, but initializer is not an l-value", symbol_name);
+                goto error_cleanup;
+            }
+            // const-correctness
+            if (!pp_type_is_const(symbol_type) && pp_type_is_const(initializer_decor->resolved_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                "Variable \"%s\" is a mutable reference, but initializer is const. Cannot remove constness", symbol_name);
+                goto error_cleanup;
+            }
+        }
+
+        // Decayed type match
+        const PPType* decayed_symbol_type = pp_type_decay(sa->gtt, symbol_type);
+        const PPType* decayed_initializer_type = pp_type_decay(sa->gtt, initializer_decor->resolved_type);
+        assert(decayed_symbol_type);
+        assert(decayed_initializer_type);
+        if (!pp_type_equal(decayed_symbol_type, decayed_initializer_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            "Type of variable \"%s\" does not match its initializer", symbol_name);
+            goto error_cleanup;
+        }
+
+        // Create symbol
+        // is_constexpr: variable has to be constant, and initializer should also be constexpr (so the value that variable has is determined at compile time)
+        // is_escapable_ref: Note that this reference can refer to variable from outside, then return it back. For this, it must be reference, and initializer must be escapable.
+        variable_symbol = pp_symbol_create(symbol_type,
+                                           pp_type_is_const(symbol_type) && initializer_decor->is_constexpr,
+                                           pp_type_is_reference(symbol_type) && initializer_decor->is_escapable_ref);
+    } else {
+        variable_symbol = pp_symbol_create(symbol_type, false, false);
+    }
+    NULL_POINTER_ERROR_HANDLE(variable_symbol);
+
+    pp_symbol_table_push(symbol_table, symbol_name, variable_symbol);
+    variable_symbol = NULL;
+                                       
+    return 1;
 error_cleanup:
+    pp_symbol_free(variable_symbol);
     return 0;
 }
 
