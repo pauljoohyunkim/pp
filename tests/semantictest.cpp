@@ -113,6 +113,23 @@ TEST(SemanticTest, Pass1VariableDeclaration) {
     semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
     EXPECT_EQ(analyze_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Debug print errors
+    {
+        auto lexer_h = pp_lexer_create(source, nullptr);
+        std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+        pp_lexer_analyze(lexer.get());
+        PP_Parser* parser_raw = pp_parser_create(lexer.get());
+        std::unique_ptr<PP_Parser, decltype(&pp_parser_free)> parser(parser_raw, pp_parser_free);
+        pp_parser_parse(parser.get());
+        PP_SemanticAnalyzer* sa_raw = pp_semantic_analyzer_create(parser.get());
+        std::unique_ptr<PP_SemanticAnalyzer, decltype(&pp_semantic_analyzer_free)> sa(sa_raw, pp_semantic_analyzer_free);
+        pp_semantic_analyzer_analyze(sa.get());
+        if (sa->error_list) {
+            for (size_t i=0;i<sa->error_list->n_errors;i++) {
+                printf("SEMERR %zu: %s at %d:%d\n", i, sa->error_list->errors[i].message, sa->error_list->errors[i].line, sa->error_list->errors[i].column);
+            }
+        }
+    }
     EXPECT_EQ(semantic_errors, 0);
 }
 

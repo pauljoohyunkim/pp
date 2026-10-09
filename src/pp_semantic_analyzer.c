@@ -1360,20 +1360,20 @@ static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyze
     assert(sa->current_function_type->kind == PP_TK_Function || sa->current_function_type->kind == PP_TK_Lambda);
 
     // If return type is void, expression must be NULL.
-    // If return type is not void, expression must not be NULL.
-    if (sa->current_function_type->type.pp_type_function.return_type->kind == PP_TK_Void && !node->return_statement.expr) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-        "Expected a return expression.");
-        goto error_cleanup;
-    }
-    if (sa->current_function_type->type.pp_type_function.return_type->kind != PP_TK_Void && node->return_statement.expr) {
+    // If return type is not void, expression must exist.
+    if (sa->current_function_type->type.pp_type_function.return_type->kind == PP_TK_Void && node->return_statement.expr) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
         "Return type is void, but an expression is returned.");
         goto error_cleanup;
     }
+    if (sa->current_function_type->type.pp_type_function.return_type->kind != PP_TK_Void && !node->return_statement.expr) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        "Expected a return expression.");
+        goto error_cleanup;
+    }
 
     // If void return, end early.
-    if (sa->current_function_type->type.pp_type_function.return_type == PP_TK_Void) {
+    if (sa->current_function_type->type.pp_type_function.return_type->kind == PP_TK_Void) {
         return 1;
     }
 
