@@ -1779,6 +1779,18 @@ static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer*
     return 1;
 }
 
+/* pp_semantic_analyzer_check_expression Checklist (based on cz_semantic_analyzer_check_expression):
+ * [x] Validate inputs via asserts
+ * [x] Dispatch to binary expression checker
+ * [x] Dispatch to unary expression checker
+ * [x] Dispatch to literal expression checker
+ * [x] Dispatch to identifier expression checker
+ * [x] Dispatch to cast expression checker PP_AST_CastExpressionNode -> pp_semantic_analyzer_check_cast_expression
+ * [ ] Dispatch to function call expression checker CZ_AST_FunctionCallNodeType -> cz_semantic_analyzer_check_function_call_expression
+ * [ ] Dispatch to struct member access checker CZ_AST_StructMemberAccessNodeType -> cz_semantic_analyzer_check_struct_access
+ * [ ] Dispatch to struct init checker CZ_AST_StructInitNodeType -> cz_semantic_analyzer_check_struct_init
+ * [ ] Default error for unsupported node types with cz_error_list_push_error
+ */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     assert(sa);
     assert(symbol_table);
@@ -1816,6 +1828,18 @@ error_cleanup:
     return 0;
 }
 
+/* Function Call Expression Checklist (based on cz_semantic_analyzer_check_function_call_expression):
+ * [x] Early exit if decoration already set
+ * [x] Check callee expression validity
+ * [x] Verify callee resolved type is function
+ * [x] Validate parameter count matches argument count
+ * [x] For each argument, check expression validity
+ * [ ] For each argument, decay types and compare to parameter types
+ * [ ] For reference parameters, verify argument is l-value
+ * [ ] For reference parameters, verify const-correctness (no cast away const)
+ * [ ] Determine return type and value category
+ * [ ] Create AST decoration for function call result and attach
+ */
 static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     assert(sa);
     assert(symbol_table);
@@ -1869,6 +1893,18 @@ error_cleanup:
     return 0;
 }
 
+/* pp_semantic_analyzer_check_binary_expression Checklist (based on cz_semantic_analyzer_check_binary_expression):
+ * [x] Validate inputs via asserts
+ * [x] Early exit if expr->binary_expression.decoration already set
+ * [x] Recursively check left sub-expression via pp_semantic_analyzer_check_expression
+ * [x] Recursively check right sub-expression via pp_semantic_analyzer_check_expression
+ * [x] Retrieve lhs/rhs decorations and resolved types
+ * [x] Decay lhs and rhs types via pp_type_decay
+ * [x] Validate operator-specific type compatibility and set binary_type per operator
+ * [x] Create decoration with result_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr = lhs&&rhs, escapable_ref false
+ * [ ] Explicitly verify both operands are primitive after decay with an error push
+ * [ ] Propagate maximum scope level of operands into decoration, CZ uses MAX(lhs_scope,rhs_scope)
+ */
 static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* binary_type = NULL;
@@ -2007,6 +2043,19 @@ error_cleanup:
 
 }
 
+/* pp_semantic_analyzer_check_unary_expression Checklist (based on cz_semantic_analyzer_check_unary_expression):
+ * [x] Validate inputs via asserts
+ * [x] Early exit if expr->unary_expression.decoration already set
+ * [x] Recursively check operand via pp_semantic_analyzer_check_expression
+ * [x] Retrieve operand decoration and resolved type
+ * [x] Decay operand type via pp_type_decay
+ * [x] Switch on unary operator and validate primitive compatibility, set unary_type
+ *    - MINUS: PP allows Int32/UInt32/Float, CZ allows Int32/Float only
+ *    - EXCLAMATION: requires Bool
+ * [x] Create decoration with result_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr propagated from operand, escapable_ref false
+ * [ ] Explicitly verify operand is primitive after decay with error push
+ * [ ] Preserve operand scope level in decoration, CZ passes operand->decoration->scope_level
+ */
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* unary_type = NULL;
@@ -2078,6 +2127,19 @@ error_cleanup:
     return 0;
 }
 
+/* pp_semantic_analyzer_check_literal_expression Checklist (based on cz_semantic_analyzer_check_literal_expression):
+ * [x] Validate inputs via asserts
+ * [x] Early exit if expr->literal.decoration already set
+ * [x] Switch on literal.literal_type and resolve base type
+ *    - PP_TT_INTEGER_LITERAL -> int32 alias
+ *    - PP_TT_TRUE / PP_TT_FALSE -> bool
+ *    - PP_TT_FLOAT_LITERAL -> float
+ * [ ] Distinguish unsigned suffix for numeric literals, CZ parses lexeme for '.' and 'u' to choose int32/uint32/float
+ * [x] Create const-wrapped type via pp_type_create(PP_TK_Const) then intern
+ * [x] Create decoration with resolved type, PP_VALUE_CATEGORY_RVALUE, is_constexpr true, escapable_ref false
+ * [ ] Explicitly reject string literal with error push, CZ pushes "String literal not yet supported."
+ * [ ] Set scope level 0 explicitly in decoration as CZ does
+ */
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* literal_type = NULL;
@@ -2131,6 +2193,17 @@ error_cleanup:
     return 0;
 }
 
+/* pp_semantic_analyzer_check_identifier_expression Checklist (based on cz_semantic_analyzer_check_identifier_expression):
+ * [x] Validate inputs via asserts
+ * [x] Early exit if expr->identifier.decoration already set
+ * [x] Lookup identifier in symbol table via pp_symbol_table_lookup
+ * [x] Retrieve identifier type from symbol
+ * [x] Determine value category: RVALUE if Function/Lambda else LVALUE
+ * [x] Create decoration with symbol type, value_category, is_constexpr false, escapable_ref = symbol->is_escapable_ref
+ * [ ] Verify symbol exists and symbol->kind == VALUE with explicit error push as CZ does
+ * [ ] Propagate symbol scope level into decoration, CZ uses symbol->scope_level
+ * [ ] Copy symbol->data.value.is_escapable_ref into decor->is_escapable_ref explicitly
+ */
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     assert(sa);
@@ -2169,6 +2242,20 @@ error_cleanup:
     return 0;
 }
 
+/* pp_semantic_analyzer_check_cast_expression Checklist (based on cz_semantic_analyzer_cast_expression):
+ * [x] Validate inputs via asserts
+ * [x] Early exit if expr->cast_expression.decoration already set
+ * [x] Recursively check inner expression via pp_semantic_analyzer_check_expression
+ * [x] Retrieve target type via pp_type_from_type_node
+ * [x] Reject casting to reference type with error push
+ * [x] Decay expression type and target type via pp_type_decay
+ * [x] Unwrap Newtype to underlying primitive for comparison
+ * [x] Allow cast if primitive kinds equal or both numerical via pp_type_is_numerical
+ * [x] Create decoration with target_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr propagated from expr, escapable_ref false
+ * [ ] Verify both decayed types are primitive or newtype with explicit error push as CZ does
+ * [ ] Propagate environment scope level into decoration, CZ uses env->scope_level
+ * [ ] Preserve is_constexpr from inner expression explicitly as done in PP, matches CZ intent
+ */
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     assert(sa);
