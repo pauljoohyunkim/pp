@@ -122,6 +122,7 @@ static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer*
 
 /* Expression Checking */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
@@ -1815,6 +1816,59 @@ error_cleanup:
     return 0;
 }
 
+static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_FunctionCallNode);
+
+    if (expr->function_call.decoration) return 1;
+
+    #warning "Dependency on whether or not the current function is lambda or not"
+
+    // Check callee (to support expressions like (f(2))(3), that is, higher-order functions)
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->function_call.callee)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Function callee could not be validated.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* callee_decoration = pp_ast_get_decoration(expr->function_call.callee);
+    assert(callee_decoration);
+
+    // Check indeed that it is a function.
+    if (callee_decoration->resolved_type->kind != PP_TK_Function) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Callee is not a registered function.");
+        goto error_cleanup;
+    }
+
+    // Param count validation
+    if (callee_decoration->resolved_type->type.pp_type_function.param_count != expr->function_call.arg_count) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Function expects %d arguments but only received %d arguments",
+        callee_decoration->resolved_type->type.pp_type_function.param_count,
+        expr->function_call.arg_count);
+        goto error_cleanup;
+    }
+
+    size_t param_count = callee_decoration->resolved_type->type.pp_type_function.param_count;
+
+    // Argument type checking loop
+    for (size_t i = 0; i < param_count; i++) {
+        // Check argument.
+        if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->function_call.arguments[i])) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Function argument could not be deduced");
+            goto error_cleanup;
+        }
+
+
+    }
+
+error_cleanup:
+    return 0;
+}
+
 static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* binary_type = NULL;
@@ -2087,7 +2141,7 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     // If already decorated, we are done.
     if (expr->identifier.decoration) return 1;
 
-    // TODO: In the case that we are inside a lambda function body, need to take care.
+    #warning "Dependency on whether or not the current function is lambda or not"
 
 
     const PPSymbol* identifier_symbol = pp_symbol_table_lookup(symbol_table, expr->identifier.identifier, true);
