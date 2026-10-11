@@ -1798,6 +1798,7 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
 
     switch (expr->node_type) {
         case PP_AST_FunctionCallNode:
+            if (!pp_semantic_analyzer_check_function_call(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_BinaryExpressionNode:
             if (!pp_semantic_analyzer_check_binary_expression(sa, symbol_table, expr)) goto error_cleanup;
@@ -1834,13 +1835,14 @@ error_cleanup:
  * [x] Verify callee resolved type is function
  * [x] Validate parameter count matches argument count
  * [x] For each argument, check expression validity
- * [ ] For each argument, decay types and compare to parameter types
- * [ ] For reference parameters, verify argument is l-value
- * [ ] For reference parameters, verify const-correctness (no cast away const)
- * [ ] Determine return type and value category
- * [ ] Create AST decoration for function call result and attach
+ * [x] For each argument, decay types and compare to parameter types
+ * [x] For reference parameters, verify argument is l-value
+ * [x] For reference parameters, verify const-correctness (no cast away const)
+ * [x] Determine return type and value category
+ * [x] Create AST decoration for function call result and attach
  */
 static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
     assert(sa);
     assert(symbol_table);
     assert(expr);
@@ -1877,6 +1879,7 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
 
     size_t param_count = callee_decoration->resolved_type->type.pp_type_function.param_count;
 
+    bool is_escapable = true;
     // Argument type checking loop
     for (size_t i = 0; i < param_count; i++) {
         // Check argument.
@@ -1886,10 +1889,59 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
             goto error_cleanup;
         }
 
+        // Type decay check
+        const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(expr->function_call.arguments[i]);
+        assert(arg_decor);
+        const PPType* arg_type = arg_decor->resolved_type;
+        const PPType* param_type = callee_decoration->resolved_type->type.pp_type_function.param_types[i];
+        assert(arg_type);
+        assert(param_type);
+        const PPType* decayed_arg_type = pp_type_decay(sa->gtt, arg_type);
+        const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+        if (!pp_type_equal(decayed_arg_type, decayed_param_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line, expr->function_call.arguments[i]->col,
+            "Type mismatch between parameter and passed argument.");
+            goto error_cleanup;
+        }
+
+        if (pp_type_is_reference(param_type)) {
+            // If parameter is reference, passed argument must be l-value
+            if (arg_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line, expr->function_call.arguments[i]->col,
+                "Parameter is reference, so l-value is expected.");
+                goto error_cleanup;
+            }
+            // Constness check
+            if (pp_type_is_const(arg_type) && !pp_type_is_const(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line, expr->function_call.arguments[i]->col,
+                "Parameter is mutable reference, but const l-value is passed.");
+                goto error_cleanup;
+            }
+            // Escapability Check
+            if (!arg_decor->is_escapable_ref) {
+                is_escapable = false;
+            }
+        }
 
     }
 
+    const PPType* return_type = callee_decoration->resolved_type->type.pp_type_function.return_type;
+    assert(return_type);
+    
+    decoration = pp_ast_decoration_create(return_type,
+        pp_type_is_reference(return_type) ? PP_VALUE_CATEGORY_LVALUE : PP_VALUE_CATEGORY_RVALUE,
+        false,
+        pp_type_is_reference(return_type) && is_escapable
+    );
+    NULL_POINTER_ERROR_HANDLE(decoration);
+
+    expr->function_call.decoration = decoration;
+    decoration = NULL;
+
+    return 1;
+
 error_cleanup:
+    pp_ast_decoration_free(decoration);
     return 0;
 }
 
