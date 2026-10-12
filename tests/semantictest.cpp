@@ -237,3 +237,74 @@ TEST(SemanticTest, Pass2FunctionParamDuplicateError) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, FunctionCallParamCountMismatch) {
+    const char* source =
+        "func foo :: (a :: int32) -> int32 { return a; }\n"
+        "func main :: () -> int32 { return foo(); }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Wrong argument count should be reported
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, FunctionCallCorrect) {
+    const char* source =
+        "func foo :: (a :: int32) -> int32 { return a; }\n"
+        "func main :: () -> int32 { return foo(1); }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, LambdaCallParamCountMismatch) {
+    const char* source =
+        "lambda add :: (a :: int32, b :: int32) -> int32 { return a + b; }\n"
+        "func main :: () -> int32 { return add(1); }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Wrong argument count for lambda should be reported
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, LambdaCallCorrect) {
+    const char* source =
+        "lambda add :: (a :: int32, b :: int32) -> int32 { return a + b; }\n"
+        "func main :: () -> int32 { return add(1, 2); }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, LambdaMutableReferenceParamError) {
+    const char* source =
+        "lambda bad :: (x :: int32&) -> int32 { return x; }\n"
+        "func main :: () -> int32 { let v :: int32 = 1; return bad(v); }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Lambda requires immutable reference parameters
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, LambdaVoidReturnError) {
+    const char* source =
+        "lambda bad :: () -> void { }\n"
+        "func main :: () -> int32 { return bad(); }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Lambda forbids returning void
+    EXPECT_GT(semantic_errors, 0);
+}
+
+

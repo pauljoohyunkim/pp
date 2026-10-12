@@ -122,6 +122,7 @@ static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer*
 
 /* Expression Checking */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
@@ -1778,6 +1779,18 @@ static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer*
     return 1;
 }
 
+/* pp_semantic_analyzer_check_expression Checklist (based on cz_semantic_analyzer_check_expression):
+ * [x] Validate inputs via asserts
+ * [x] Dispatch to binary expression checker
+ * [x] Dispatch to unary expression checker
+ * [x] Dispatch to literal expression checker
+ * [x] Dispatch to identifier expression checker
+ * [x] Dispatch to cast expression checker PP_AST_CastExpressionNode -> pp_semantic_analyzer_check_cast_expression
+ * [ ] Dispatch to function call expression checker CZ_AST_FunctionCallNodeType -> cz_semantic_analyzer_check_function_call_expression
+ * [ ] Dispatch to struct member access checker CZ_AST_StructMemberAccessNodeType -> cz_semantic_analyzer_check_struct_access
+ * [ ] Dispatch to struct init checker CZ_AST_StructInitNodeType -> cz_semantic_analyzer_check_struct_init
+ * [ ] Default error for unsupported node types with cz_error_list_push_error
+ */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     assert(sa);
     assert(symbol_table);
@@ -1785,6 +1798,7 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
 
     switch (expr->node_type) {
         case PP_AST_FunctionCallNode:
+            if (!pp_semantic_analyzer_check_function_call(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_BinaryExpressionNode:
             if (!pp_semantic_analyzer_check_binary_expression(sa, symbol_table, expr)) goto error_cleanup;
@@ -1815,6 +1829,176 @@ error_cleanup:
     return 0;
 }
 
+/* Function Call Expression Checklist (based on cz_semantic_analyzer_check_function_call_expression):
+ * [x] Early exit if decoration already set
+ * [x] Check callee expression validity
+ * [x] Verify callee resolved type is function
+ * [x] Validate parameter count matches argument count
+ * [x] For each argument, check expression validity
+ * [x] For each argument, decay types and compare to parameter types
+ * [x] For reference parameters, verify argument is l-value
+ * [x] For reference parameters, verify const-correctness (no cast away const)
+ * [x] Determine return type and value category
+ * [x] Create AST decoration for function call result and attach
+ * [ ] Relax the current conservative condition on the return type reference being escapable appropriate.
+ * [ ] Lambda function could return const reference (though implement this later.)
+ */
+static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_FunctionCallNode);
+
+    if (expr->function_call.decoration) return 1;
+
+    // Check callee (to support expressions like (f(2))(3), that is, higher-order functions)
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->function_call.callee)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Function callee could not be validated.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* callee_decoration = pp_ast_get_decoration(expr->function_call.callee);
+    assert(callee_decoration);
+
+    // Check indeed that it is a function.
+    if (callee_decoration->resolved_type->kind != PP_TK_Function && callee_decoration->resolved_type->kind != PP_TK_Lambda) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Callee is not a registered function.");
+        goto error_cleanup;
+    }
+
+    // Keep track of whether or not the function is lambda.
+    bool function_is_lambda = callee_decoration->resolved_type->kind == PP_TK_Lambda;
+
+    // Param count validation
+    if (function_is_lambda) {
+        if (callee_decoration->resolved_type->type.pp_type_lambda.param_count != expr->function_call.arg_count) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Lambda function expects %d arguments but only received %d arguments",
+            callee_decoration->resolved_type->type.pp_type_lambda.param_count,
+            expr->function_call.arg_count);
+            goto error_cleanup;
+        }
+    } else {
+        if (callee_decoration->resolved_type->type.pp_type_function.param_count != expr->function_call.arg_count) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Function expects %d arguments but only received %d arguments",
+            callee_decoration->resolved_type->type.pp_type_function.param_count,
+            expr->function_call.arg_count);
+            goto error_cleanup;
+        }
+    }
+
+    size_t param_count = function_is_lambda ?
+        callee_decoration->resolved_type->type.pp_type_lambda.param_count :
+        callee_decoration->resolved_type->type.pp_type_function.param_count;
+
+    bool is_escapable = true;
+    // Argument type checking loop
+    for (size_t i = 0; i < param_count; i++) {
+        // Check argument.
+        if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->function_call.arguments[i])) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Function argument could not be deduced");
+            goto error_cleanup;
+        }
+
+        // Type decay check
+        const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(expr->function_call.arguments[i]);
+        assert(arg_decor);
+        const PPType* arg_type = arg_decor->resolved_type;
+        const PPType* param_type = function_is_lambda ?
+            callee_decoration->resolved_type->type.pp_type_lambda.param_types[i] :
+            callee_decoration->resolved_type->type.pp_type_function.param_types[i];
+        assert(arg_type);
+        assert(param_type);
+        const PPType* decayed_arg_type = pp_type_decay(sa->gtt, arg_type);
+        const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+        if (!pp_type_equal(decayed_arg_type, decayed_param_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line, expr->function_call.arguments[i]->col,
+            "Type mismatch between parameter and passed argument.");
+            goto error_cleanup;
+        }
+
+        if (pp_type_is_reference(param_type)) {
+            // If parameter is reference, passed argument must be l-value
+            if (arg_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line, expr->function_call.arguments[i]->col,
+                "Parameter is reference, so l-value is expected.");
+                goto error_cleanup;
+            }
+            // Lambda does not allow mutable references.
+            if (function_is_lambda && !pp_type_is_const(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line, expr->function_call.arguments[i]->col,
+                "Lambda function requires all reference parameters to be immutable.");
+                goto error_cleanup;
+            }
+
+            // Constness check
+            if (pp_type_is_const(arg_type) && !pp_type_is_const(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line, expr->function_call.arguments[i]->col,
+                "Parameter is mutable reference, but const l-value is passed.");
+                goto error_cleanup;
+            }
+            // Escapability Check
+            if (!arg_decor->is_escapable_ref) {
+                is_escapable = false;
+            }
+        }
+
+    }
+
+    const PPType* return_type = function_is_lambda ?
+        callee_decoration->resolved_type->type.pp_type_lambda.return_type :
+        callee_decoration->resolved_type->type.pp_type_function.return_type;
+    assert(return_type);
+    if (function_is_lambda) {
+        // Void cannot be returned in lambda function
+        if (return_type->kind == PP_TK_Void) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Lambda function forbids returning void");
+            goto error_cleanup;
+        }
+
+        // TODO: For now lambda does not allow returning references.
+        // This condition will be lifted later in v2
+        if (pp_type_is_reference(return_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Lambda function (for now) forbids returning references.");
+            goto error_cleanup;
+        }
+    }
+    
+    decoration = pp_ast_decoration_create(return_type,
+        pp_type_is_reference(return_type) ? PP_VALUE_CATEGORY_LVALUE : PP_VALUE_CATEGORY_RVALUE,
+        false,
+        pp_type_is_reference(return_type) && is_escapable
+    );
+    NULL_POINTER_ERROR_HANDLE(decoration);
+
+    expr->function_call.decoration = decoration;
+    decoration = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    return 0;
+}
+
+/* pp_semantic_analyzer_check_binary_expression Checklist (based on cz_semantic_analyzer_check_binary_expression):
+ * [x] Validate inputs via asserts
+ * [x] Early exit if expr->binary_expression.decoration already set
+ * [x] Recursively check left sub-expression via pp_semantic_analyzer_check_expression
+ * [x] Recursively check right sub-expression via pp_semantic_analyzer_check_expression
+ * [x] Retrieve lhs/rhs decorations and resolved types
+ * [x] Decay lhs and rhs types via pp_type_decay
+ * [x] Validate operator-specific type compatibility and set binary_type per operator
+ * [x] Create decoration with result_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr = lhs&&rhs, escapable_ref false
+ * [ ] Explicitly verify both operands are primitive after decay with an error push
+ * [ ] Propagate maximum scope level of operands into decoration, CZ uses MAX(lhs_scope,rhs_scope)
+ */
 static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* binary_type = NULL;
@@ -1953,6 +2137,19 @@ error_cleanup:
 
 }
 
+/* pp_semantic_analyzer_check_unary_expression Checklist (based on cz_semantic_analyzer_check_unary_expression):
+ * [x] Validate inputs via asserts
+ * [x] Early exit if expr->unary_expression.decoration already set
+ * [x] Recursively check operand via pp_semantic_analyzer_check_expression
+ * [x] Retrieve operand decoration and resolved type
+ * [x] Decay operand type via pp_type_decay
+ * [x] Switch on unary operator and validate primitive compatibility, set unary_type
+ *    - MINUS: PP allows Int32/UInt32/Float, CZ allows Int32/Float only
+ *    - EXCLAMATION: requires Bool
+ * [x] Create decoration with result_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr propagated from operand, escapable_ref false
+ * [ ] Explicitly verify operand is primitive after decay with error push
+ * [ ] Preserve operand scope level in decoration, CZ passes operand->decoration->scope_level
+ */
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* unary_type = NULL;
@@ -2024,6 +2221,19 @@ error_cleanup:
     return 0;
 }
 
+/* pp_semantic_analyzer_check_literal_expression Checklist (based on cz_semantic_analyzer_check_literal_expression):
+ * [x] Validate inputs via asserts
+ * [x] Early exit if expr->literal.decoration already set
+ * [x] Switch on literal.literal_type and resolve base type
+ *    - PP_TT_INTEGER_LITERAL -> int32 alias
+ *    - PP_TT_TRUE / PP_TT_FALSE -> bool
+ *    - PP_TT_FLOAT_LITERAL -> float
+ * [ ] Distinguish unsigned suffix for numeric literals, CZ parses lexeme for '.' and 'u' to choose int32/uint32/float
+ * [x] Create const-wrapped type via pp_type_create(PP_TK_Const) then intern
+ * [x] Create decoration with resolved type, PP_VALUE_CATEGORY_RVALUE, is_constexpr true, escapable_ref false
+ * [ ] Explicitly reject string literal with error push, CZ pushes "String literal not yet supported."
+ * [ ] Set scope level 0 explicitly in decoration as CZ does
+ */
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* literal_type = NULL;
@@ -2077,6 +2287,17 @@ error_cleanup:
     return 0;
 }
 
+/* pp_semantic_analyzer_check_identifier_expression Checklist (based on cz_semantic_analyzer_check_identifier_expression):
+ * [x] Validate inputs via asserts
+ * [x] Early exit if expr->identifier.decoration already set
+ * [x] Lookup identifier in symbol table via pp_symbol_table_lookup
+ * [x] Retrieve identifier type from symbol
+ * [x] Determine value category: RVALUE if Function/Lambda else LVALUE
+ * [x] Create decoration with symbol type, value_category, is_constexpr false, escapable_ref = symbol->is_escapable_ref
+ * [ ] Verify symbol exists and symbol->kind == VALUE with explicit error push as CZ does
+ * [ ] Propagate symbol scope level into decoration, CZ uses symbol->scope_level
+ * [ ] Copy symbol->data.value.is_escapable_ref into decor->is_escapable_ref explicitly
+ */
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     assert(sa);
@@ -2087,7 +2308,7 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     // If already decorated, we are done.
     if (expr->identifier.decoration) return 1;
 
-    // TODO: In the case that we are inside a lambda function body, need to take care.
+    #warning "Dependency on whether or not the current function is lambda or not"
 
 
     const PPSymbol* identifier_symbol = pp_symbol_table_lookup(symbol_table, expr->identifier.identifier, true);
@@ -2115,6 +2336,20 @@ error_cleanup:
     return 0;
 }
 
+/* pp_semantic_analyzer_check_cast_expression Checklist (based on cz_semantic_analyzer_cast_expression):
+ * [x] Validate inputs via asserts
+ * [x] Early exit if expr->cast_expression.decoration already set
+ * [x] Recursively check inner expression via pp_semantic_analyzer_check_expression
+ * [x] Retrieve target type via pp_type_from_type_node
+ * [x] Reject casting to reference type with error push
+ * [x] Decay expression type and target type via pp_type_decay
+ * [x] Unwrap Newtype to underlying primitive for comparison
+ * [x] Allow cast if primitive kinds equal or both numerical via pp_type_is_numerical
+ * [x] Create decoration with target_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr propagated from expr, escapable_ref false
+ * [ ] Verify both decayed types are primitive or newtype with explicit error push as CZ does
+ * [ ] Propagate environment scope level into decoration, CZ uses env->scope_level
+ * [ ] Preserve is_constexpr from inner expression explicitly as done in PP, matches CZ intent
+ */
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     assert(sa);
