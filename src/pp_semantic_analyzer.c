@@ -1840,6 +1840,8 @@ error_cleanup:
  * [x] For reference parameters, verify const-correctness (no cast away const)
  * [x] Determine return type and value category
  * [x] Create AST decoration for function call result and attach
+ * [ ] Relax the current conservative condition on the return type reference being escapable appropriate.
+ * [ ] Lambda function could return const reference (though implement this later.)
  */
 static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
@@ -1849,8 +1851,6 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
     assert(expr->node_type == PP_AST_FunctionCallNode);
 
     if (expr->function_call.decoration) return 1;
-
-    #warning "Dependency on whether or not the current function is lambda or not"
 
     // Check callee (to support expressions like (f(2))(3), that is, higher-order functions)
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->function_call.callee)) {
@@ -1862,22 +1862,37 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
     assert(callee_decoration);
 
     // Check indeed that it is a function.
-    if (callee_decoration->resolved_type->kind != PP_TK_Function) {
+    if (callee_decoration->resolved_type->kind != PP_TK_Function && callee_decoration->resolved_type->kind != PP_TK_Lambda) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
         "Callee is not a registered function.");
         goto error_cleanup;
     }
 
+    // Keep track of whether or not the function is lambda.
+    bool function_is_lambda = callee_decoration->resolved_type->kind == PP_TK_Lambda;
+
     // Param count validation
-    if (callee_decoration->resolved_type->type.pp_type_function.param_count != expr->function_call.arg_count) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-        "Function expects %d arguments but only received %d arguments",
-        callee_decoration->resolved_type->type.pp_type_function.param_count,
-        expr->function_call.arg_count);
-        goto error_cleanup;
+    if (function_is_lambda) {
+        if (callee_decoration->resolved_type->type.pp_type_lambda.param_count != expr->function_call.arg_count) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Lambda function expects %d arguments but only received %d arguments",
+            callee_decoration->resolved_type->type.pp_type_lambda.param_count,
+            expr->function_call.arg_count);
+            goto error_cleanup;
+        }
+    } else {
+        if (callee_decoration->resolved_type->type.pp_type_function.param_count != expr->function_call.arg_count) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Function expects %d arguments but only received %d arguments",
+            callee_decoration->resolved_type->type.pp_type_function.param_count,
+            expr->function_call.arg_count);
+            goto error_cleanup;
+        }
     }
 
-    size_t param_count = callee_decoration->resolved_type->type.pp_type_function.param_count;
+    size_t param_count = function_is_lambda ?
+        callee_decoration->resolved_type->type.pp_type_lambda.param_count :
+        callee_decoration->resolved_type->type.pp_type_function.param_count;
 
     bool is_escapable = true;
     // Argument type checking loop
@@ -1893,7 +1908,9 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
         const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(expr->function_call.arguments[i]);
         assert(arg_decor);
         const PPType* arg_type = arg_decor->resolved_type;
-        const PPType* param_type = callee_decoration->resolved_type->type.pp_type_function.param_types[i];
+        const PPType* param_type = function_is_lambda ?
+            callee_decoration->resolved_type->type.pp_type_lambda.param_types[i] :
+            callee_decoration->resolved_type->type.pp_type_function.param_types[i];
         assert(arg_type);
         assert(param_type);
         const PPType* decayed_arg_type = pp_type_decay(sa->gtt, arg_type);
@@ -1911,6 +1928,13 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
                 "Parameter is reference, so l-value is expected.");
                 goto error_cleanup;
             }
+            // Lambda does not allow mutable references.
+            if (function_is_lambda && !pp_type_is_const(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line, expr->function_call.arguments[i]->col,
+                "Lambda function requires all reference parameters to be immutable.");
+                goto error_cleanup;
+            }
+
             // Constness check
             if (pp_type_is_const(arg_type) && !pp_type_is_const(param_type)) {
                 pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line, expr->function_call.arguments[i]->col,
@@ -1925,8 +1949,26 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
 
     }
 
-    const PPType* return_type = callee_decoration->resolved_type->type.pp_type_function.return_type;
+    const PPType* return_type = function_is_lambda ?
+        callee_decoration->resolved_type->type.pp_type_lambda.return_type :
+        callee_decoration->resolved_type->type.pp_type_function.return_type;
     assert(return_type);
+    if (function_is_lambda) {
+        // Void cannot be returned in lambda function
+        if (return_type->kind == PP_TK_Void) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Lambda function forbids returning void");
+            goto error_cleanup;
+        }
+
+        // TODO: For now lambda does not allow returning references.
+        // This condition will be lifted later in v2
+        if (pp_type_is_reference(return_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Lambda function (for now) forbids returning references.");
+            goto error_cleanup;
+        }
+    }
     
     decoration = pp_ast_decoration_create(return_type,
         pp_type_is_reference(return_type) ? PP_VALUE_CATEGORY_LVALUE : PP_VALUE_CATEGORY_RVALUE,
