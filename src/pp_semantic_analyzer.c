@@ -1,5 +1,6 @@
 #include "pp_semantic_analyzer.h"
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 #include <assert.h>
 
@@ -93,6 +94,7 @@
 
 #define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr) == NULL) goto error_cleanup; } while (0)
 
+static ssize_t pp_array_size_from_simple_expr(const PP_AST_Node* simple_expr_node);
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node);
 /* Pass I */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
@@ -286,6 +288,10 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
     return 1;
 }
 
+
+static ssize_t pp_array_size_from_simple_expr(const PP_AST_Node* simple_expr_node) {
+
+}
 
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node) {
     assert(sa);
