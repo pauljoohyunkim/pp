@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+#include <stdint.h>
 
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
@@ -304,48 +305,18 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                 }
                 char* endptr;
                 errno = 0;
-                long parsed_val = strtol(simple_expr_node->literal.lexeme, &endptr, 10);
+                unsigned long long parsed_val = strtoull(simple_expr_node->literal.lexeme, &endptr, 10);
                 if (errno != 0 || simple_expr_node->literal.lexeme == endptr) {
                     pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
                     "Could not parse literal to number");
                     goto error_cleanup;
                 }
-                // Passing sa->gst, even though this is not used.
-                if (pp_semantic_analyzer_check_literal_expression(sa, sa->gst, simple_expr_node)) {
+                if (parsed_val > SIZE_MAX) {
                     pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
-                    "Could not get type to literal");
+                    "Array size literal out of range for size_t");
                     goto error_cleanup;
                 }
                 *val = (size_t) parsed_val;
-                return 1;
-            }
-            break;
-        case PP_AST_UnaryExpressionNode:
-            {
-                if (simple_expr_node->unary_expression.op != PP_TT_MINUS) {
-                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
-                    "The only unary operator allowed in array size is \'-\'");
-                    goto error_cleanup;
-                }
-
-                size_t operand_val;
-                if (!pp_array_size_from_simple_expr(sa, simple_expr_node->unary_expression.operand, &operand_val)) {
-                    goto error_cleanup;
-                }
-                const PP_AST_Decoration* operand_decoration = pp_ast_get_decoration(simple_expr_node->unary_expression.operand);
-                assert(operand_decoration);
-                if (operand_decoration->resolved_type->kind != PP_TK_Int32) {
-                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
-                    "\'-\' operator can only be applied to signed integer type.");
-                    goto error_cleanup;
-                }
-                // Passing sa->gst, even though, it will not be used due to the "simple" nature of expression.
-                if (!pp_semantic_analyzer_check_unary_expression(sa, sa->gst, simple_expr_node)) {
-                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
-                    "Could not get type to unary expression");
-                    goto error_cleanup;
-                }
-                *val = -operand_val;
                 return 1;
             }
             break;
@@ -371,33 +342,38 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                 if (!pp_array_size_from_simple_expr(sa, simple_expr_node->binary_expression.right, &right_val)) {
                     goto error_cleanup;
                 }
-                const PP_AST_Decoration* left_decoration = pp_ast_get_decoration(simple_expr_node->binary_expression.left);
-                assert(left_decoration);
-                const PP_AST_Decoration* right_decoration = pp_ast_get_decoration(simple_expr_node->binary_expression.right);
-                assert(right_decoration);
-                if (left_decoration->resolved_type->kind != PP_TK_UInt32 || right_decoration->resolved_type->kind != PP_TK_UInt32) {
-                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
-                    "Binary operator can only be applied between unsigned integers for array size expressions");
-                    goto error_cleanup;
-                }
-                // Passing sa->gst, even though, it will not be used due to the "simple" nature of expression.
-                if (!pp_semantic_analyzer_check_binary_expression(sa, sa->gst, simple_expr_node)) {
-                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
-                    "Could not get type to binary expression");
-                    goto error_cleanup;
-                }
 
                 switch (simple_expr_node->binary_expression.op) {
                     case PP_TT_PLUS:
+                        if (left_val > SIZE_MAX - right_val) {
+                            pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                            "Array size addition overflow");
+                            goto error_cleanup;
+                        }
                         *val = left_val + right_val;
                         break;
                     case PP_TT_STAR:
+                        if (left_val != 0 && right_val > SIZE_MAX / left_val) {
+                            pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                            "Array size multiplication overflow");
+                            goto error_cleanup;
+                        }
                         *val = left_val * right_val;
                         break;
                     case PP_TT_SLASH:
+                        if (right_val == 0) {
+                            pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                            "Division by zero in array size expression");
+                            goto error_cleanup;
+                        }
                         *val = left_val / right_val;
                         break;
                     case PP_TT_PERCENT:
+                        if (right_val == 0) {
+                            pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                            "Modulo by zero in array size expression");
+                            goto error_cleanup;
+                        }
                         *val = left_val % right_val;
                         break;
                     default:
@@ -482,7 +458,43 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         }
     }
 
-    #warning "Array/List not yet supported"
+    {
+        PP_AST_ArrayListSpecifier* spec = type_node->type_expression.array_spec;
+        while (spec) {
+            if (spec->kind == PP_ARRAY_SPEC_EMPTY) {
+                temp_type = pp_type_create(PP_TK_List);
+                if (!temp_type) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create list type");
+                    goto error_cleanup;
+                }
+                temp_type->type.pp_type_list.element_type = gtt_registered_type;
+            } else {
+                size_t size = 0;
+                if (!pp_array_size_from_simple_expr(sa, spec->size_expr, &size)) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Could not compute array size");
+                    goto error_cleanup;
+                }
+                if (size == 0) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Array size cannot be zero");
+                    goto error_cleanup;
+                }
+                temp_type = pp_type_create(PP_TK_Array);
+                if (!temp_type) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create array type");
+                    goto error_cleanup;
+                }
+                temp_type->type.pp_type_array.size = size;
+                temp_type->type.pp_type_array.element_type = gtt_registered_type;
+            }
+            gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+            temp_type = NULL;
+            if (!gtt_registered_type) {
+                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern array/list type");
+                goto error_cleanup;
+            }
+            spec = spec->next;
+        }
+    }
 
     if (type_node->type_expression.is_reference) {
         temp_type = pp_type_create(PP_TK_Reference);
