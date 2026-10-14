@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
@@ -93,6 +94,7 @@
 
 #define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr) == NULL) goto error_cleanup; } while (0)
 
+static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_Node* simple_expr_node, size_t* val);
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node);
 /* Pass I */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
@@ -286,6 +288,131 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
     return 1;
 }
 
+
+static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_Node* simple_expr_node, size_t* val) {
+    assert(sa);
+    assert(simple_expr_node);
+    assert(val);
+
+    switch (simple_expr_node->node_type) {
+        case PP_AST_LiteralNode:
+            {
+                if (simple_expr_node->literal.literal_type != PP_TT_UNSIGNED_INTEGER_LITERAL) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                    "For array size expression, literals can only be unsigned integer");
+                    goto error_cleanup;
+                }
+                char* endptr;
+                errno = 0;
+                long parsed_val = strtol(simple_expr_node->literal.lexeme, &endptr, 10);
+                if (errno != 0 || simple_expr_node->literal.lexeme == endptr) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                    "Could not parse literal to number");
+                    goto error_cleanup;
+                }
+                // Passing sa->gst, even though this is not used.
+                if (pp_semantic_analyzer_check_literal_expression(sa, sa->gst, simple_expr_node)) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                    "Could not get type to literal");
+                    goto error_cleanup;
+                }
+                *val = (size_t) parsed_val;
+                return 1;
+            }
+            break;
+        case PP_AST_UnaryExpressionNode:
+            {
+                if (simple_expr_node->unary_expression.op != PP_TT_MINUS) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                    "The only unary operator allowed in array size is \'-\'");
+                    goto error_cleanup;
+                }
+
+                size_t operand_val;
+                if (!pp_array_size_from_simple_expr(sa, simple_expr_node->unary_expression.operand, &operand_val)) {
+                    goto error_cleanup;
+                }
+                const PP_AST_Decoration* operand_decoration = pp_ast_get_decoration(simple_expr_node->unary_expression.operand);
+                assert(operand_decoration);
+                if (operand_decoration->resolved_type->kind != PP_TK_Int32) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                    "\'-\' operator can only be applied to signed integer type.");
+                    goto error_cleanup;
+                }
+                // Passing sa->gst, even though, it will not be used due to the "simple" nature of expression.
+                if (!pp_semantic_analyzer_check_unary_expression(sa, sa->gst, simple_expr_node)) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                    "Could not get type to unary expression");
+                    goto error_cleanup;
+                }
+                *val = -operand_val;
+                return 1;
+            }
+            break;
+        case PP_AST_BinaryExpressionNode:
+            {
+                switch (simple_expr_node->binary_expression.op) {
+                    case PP_TT_PLUS:
+                    case PP_TT_STAR:
+                    case PP_TT_SLASH:
+                    case PP_TT_PERCENT:
+                        break;
+                    default:
+                        pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                        "The only binary operator allowed in array size are \'+\', \'*\', \'/\', and \'%\'");
+                        goto error_cleanup;
+                }
+
+                size_t left_val;
+                size_t right_val;
+                if (!pp_array_size_from_simple_expr(sa, simple_expr_node->binary_expression.left, &left_val)) {
+                    goto error_cleanup;
+                }
+                if (!pp_array_size_from_simple_expr(sa, simple_expr_node->binary_expression.right, &right_val)) {
+                    goto error_cleanup;
+                }
+                const PP_AST_Decoration* left_decoration = pp_ast_get_decoration(simple_expr_node->binary_expression.left);
+                assert(left_decoration);
+                const PP_AST_Decoration* right_decoration = pp_ast_get_decoration(simple_expr_node->binary_expression.right);
+                assert(right_decoration);
+                if (left_decoration->resolved_type->kind != PP_TK_UInt32 || right_decoration->resolved_type->kind != PP_TK_UInt32) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                    "Binary operator can only be applied between unsigned integers for array size expressions");
+                    goto error_cleanup;
+                }
+                // Passing sa->gst, even though, it will not be used due to the "simple" nature of expression.
+                if (!pp_semantic_analyzer_check_binary_expression(sa, sa->gst, simple_expr_node)) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                    "Could not get type to binary expression");
+                    goto error_cleanup;
+                }
+
+                switch (simple_expr_node->binary_expression.op) {
+                    case PP_TT_PLUS:
+                        *val = left_val + right_val;
+                        break;
+                    case PP_TT_STAR:
+                        *val = left_val * right_val;
+                        break;
+                    case PP_TT_SLASH:
+                        *val = left_val / right_val;
+                        break;
+                    case PP_TT_PERCENT:
+                        *val = left_val % right_val;
+                        break;
+                    default:
+                        abort();
+                }
+                return 1;
+            }
+            break;
+        default:
+            goto error_cleanup;
+    }
+
+error_cleanup:
+    return 0;
+}
 
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node) {
     assert(sa);
