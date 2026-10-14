@@ -450,20 +450,12 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
         if (!pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET)) {
             pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ']' to close array specifier");
         }
-        spec = (PP_AST_ArrayListSpecifier*)calloc(1, sizeof(PP_AST_ArrayListSpecifier));
-        if (spec) {
-            if (size_expr) {
-                spec->kind = PP_ARRAY_SPEC_SIZE;
-                spec->size_expr = size_expr;
-            } else {
-                spec->kind = PP_ARRAY_SPEC_EMPTY;
-                spec->size_expr = NULL;
-            }
-            /* simple chaining: replace previous, real implementation would nest */
-            free(array_spec);
-            array_spec = spec;
-            spec = NULL;
-        }
+        PP_ArraySpecKind kind_spec = size_expr ? PP_ARRAY_SPEC_SIZE : PP_ARRAY_SPEC_EMPTY;
+        spec = pp_ast_array_spec_create(kind_spec, size_expr);
+        NULL_POINTER_ERROR_HANDLE(spec);
+        spec->next = array_spec;
+        array_spec = spec;
+        spec = NULL;
         size_expr = NULL;
     }
     bool is_ref = false;
@@ -482,12 +474,8 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
 error_cleanup:
     pp_ast_root_free(node);
     pp_ast_root_free(size_expr);
-    if (array_spec) {
-        /* free any size_expr owned by spec before freeing spec */
-        pp_ast_root_free(array_spec->size_expr);
-    }
-    free(array_spec);
-    free(spec);
+    pp_ast_array_spec_free(array_spec);
+    pp_ast_array_spec_free(spec);
     return NULL;
 }
 

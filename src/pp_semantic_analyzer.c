@@ -482,7 +482,43 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         }
     }
 
-    #warning "Array/List not yet supported"
+    {
+        PP_AST_ArrayListSpecifier* spec = type_node->type_expression.array_spec;
+        while (spec) {
+            if (spec->kind == PP_ARRAY_SPEC_EMPTY) {
+                temp_type = pp_type_create(PP_TK_List);
+                if (!temp_type) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create list type");
+                    goto error_cleanup;
+                }
+                temp_type->type.pp_type_list.element_type = gtt_registered_type;
+            } else {
+                size_t size = 0;
+                if (!pp_array_size_from_simple_expr(sa, spec->size_expr, &size)) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Could not compute array size");
+                    goto error_cleanup;
+                }
+                if (size == 0) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Array size cannot be zero");
+                    goto error_cleanup;
+                }
+                temp_type = pp_type_create(PP_TK_Array);
+                if (!temp_type) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create array type");
+                    goto error_cleanup;
+                }
+                temp_type->type.pp_type_array.size = size;
+                temp_type->type.pp_type_array.element_type = gtt_registered_type;
+            }
+            gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+            temp_type = NULL;
+            if (!gtt_registered_type) {
+                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern array/list type");
+                goto error_cleanup;
+            }
+            spec = spec->next;
+        }
+    }
 
     if (type_node->type_expression.is_reference) {
         temp_type = pp_type_create(PP_TK_Reference);
