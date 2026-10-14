@@ -2434,9 +2434,10 @@ error_cleanup:
  * [x] Retrieve identifier type from symbol
  * [x] Determine value category: RVALUE if Function/Lambda else LVALUE
  * [x] Create decoration with symbol type, value_category, is_constexpr false, escapable_ref = symbol->is_escapable_ref
- * [ ] Verify symbol exists and symbol->kind == VALUE with explicit error push as CZ does
- * [ ] Propagate symbol scope level into decoration, CZ uses symbol->scope_level
- * [ ] Copy symbol->data.value.is_escapable_ref into decor->is_escapable_ref explicitly
+ * [x] Verify symbol exists and push error if not found
+ * [-] Propagate symbol scope level into decoration, CZ uses symbol->scope_level -> PP does not track scope level per symbol
+ * [x] Use symbol->is_escapable_ref when creating decoration
+ * [x] Lambda capture rules: ban reference to global, require const for globals used inside lambda
  */
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
