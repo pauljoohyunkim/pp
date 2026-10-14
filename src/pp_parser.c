@@ -332,6 +332,7 @@ static PP_AST_Node* pp_parser_create_primary(PP_Parser* parser) {
         case PP_TT_IDENTIFIER:
             return pp_parser_create_identifier(parser);
         case PP_TT_INTEGER_LITERAL:
+        case PP_TT_UNSIGNED_INTEGER_LITERAL:
         case PP_TT_FLOAT_LITERAL:
         case PP_TT_TRUE:
         case PP_TT_FALSE:
