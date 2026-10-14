@@ -55,12 +55,12 @@ PP_AST_ArrayListSpecifier* pp_ast_array_spec_create(PP_ArraySpecKind kind, PP_AS
 }
 
 void pp_ast_array_spec_free(PP_AST_ArrayListSpecifier* spec) {
-    while (spec) {
-        PP_AST_ArrayListSpecifier* next = spec->next;
-        pp_ast_root_free(spec->size_expr);
-        free(spec);
-        spec = next;
-    }
+    if (!spec) return;
+    PP_AST_ArrayListSpecifier* next = spec->next;
+    spec->next = NULL; /* break potential cycles */
+    pp_ast_root_free(spec->size_expr);
+    free(spec);
+    pp_ast_array_spec_free(next);
 }
 
 static void pp_ast_root_free_internal(PP_AST_Node* node) {
