@@ -1249,19 +1249,16 @@ error_cleanup:
 
 /* Pass 2 - Variable Declaration Checklist (based on cz_semantic_analyzer_check_global_var_init):
  * [x] Look up variable symbol mutably from global table.
- * [ ] If struct type, ensure it does not contain reference fields (global rule).
+ * [x] Global variables cannot be references – enforced in Pass 1 and re-checked here. Reference handling from CZ is N/A in PP.
+ * [x] If struct type, ensure it does not contain reference fields (global rule).
  * [x] If no initializer:
- *      - Error if type is const or reference.
- *      - If struct type, ensure all const/reference fields have default initializers; otherwise error.
+ *      - Error if type is const. Reference is disallowed for globals.
  *      - Return early.
  * [x] Check expression validity and type resolution for initializer via check_expression.
  * [x] Require constexpr initializer for globals.
- * [ ] If variable is reference:
- *      - Initializer must be l-value.
- *      - Const-correctness: non-const reference cannot bind to const value.
- *      - Mark symbol as escapable_ref.
  * [x] Ensure type match between variable and initializer after decay.
  * [x] Update symbol's constexpr flag for const variables: is_constexpr = type is const && initializer is constexpr.
+ * [x] Mark global variable as escapable.
  */
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
@@ -1302,7 +1299,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
     if (!node->variable_declaration.initializer) {
         if (pp_type_is_const(variable_symbol->type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-            "Variable \"%s\" declared as const or reference must have initializer.", node->variable_declaration.var_decl->param_declaration.identifier);
+            "Variable \"%s\" declared as const must have initializer.", node->variable_declaration.var_decl->param_declaration.identifier);
             goto error_cleanup;
         }
     } else {
@@ -1340,8 +1337,6 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         // Global variable is always escapable.
         variable_symbol->is_escapable_ref = true;
     }
-
-    #warning "Temporary wiring for global variable initializer"
 
     return 1;
 
