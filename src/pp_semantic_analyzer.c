@@ -1143,11 +1143,12 @@ error_cleanup:
  * [x] Populate struct layout with fields from AST.
  * [x] Verify each field type is well-defined in GTT.
  * [ ] For fields with initializers:
- *      - Check expression validity and type resolution via check_expression.
- *      - Require constexpr initializer.
- *      - Ensure type match between field and initializer after decay.
- *      - If field is reference: initializer must be l-value, const-correctness (non-const ref cannot bind to const).
- *      - Store default initializer in struct layout field.
+ *      - [x] Check expression validity and type resolution via check_expression.
+ *      - [x] Require constexpr initializer.
+ *      - [x] Ensure type match between field and initializer after decay.
+ *      - [-] If field is reference: initializer must be l-value, const-correctness (non-const ref cannot bind to const).
+ *             -> Reference fields cannot have default initializers at global scope per PP design; notes/global_statement_types.md
+ *      - [x] Store default initializer in struct layout field.
  * [ ] Detect struct recursive cycles via separate pass (cz_semantic_analyzer_struct_cycle_detect).
  */
 static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
@@ -1194,6 +1195,41 @@ static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa
             goto error_cleanup;
         }
 
+        if (field->initializer) {
+            // Check initializer
+            if (!pp_semantic_analyzer_check_expression(sa, sa->gst, field->initializer)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                        "Initializer for struct field '%s' is invalid", field->field->param_declaration.identifier);
+                goto error_cleanup;
+            }
+            const PP_AST_Decoration* initializer_decoration = pp_ast_get_decoration(field->initializer);
+            assert(initializer_decoration);
+            
+            // Check constexpr
+            if (!initializer_decoration->is_constexpr) {
+                pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                        "Global scope initializer for struct field '%s' should be constexpr", field->field->param_declaration.identifier);
+                goto error_cleanup;
+            }
+
+            // Reference fields cannot have default initializers at global scope
+            if (pp_type_is_reference(field_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                        "Struct field '%s' is a reference and cannot have a default initializer at global scope", field->field->param_declaration.identifier);
+                goto error_cleanup;
+            }
+
+            // Decay check
+            const PPType* decayed_field_type = pp_type_decay(sa->gtt, field_type);
+            const PPType* decayed_initializer_type = pp_type_decay(sa->gtt, initializer_decoration->resolved_type);
+            if (!pp_type_equal(decayed_field_type, decayed_initializer_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                        "Initializer for struct field '%s' does not match the field type", field->field->param_declaration.identifier);
+                goto error_cleanup;
+            }
+        }
+
+        // If initializer = NULL, it stores NULL, and if initializer exists, it stores the initializer.
         if (!pp_struct_layout_push_field(struct_layout, field->field->param_declaration.identifier, field_type, field->initializer)) {
             pp_error_list_push_error(sa->error_list, sa->filename, field->field->line, field->field->col,
                                      "Failed to add struct field '%s'", field->field->param_declaration.identifier);
