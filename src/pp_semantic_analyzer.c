@@ -1411,11 +1411,19 @@ error_cleanup:
  * [x] Lookup existing symbol; prevent shadowing function parameters and redeclaration in same scope. -> Shadowing banned for all parent scopes.
  * [x] Resolve type from type node.
  * [x] If type is reference or const, initializer must exist.
+ * [ ] If type contains reference (direct or via struct field), initializer must exist; no zero-init / default.
+ * [ ] If struct type contains reference fields:
+ *     [ ] Each reference field must be explicitly initialized from l-value with const-correctness
+ *     [ ] Reference fields cannot use default initializers
  * [x] If initializer exists: check expression validity.
  * [x] If type is reference: initializer must be l-value; const-correctness check.
- * [ ] If struct type without initializer: ensure all const/reference fields have default initializers.
+ * [ ] If struct type without initializer: ensure all const/reference fields have default initializers. -> Not allowed for reference fields in PP; see above.
  * [x] Ensure decayed types match between variable and initializer.
  * [x] Create symbol with type, constexpr flag, escapable reference flag, and push to symbol table.
+ * Note: Types containing references are allowed locally but must not escape. For prototype:
+ *       - [ ] ban returning by value a type that contains a reference
+ *       - [ ] ban whole-struct assignment for types containing a reference
+ *       - [ ] consider banning lambda/function parameters whose type contains a reference or enforce const-propagation through reference fields.
  */
 static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
     PPSymbol* variable_symbol = NULL;
