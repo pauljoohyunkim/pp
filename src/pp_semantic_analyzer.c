@@ -2556,7 +2556,7 @@ error_cleanup:
  * [x] Validate inputs via asserts / NULL_POINTER_ERROR_HANDLE and node type check
  * [x] Early exit if expr already has decoration
  * [x] Look up struct type by name in GTT, verify exists and kind is PP_TK_Struct
- * [ ] Check member_count <= field_count, error if too many initializers
+ * [x] Check member_count <= field_count, error if too many initializers
  * [ ] For each field that is const or reference and has no default initializer, ensure it is present in the initializer list
  * [ ] For each initializer member:
  *     [ ] Check for duplicate member names within the initializer
@@ -2596,7 +2596,15 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
         "Expected type '%s' to be a struct", struct_name);
         goto error_cleanup;
     }
-    
+
+    // Initializer count check
+    if (expr->struct_initializer.entry_count > struct_type->type.pp_type_struct.layout->field_count) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Too many entries in struct initializer for type '%s'", struct_name);
+        goto error_cleanup;
+    }
+
+
 
 error_cleanup:
     pp_ast_decoration_free(decoration);
