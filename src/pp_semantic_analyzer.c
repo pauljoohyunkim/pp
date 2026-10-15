@@ -130,6 +130,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
 /**
@@ -1953,11 +1954,14 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
             if (!pp_semantic_analyzer_check_identifier_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_MemberAccessNode:
+            if (!pp_semantic_analyzer_check_member_access_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_StructInitializerNode:
             break;
         case PP_AST_CastExpressionNode:
             if (!pp_semantic_analyzer_check_cast_expression(sa, symbol_table, expr)) goto error_cleanup;
+            break;
+        case PP_AST_CollectionInitializerNode:
             break;
         default:
             goto error_cleanup;
@@ -2490,6 +2494,21 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
 error_cleanup:
     pp_ast_decoration_free(decoration);
     return 0;
+}
+
+static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_MemberAccessNode);
+
+
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    return 0;
+
 }
 
 /* pp_semantic_analyzer_check_cast_expression Checklist (based on cz_semantic_analyzer_cast_expression):
