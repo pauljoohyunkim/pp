@@ -131,6 +131,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
 /**
@@ -1996,6 +1997,7 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
             if (!pp_semantic_analyzer_check_member_access_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_StructInitializerNode:
+            if (!pp_semantic_analyzer_check_struct_initializer_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_CastExpressionNode:
             if (!pp_semantic_analyzer_check_cast_expression(sa, symbol_table, expr)) goto error_cleanup;
@@ -2548,6 +2550,57 @@ error_cleanup:
     pp_ast_decoration_free(decoration);
     return 0;
 
+}
+
+/* pp_semantic_analyzer_check_struct_initializer_expression Checklist (based on cz_semantic_analyzer_check_struct_init):
+ * [x] Validate inputs via asserts / NULL_POINTER_ERROR_HANDLE and node type check
+ * [x] Early exit if expr already has decoration
+ * [x] Look up struct type by name in GTT, verify exists and kind is PP_TK_Struct
+ * [ ] Check member_count <= field_count, error if too many initializers
+ * [ ] For each field that is const or reference and has no default initializer, ensure it is present in the initializer list
+ * [ ] For each initializer member:
+ *     [ ] Check for duplicate member names within the initializer
+ *     [ ] Validate member name exists in struct layout
+ *     [ ] Recursively check member expression via pp_semantic_analyzer_check_expression
+ *     [ ] Retrieve member decoration, ensure not NULL
+ *     [ ] Decay both field type and initializer type and compare for equality
+ *     [ ] If field type is reference:
+ *         [ ] Initializer must be l-value
+ *         [ ] Const-correctness: non-const reference cannot bind to const value
+ *     [ ] Track constexpr flag: initializer_is_constexpr = AND of all member is_constexpr
+ * [ ] Create PP_AST_Decoration for the struct init with resolved_type = struct type, PP_VALUE_CATEGORY_RVALUE, is_constexpr as aggregated, escapable_ref false
+ * [ ] Attach decoration to expr and return success
+ */
+static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_StructInitializerNode);
+
+
+    // If already decorated, we are done.
+    if (expr->struct_initializer.decoration) return 1;
+
+    const char* struct_name = expr->struct_initializer.identifier;
+    assert(struct_name);
+    const PPType* struct_type = pp_global_type_table_find_by_name(sa->gtt, struct_name);
+    if (!struct_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Unknown type '%s'", struct_name);
+        goto error_cleanup;
+    }
+    // Check if struct type.
+    if (struct_type->kind != PP_TK_Struct) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Expected type '%s' to be a struct", struct_name);
+        goto error_cleanup;
+    }
+    
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    return 0;
 }
 
 /* pp_semantic_analyzer_check_cast_expression Checklist (based on cz_semantic_analyzer_cast_expression):
