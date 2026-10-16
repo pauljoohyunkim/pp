@@ -2558,7 +2558,7 @@ error_cleanup:
  * [x] Look up struct type by name in GTT, verify exists and kind is PP_TK_Struct
  * [x] Check member_count <= field_count, error if too many initializers
  * [x] For each field that is const or reference and has no default initializer, ensure it is present in the initializer list
- * [ ] For each initializer member:
+ * [x] For each initializer member:
  *     [x] Check for duplicate member names within the initializer
  *     [x] Validate member name exists in struct layout
  *     [x] Recursively check member expression via pp_semantic_analyzer_check_expression

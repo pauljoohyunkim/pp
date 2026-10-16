@@ -5,9 +5,9 @@ Note that the examples of syntax can change during development.
 
 ## Variable Declaration
 ```
-x :: int32 = 1;
-y :: const int32 = 1;
-z :: float;
+let x :: int32 = 1;
+let y :: const int32 = 1;
+let z :: float;
 ```
 * Declares variable at a global scope.
 * When initializer is not given, it defaults to zero, except if struct declaration includes default initializer, in which case that specific field will take the default value.
