@@ -2557,11 +2557,10 @@ error_cleanup:
  * [x] Early exit if expr already has decoration
  * [x] Look up struct type by name in GTT, verify exists and kind is PP_TK_Struct
  * [x] Check member_count <= field_count, error if too many initializers
- * [x] Check initializer fields exist in struct fields.
  * [x] For each field that is const or reference and has no default initializer, ensure it is present in the initializer list
  * [ ] For each initializer member:
- *     [ ] Check for duplicate member names within the initializer
- *     [ ] Validate member name exists in struct layout
+ *     [x] Check for duplicate member names within the initializer
+ *     [x] Validate member name exists in struct layout
  *     [ ] Recursively check member expression via pp_semantic_analyzer_check_expression
  *     [ ] Retrieve member decoration, ensure not NULL
  *     [ ] Decay both field type and initializer type and compare for equality
@@ -2605,27 +2604,10 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
         goto error_cleanup;
     }
 
-    // Check if all fields ininitializer exist within struct definition.
-    for (size_t i = 0; i < expr->struct_initializer.entry_count; i++) {
-        const char* field_name = expr->struct_initializer.entries[i].member_identifier->param_declaration.identifier;
-        bool found = false;
-        for (size_t j = 0; j < struct_type->type.pp_type_struct.layout->field_count; j++) {
-            if (field_name == struct_type->type.pp_type_struct.layout->fields[j].field_name) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-            "Field \"%s\" within initializer does not exist", field_name);
-            goto error_cleanup;
-        }
-    }
-
+    // Check if each const/reference field has either default initializer or given initializer
     for (size_t i = 0; i < struct_type->type.pp_type_struct.layout->field_count; i++) {
         const PPStructField* field = &struct_type->type.pp_type_struct.layout->fields[i];
         const PPType* field_type = field->field_type;
-        // Check if each const/reference field has either default initializer or given initializer
         if ((pp_type_is_const(field_type) || pp_type_is_reference(field_type)) && !field->default_initializer) {
             bool found = false;
             for (size_t j = 0; j < expr->struct_initializer.entry_count; j++) {
@@ -2640,7 +2622,35 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
                 goto error_cleanup;
             }
         }
+    }
 
+    // For each initializer field
+    for (size_t i = 0; i < expr->struct_initializer.entry_count; i++) {
+        const char* field_name = expr->struct_initializer.entries[i].member_identifier->identifier.identifier;
+        // Check for duplicate field names
+        for (size_t j = 0; j < i; j++) {
+            if (expr->struct_initializer.entries[j].member_identifier->identifier.identifier == field_name) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "Duplicate field name \"%s\" in the initializer", field_name);
+                goto error_cleanup;
+            }
+        }
+        
+        // Check if struct initializer field name exists
+        {
+            bool found = false;
+            for (size_t j = 0; j < struct_type->type.pp_type_struct.layout->field_count; j++) {
+                if (field_name == struct_type->type.pp_type_struct.layout->fields[j].field_name) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "Field \"%s\" within initializer does not exist", field_name);
+                goto error_cleanup;
+            }
+        }
     }
 
     return 1;
