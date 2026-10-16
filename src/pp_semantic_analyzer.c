@@ -2564,9 +2564,9 @@ error_cleanup:
  *     [x] Recursively check member expression via pp_semantic_analyzer_check_expression
  *     [x] Retrieve member decoration, ensure not NULL
  *     [x] Decay both field type and initializer type and compare for equality
- *     [ ] If field type is reference:
+ *     [x] If field type is reference:
  *         [x] Initializer must be l-value
- *         [ ] Const-correctness: non-const reference cannot bind to const value
+ *         [x] Const-correctness: non-const reference cannot bind to const value
  *     [ ] Track constexpr flag: initializer_is_constexpr = AND of all member is_constexpr
  * [ ] Create PP_AST_Decoration for the struct init with resolved_type = struct type, PP_VALUE_CATEGORY_RVALUE, is_constexpr as aggregated, escapable_ref false
  * [ ] Attach decoration to expr and return success
@@ -2672,10 +2672,20 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
             "Initializer for field \"%s\" does not match the field type.", field_name);
             goto error_cleanup;
         }
-        // Reference -> L-value check
-        if (pp_type_is_reference(field_type) && field_initializer_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-            "Field \"%s\" is a reference field, but the initializer is not an l-value.", field_name);
+        // Reference
+        if (pp_type_is_reference(field_type)) {
+            // L-value check
+            if (field_initializer_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "Field \"%s\" is a reference, but the initializer is not an l-value.", field_name);
+                goto error_cleanup;
+            }
+            // Non-const field cannot bind to const variable.
+            if (!pp_type_is_const(field_type) && pp_type_is_const(field_initializer_decor->resolved_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "Field \"%s\" is a mutable reference, but the initializer is immutable", field_name);
+                goto error_cleanup;
+            }
         }
     }
 
