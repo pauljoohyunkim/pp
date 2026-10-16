@@ -2561,11 +2561,11 @@ error_cleanup:
  * [ ] For each initializer member:
  *     [x] Check for duplicate member names within the initializer
  *     [x] Validate member name exists in struct layout
- *     [ ] Recursively check member expression via pp_semantic_analyzer_check_expression
- *     [ ] Retrieve member decoration, ensure not NULL
- *     [ ] Decay both field type and initializer type and compare for equality
+ *     [x] Recursively check member expression via pp_semantic_analyzer_check_expression
+ *     [x] Retrieve member decoration, ensure not NULL
+ *     [x] Decay both field type and initializer type and compare for equality
  *     [ ] If field type is reference:
- *         [ ] Initializer must be l-value
+ *         [x] Initializer must be l-value
  *         [ ] Const-correctness: non-const reference cannot bind to const value
  *     [ ] Track constexpr flag: initializer_is_constexpr = AND of all member is_constexpr
  * [ ] Create PP_AST_Decoration for the struct init with resolved_type = struct type, PP_VALUE_CATEGORY_RVALUE, is_constexpr as aggregated, escapable_ref false
@@ -2637,11 +2637,14 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
         }
         
         // Check if struct initializer field name exists
+        const PPType* field_type = NULL;
         {
             bool found = false;
             for (size_t j = 0; j < struct_type->type.pp_type_struct.layout->field_count; j++) {
                 if (field_name == struct_type->type.pp_type_struct.layout->fields[j].field_name) {
                     found = true;
+                    field_type = struct_type->type.pp_type_struct.layout->fields[j].field_type;
+                    assert(field_type);
                     break;
                 }
             }
@@ -2650,6 +2653,29 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
                 "Field \"%s\" within initializer does not exist", field_name);
                 goto error_cleanup;
             }
+        }
+
+        // Check each initializer
+        if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->struct_initializer.entries[i].member_value)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Initializer for field \"%s\" is invalid", field_name);
+            goto error_cleanup;
+        }
+        const PP_AST_Decoration* field_initializer_decor = pp_ast_get_decoration(expr->struct_initializer.entries[i].member_value);
+        assert(field_initializer_decor);
+
+        // Decayed type check
+        const PPType* decayed_field_type = pp_type_decay(sa->gtt, field_type);
+        const PPType* decayed_field_initializer_type = pp_type_decay(sa->gtt, field_initializer_decor->resolved_type);
+        if (!pp_type_equal(decayed_field_type, decayed_field_initializer_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Initializer for field \"%s\" does not match the field type.", field_name);
+            goto error_cleanup;
+        }
+        // Reference -> L-value check
+        if (pp_type_is_reference(field_type) && field_initializer_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Field \"%s\" is a reference field, but the initializer is not an l-value.", field_name);
         }
     }
 

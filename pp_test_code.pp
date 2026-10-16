@@ -3,10 +3,10 @@ struct Vector {
     y :: int32&;
 }
 
-let x :: int32 = 2;
+let X :: int32 = 2;
 
 func function :: (x :: float) -> float {
     let v :: Vector = Vector {
-        .y = x
+        .y = X
     };
 }
