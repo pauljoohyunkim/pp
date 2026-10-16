@@ -2567,9 +2567,9 @@ error_cleanup:
  *     [x] If field type is reference:
  *         [x] Initializer must be l-value
  *         [x] Const-correctness: non-const reference cannot bind to const value
- *     [ ] Track constexpr flag: initializer_is_constexpr = AND of all member is_constexpr
- * [ ] Create PP_AST_Decoration for the struct init with resolved_type = struct type, PP_VALUE_CATEGORY_RVALUE, is_constexpr as aggregated, escapable_ref false
- * [ ] Attach decoration to expr and return success
+ *     [x] Track constexpr flag: initializer_is_constexpr = AND of all member is_constexpr
+ * [x] Create PP_AST_Decoration for the struct init with resolved_type = struct type, PP_VALUE_CATEGORY_RVALUE, is_constexpr as aggregated, escapable_ref false
+ * [x] Attach decoration to expr and return success
  */
 static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
@@ -2625,6 +2625,7 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
     }
 
     // For each initializer field
+    bool is_constexpr = true;
     for (size_t i = 0; i < expr->struct_initializer.entry_count; i++) {
         const char* field_name = expr->struct_initializer.entries[i].member_identifier->identifier.identifier;
         // Check for duplicate field names
@@ -2687,7 +2688,17 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
                 goto error_cleanup;
             }
         }
+
+        if (!field_initializer_decor->is_constexpr) {
+            is_constexpr = false;
+        }
     }
+
+    decoration = pp_ast_decoration_create(struct_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr, false);
+    NULL_POINTER_ERROR_HANDLE(decoration);
+
+    expr->struct_initializer.decoration = decoration;
+    decoration = NULL;
 
     return 1;
 
