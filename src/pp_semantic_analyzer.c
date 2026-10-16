@@ -899,6 +899,14 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
     NULL_POINTER_ERROR_HANDLE(sa);
     NULL_POINTER_ERROR_HANDLE(sa->program);
 
+    #warning "Recommended full analysis (Pass 2) is to split it into substeps"
+    /*
+        1. Handle only struct declarations (Ignore default initializers for now)
+        2. Cycle check
+        3. Go through struct declarations again, but type check default initializers.
+        4. Non-struct globals.
+    */
+
     for (size_t i = 0; i < sa->program->program.decl_count; i++) {
         PP_AST_Node* decl = sa->program->program.decls[i];
         switch (decl->node_type) {
