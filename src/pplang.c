@@ -43,7 +43,11 @@ int main(int argc, char** argv) {
     fread(code, sizeof(char), filesize, fp);
     fclose(fp);
 
-    PP_Lexer* lexer = pp_lexer_create(code, source_filename);
+    PP_Lexer* lexer = NULL;
+    PP_Parser* parser = NULL;
+    PP_SemanticAnalyzer* sa = NULL;
+
+    lexer = pp_lexer_create(code, source_filename);
     free(code);
     if (!lexer) {
         printf("Lexer creation failure\n");
@@ -63,7 +67,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    PP_Parser* parser = pp_parser_create(lexer);
+#ifdef STOP_AT_LEXER
+    printf("STOP_AT_LEXER: skipping parser and semantic analyzer\n");
+    goto error_cleanup_exit;
+#endif
+
+    parser = pp_parser_create(lexer);
     if (!parser) {
         printf("Parser creation failure\n");
         pp_lexer_free(lexer);
@@ -85,7 +94,11 @@ int main(int argc, char** argv) {
         pp_ast_root_print(parser->program, 0);
     }
 
-    PP_SemanticAnalyzer* sa = NULL;
+#ifdef STOP_AT_PARSER
+    printf("STOP_AT_PARSER: skipping semantic analyzer\n");
+    goto error_cleanup_exit;
+#endif
+
     sa = pp_semantic_analyzer_create(parser);
     if (!sa) {
         printf("Semantic analyzer creation failure\n");
@@ -110,9 +123,9 @@ int main(int argc, char** argv) {
         pp_global_type_table_print(sa->gtt);
     }
 
-    // Free in reverse order of creation
-    pp_semantic_analyzer_free(sa);
-    pp_parser_free(parser);
-    pp_lexer_free(lexer);
+error_cleanup_exit:
+    if (sa) pp_semantic_analyzer_free(sa);
+    if (parser) pp_parser_free(parser);
+    if (lexer) pp_lexer_free(lexer);
     return 0;
 }
