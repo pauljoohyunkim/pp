@@ -61,6 +61,9 @@ typedef enum {
     PP_AST_WhileStatementNode,
     PP_AST_ForStatementNode,
     PP_AST_TypeExpressionNode,
+    PP_AST_TypeBaseNode,
+    PP_AST_TypeArrayNode,
+    PP_AST_TypeListNode,
     PP_AST_TypedefDeclarationNode,
     PP_AST_NewtypeDeclarationNode,
     PP_AST_FunctionDeclarationNode,
@@ -148,6 +151,22 @@ struct PP_AST_Node {
             PP_AST_TypeKind kind;
             PP_AST_ArrayListSpecifier* array_spec; /* NULL = plain type */
         } type_expression;
+
+        struct { /* TypeBase */
+            bool is_const;
+            bool is_reference;
+            const char* identifier_name;
+            PP_AST_TypeKind kind;
+        } type_base;
+
+        struct { /* TypeArray */
+            PP_AST_Node* element_type;
+            PP_AST_Node* size_expr; /* NULL for list, non-NULL for array */
+        } type_array;
+
+        struct { /* TypeList */
+            PP_AST_Node* element_type;
+        } type_list;
 
         struct { /* TypedefDeclaration */
             PP_AST_Node* base_type;

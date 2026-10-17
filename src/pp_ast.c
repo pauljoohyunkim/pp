@@ -192,6 +192,19 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             }
             break;
         }
+        case PP_AST_TypeBaseNode: {
+            /* type_base.identifier_name is pool-owned */
+            break;
+        }
+        case PP_AST_TypeArrayNode: {
+            pp_ast_root_free_internal(node->type_array.element_type);
+            pp_ast_root_free_internal(node->type_array.size_expr);
+            break;
+        }
+        case PP_AST_TypeListNode: {
+            pp_ast_root_free_internal(node->type_list.element_type);
+            break;
+        }
         case PP_AST_TypedefDeclarationNode: {
             /* typedef_declaration.identifier is pool-owned const char* – do not free */
             pp_ast_root_free_internal(node->typedef_declaration.base_type);
@@ -361,6 +374,18 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             break;
         case PP_AST_TypeExpressionNode:
             printf("TypeExpression\n");
+            break;
+        case PP_AST_TypeBaseNode:
+            printf("TypeBase\n");
+            break;
+        case PP_AST_TypeArrayNode:
+            printf("TypeArray\n");
+            pp_ast_root_print(node->type_array.element_type, depth+1);
+            if (node->type_array.size_expr) pp_ast_root_print(node->type_array.size_expr, depth+1);
+            break;
+        case PP_AST_TypeListNode:
+            printf("TypeList\n");
+            pp_ast_root_print(node->type_list.element_type, depth+1);
             break;
         case PP_AST_StructInitializerNode:
             printf("StructInitializer %s\n", node->struct_initializer.identifier ? node->struct_initializer.identifier : "");
