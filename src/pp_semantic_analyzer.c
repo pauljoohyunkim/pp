@@ -2977,7 +2977,6 @@ error_cleanup:
 static int pp_semantic_analyzer_check_collection_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* tmp = NULL;
-    const PPType* elem_type = NULL;
     const PPType* coll_type = NULL;
     assert(sa);
     assert(symbol_table);
@@ -2993,7 +2992,7 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Collection initializer missing type");
         goto error_cleanup;
     }
-    elem_type = pp_type_from_type_node(sa, type_expr);
+    const PPType* elem_type = pp_type_from_type_node(sa, type_expr);
     if (!elem_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Failed to resolve collection element type");
         goto error_cleanup;
@@ -3032,7 +3031,24 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
     }
 
     /* TODO: Continue with per-element checks and decoration population */
-    decoration = pp_ast_decoration_create(coll_type, PP_VALUE_CATEGORY_RVALUE, false, false);
+    bool all_constexpr = true;
+    for (unsigned int i = 0; i < expr->collection_initializer.element_count; i++) {
+        PP_AST_Node* elem = expr->collection_initializer.elements[i];
+        if (!elem) continue;
+        if (!pp_semantic_analyzer_check_expression(sa, symbol_table, elem)) {
+            goto error_cleanup;
+        }
+        const PP_AST_Decoration* elem_dec = pp_ast_get_decoration(elem);
+        assert(elem_dec);
+        if (!elem_dec->is_constexpr) {
+            all_constexpr = false;
+            break;
+        }
+    }
+
+    bool is_constexpr = is_array && all_constexpr;
+    // Lists are never constexpr per language design
+    decoration = pp_ast_decoration_create(coll_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr, false);
     if (!decoration) goto error_cleanup;
     expr->collection_initializer.decoration = decoration;
     decoration = NULL;
