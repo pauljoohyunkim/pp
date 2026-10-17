@@ -1017,6 +1017,10 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
             if (decl->node_type == PP_AST_StructDeclarationNode) {
                 PPType* struct_type = pp_global_type_table_find_by_name_mut(sa->gtt, decl->struct_declaration.name);
                 if (struct_type) {
+                    ssize_t idx = pp_find_type_index(sa->gtt, struct_type);
+                    if (idx != -1 && states[(size_t)idx] == PP_STRUCT_CYCLE_RESOLVED) {
+                        continue;
+                    }
                     pp_semantic_analyzer_struct_cycle_detect(sa, struct_type, states);
                 }
             }
