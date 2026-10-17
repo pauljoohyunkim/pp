@@ -11,6 +11,8 @@ Do not commit or push unless instructed to explicitly.
 
 If you need date, always use `date` instead of relying on your memory.
 
+Be concise in your output.
+
 ## Clang Format
 Whenever you are at a C/C++ repo, you should use clang-format:
 

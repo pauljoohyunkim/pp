@@ -4,10 +4,17 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
 #define SCOPE_LEVEL_FUNC_BODY (2)
+
+typedef enum {
+    PP_STRUCT_CYCLE_UNVISITED,
+    PP_STRUCT_CYCLE_RESOLVING,
+    PP_STRUCT_CYCLE_RESOLVED
+} PP_StructRecursiveCycleState;
 
 // TODO: There are two passes, and certain checks in pass 2 are unnecessary if pass 1 does not allow them.
 // In which case, either push as error, or abort immediately (marking as "unreachable")
@@ -108,8 +115,10 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
 
 /* Pass II */
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
+static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
+static int pp_semantic_analyzer_struct_cycle_detect(PP_SemanticAnalyzer* sa, const PPType* type, PP_StructRecursiveCycleState* states);
+static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
-static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 
@@ -130,6 +139,8 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
 /**
@@ -893,10 +904,139 @@ error_cleanup:
     return 0;
 }
 
+static ssize_t pp_find_type_index(PP_GlobalTypeTable* gtt, const PPType* type) {
+    if (!gtt || !type) return -1;
+    for (size_t i = 0; i < gtt->type_count; i++) {
+        if (gtt->types[i] == type) {
+            return (ssize_t)i;
+        }
+    }
+    return -1;
+}
+
+static int pp_semantic_analyzer_struct_cycle_detect(PP_SemanticAnalyzer* sa, const PPType* type, PP_StructRecursiveCycleState* states) {
+    if (!type) return 1;
+    if (type->kind != PP_TK_Struct) return 1;
+
+    ssize_t idx = pp_find_type_index(sa->gtt, type);
+    if (idx == -1) {
+        return 1;
+    }
+
+    if (states[(size_t)idx] == PP_STRUCT_CYCLE_RESOLVING) {
+        const char* name = type->type.pp_type_struct.name ? type->type.pp_type_struct.name : "<unnamed>";
+        for (size_t i = 0; i < sa->program->program.decl_count; i++) {
+            PP_AST_Node* decl = sa->program->program.decls[i];
+            if (decl->node_type == PP_AST_StructDeclarationNode && decl->struct_declaration.name && strcmp(decl->struct_declaration.name, name) == 0) {
+                pp_error_list_push_error(sa->error_list, sa->filename, decl->line, decl->col, "Struct '%s' contains recursive cycle", name);
+                break;
+            }
+        }
+        return 0;
+    }
+
+    if (states[(size_t)idx] == PP_STRUCT_CYCLE_RESOLVED) {
+        return 1;
+    }
+
+    states[(size_t)idx] = PP_STRUCT_CYCLE_RESOLVING;
+
+    const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+    if (!layout) return 1;
+    for (size_t i = 0; i < layout->field_count; i++) {
+            const PPType* field_type = layout->fields[i].field_type;
+            if (!field_type) continue;
+            const PPType* t = field_type;
+            while (t) {
+                switch (t->kind) {
+                    case PP_TK_Const:
+                        t = t->type.pp_type_const.const_of;
+                        continue;
+                    case PP_TK_Reference:
+                    case PP_TK_List:
+                        /* Non-by-value edge: stop following */
+                        t = NULL;
+                        break;
+                    case PP_TK_Array:
+                        t = t->type.pp_type_array.element_type;
+                        continue;
+                    case PP_TK_Newtype:
+                        t = t->type.pp_type_newtype.underlying;
+                        continue;
+                    case PP_TK_Struct:
+                        if (!pp_semantic_analyzer_struct_cycle_detect(sa, t, states)) {
+                            return 0;
+                        }
+                        t = NULL;
+                        break;
+                    default:
+                        t = NULL;
+                        break;
+                }
+                if (!t) break;
+            }
+        }
+
+    states[(size_t)idx] = PP_STRUCT_CYCLE_RESOLVED;
+    return 1;
+}
+
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
     NULL_POINTER_ERROR_HANDLE(sa);
     NULL_POINTER_ERROR_HANDLE(sa->program);
 
+    #warning "Recommended full analysis (Pass 2) is to split it into substeps"
+    /*
+        1. Handle only struct declarations (Ignore default initializers for now)
+        2. Cycle check
+        3. Go through struct declarations again, but type check default initializers.
+        4. Non-struct globals.
+    */
+
+    // Step 1: handle struct declarations fields only, ignore initializers
+    for (size_t i = 0; i < sa->program->program.decl_count; i++) {
+        PP_AST_Node* decl = sa->program->program.decls[i];
+        if (decl->node_type == PP_AST_StructDeclarationNode) {
+            pp_semantic_analyzer_full_analyze_struct_decl_fields(sa, decl);
+        }
+    }
+
+    // Step 2: Struct cycle check
+    {
+        size_t type_count = sa->gtt ? sa->gtt->type_count : 0;
+        PP_StructRecursiveCycleState* states = NULL;
+        if (type_count > 0) {
+            states = calloc(type_count, sizeof(PP_StructRecursiveCycleState));
+            if (!states) {
+                pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Failed to allocate cycle detection states");
+                goto error_cleanup;
+            }
+        }
+        for (size_t i = 0; i < sa->program->program.decl_count; i++) {
+            PP_AST_Node* decl = sa->program->program.decls[i];
+            if (decl->node_type == PP_AST_StructDeclarationNode) {
+                PPType* struct_type = pp_global_type_table_find_by_name_mut(sa->gtt, decl->struct_declaration.name);
+                if (struct_type) {
+                    ssize_t idx = pp_find_type_index(sa->gtt, struct_type);
+                    if (idx != -1 && states[(size_t)idx] == PP_STRUCT_CYCLE_RESOLVED) {
+                        continue;
+                    }
+                    pp_semantic_analyzer_struct_cycle_detect(sa, struct_type, states);
+                }
+            }
+        }
+        free(states);
+    }
+
+    // Step 3: struct default initializer checking
+    for (size_t i = 0; i < sa->program->program.decl_count; i++) {
+        PP_AST_Node* decl = sa->program->program.decls[i];
+        if (decl->node_type == PP_AST_StructDeclarationNode) {
+            pp_semantic_analyzer_full_analyze_struct_decl_initializers(sa, decl);
+        }
+    }
+
+    // Step 4: functions, lambdas, globals
     for (size_t i = 0; i < sa->program->program.decl_count; i++) {
         PP_AST_Node* decl = sa->program->program.decls[i];
         switch (decl->node_type) {
@@ -906,11 +1046,11 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
             case PP_AST_LambdaDeclarationNode:
                 pp_semantic_analyzer_full_analyze_lambda_decl(sa, decl);
                 break;
-            case PP_AST_StructDeclarationNode:
-                pp_semantic_analyzer_full_analyze_struct_decl(sa, decl);
-                break;
             case PP_AST_VariableDeclarationNode:
                 pp_semantic_analyzer_full_analyze_global_variable_decl(sa, decl);
+                break;
+            case PP_AST_StructDeclarationNode:
+                // Already handled in steps 1 and 3
                 break;
             case PP_AST_TypedefDeclarationNode:
                 // Nothing to do
@@ -1142,14 +1282,15 @@ error_cleanup:
  * [x] Populate struct layout with fields from AST.
  * [x] Verify each field type is well-defined in GTT.
  * [ ] For fields with initializers:
- *      - Check expression validity and type resolution via check_expression.
- *      - Require constexpr initializer.
- *      - Ensure type match between field and initializer after decay.
- *      - If field is reference: initializer must be l-value, const-correctness (non-const ref cannot bind to const).
- *      - Store default initializer in struct layout field.
+ *      - [x] Check expression validity and type resolution via check_expression.
+ *      - [x] Require constexpr initializer.
+ *      - [x] Ensure type match between field and initializer after decay.
+ *      - [-] If field is reference: initializer must be l-value, const-correctness (non-const ref cannot bind to const).
+ *             -> Reference fields cannot have default initializers at global scope per PP design; notes/global_statement_types.md
+ *      - [x] Store default initializer in struct layout field.
  * [ ] Detect struct recursive cycles via separate pass (cz_semantic_analyzer_struct_cycle_detect).
  */
-static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     PP_StructLayout* struct_layout = NULL;
     assert(sa);
     assert(node);
@@ -1193,6 +1334,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl(PP_SemanticAnalyzer* sa
             goto error_cleanup;
         }
 
+        // If initializer = NULL, it stores NULL, and if initializer exists, it stores the initializer.
         if (!pp_struct_layout_push_field(struct_layout, field->field->param_declaration.identifier, field_type, field->initializer)) {
             pp_error_list_push_error(sa->error_list, sa->filename, field->field->line, field->field->col,
                                      "Failed to add struct field '%s'", field->field->param_declaration.identifier);
@@ -1210,21 +1352,84 @@ error_cleanup:
     return 0;
 }
 
+static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_StructDeclarationNode);
+
+    const char* struct_name = node->struct_declaration.name;
+    NULL_POINTER_ERROR_HANDLE(struct_name);
+
+    PPType* struct_type = pp_global_type_table_find_by_name_mut(sa->gtt, struct_name);
+    if (!struct_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Could not find struct '%s' from type table.", struct_name);
+        goto error_cleanup;
+    }
+
+    const PP_StructLayout* layout = struct_type->type.pp_type_struct.layout;
+    if (!layout) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Struct '%s' layout not initialized.", struct_name);
+        goto error_cleanup;
+    }
+
+    for (size_t i = 0; i < node->struct_declaration.field_count; i++) {
+        const PP_AST_StructField* field = &node->struct_declaration.fields[i];
+        if (!field->initializer) {
+            continue;
+        }
+
+        // Expression check
+        if (!pp_semantic_analyzer_check_expression(sa, sa->gst, field->initializer)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                    "Initializer for struct field '%s' is invalid", field->field->param_declaration.identifier);
+            goto error_cleanup;
+        }
+
+        const PP_AST_Decoration* initializer_decoration = pp_ast_get_decoration(field->initializer);
+        assert(initializer_decoration);
+
+        // Require constexpr
+        if (!initializer_decoration->is_constexpr) {
+            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                    "Global scope initializer for struct field '%s' should be constexpr", field->field->param_declaration.identifier);
+            goto error_cleanup;
+        }
+
+        // Use layout field type
+        const PPType* field_type = layout->fields[i].field_type;
+        if (pp_type_is_reference(field_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                    "Struct field '%s' is a reference and cannot have a default initializer at global scope", field->field->param_declaration.identifier);
+            goto error_cleanup;
+        }
+
+        // Decay/type equality check
+        const PPType* decayed_field_type = pp_type_decay(sa->gtt, field_type);
+        const PPType* decayed_initializer_type = pp_type_decay(sa->gtt, initializer_decoration->resolved_type);
+        if (!pp_type_equal(decayed_field_type, decayed_initializer_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line, field->field->param_declaration.type_expr->col,
+                                    "Initializer for struct field '%s' does not match the field type", field->field->param_declaration.identifier);
+            goto error_cleanup;
+        }
+    }
+
+    return 1;
+error_cleanup:
+    return 0;
+}
+
 /* Pass 2 - Variable Declaration Checklist (based on cz_semantic_analyzer_check_global_var_init):
  * [x] Look up variable symbol mutably from global table.
- * [ ] If struct type, ensure it does not contain reference fields (global rule).
+ * [x] Global variables cannot be references – enforced in Pass 1 and re-checked here. Reference handling from CZ is N/A in PP.
+ * [x] If struct type, ensure it does not contain reference fields (global rule).
  * [x] If no initializer:
- *      - Error if type is const or reference.
- *      - If struct type, ensure all const/reference fields have default initializers; otherwise error.
+ *      - Error if type is const. Reference is disallowed for globals.
  *      - Return early.
  * [x] Check expression validity and type resolution for initializer via check_expression.
  * [x] Require constexpr initializer for globals.
- * [ ] If variable is reference:
- *      - Initializer must be l-value.
- *      - Const-correctness: non-const reference cannot bind to const value.
- *      - Mark symbol as escapable_ref.
  * [x] Ensure type match between variable and initializer after decay.
  * [x] Update symbol's constexpr flag for const variables: is_constexpr = type is const && initializer is constexpr.
+ * [x] Mark global variable as escapable.
  */
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     assert(sa);
@@ -1265,7 +1470,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
     if (!node->variable_declaration.initializer) {
         if (pp_type_is_const(variable_symbol->type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-            "Variable \"%s\" declared as const or reference must have initializer.", node->variable_declaration.var_decl->param_declaration.identifier);
+            "Variable \"%s\" declared as const must have initializer.", node->variable_declaration.var_decl->param_declaration.identifier);
             goto error_cleanup;
         }
     } else {
@@ -1303,8 +1508,6 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         // Global variable is always escapable.
         variable_symbol->is_escapable_ref = true;
     }
-
-    #warning "Temporary wiring for global variable initializer"
 
     return 1;
 
@@ -1379,11 +1582,19 @@ error_cleanup:
  * [x] Lookup existing symbol; prevent shadowing function parameters and redeclaration in same scope. -> Shadowing banned for all parent scopes.
  * [x] Resolve type from type node.
  * [x] If type is reference or const, initializer must exist.
+ * [ ] If type contains reference (direct or via struct field), initializer must exist; no zero-init / default.
+ * [ ] If struct type contains reference fields:
+ *     [ ] Each reference field must be explicitly initialized from l-value with const-correctness
+ *     [ ] Reference fields cannot use default initializers
  * [x] If initializer exists: check expression validity.
  * [x] If type is reference: initializer must be l-value; const-correctness check.
- * [ ] If struct type without initializer: ensure all const/reference fields have default initializers.
+ * [ ] If struct type without initializer: ensure all const/reference fields have default initializers. -> Not allowed for reference fields in PP; see above.
  * [x] Ensure decayed types match between variable and initializer.
  * [x] Create symbol with type, constexpr flag, escapable reference flag, and push to symbol table.
+ * Note: Types containing references are allowed locally but must not escape. For prototype:
+ *       - [ ] ban returning by value a type that contains a reference
+ *       - [ ] ban whole-struct assignment for types containing a reference
+ *       - [ ] consider banning lambda/function parameters whose type contains a reference or enforce const-propagation through reference fields.
  */
 static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* node) {
     PPSymbol* variable_symbol = NULL;
@@ -1953,11 +2164,15 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
             if (!pp_semantic_analyzer_check_identifier_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_MemberAccessNode:
+            if (!pp_semantic_analyzer_check_member_access_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_StructInitializerNode:
+            if (!pp_semantic_analyzer_check_struct_initializer_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_CastExpressionNode:
             if (!pp_semantic_analyzer_check_cast_expression(sa, symbol_table, expr)) goto error_cleanup;
+            break;
+        case PP_AST_CollectionInitializerNode:
             break;
         default:
             goto error_cleanup;
@@ -2483,6 +2698,176 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     NULL_POINTER_ERROR_HANDLE(decoration);
     
     expr->identifier.decoration = decoration;
+    decoration = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    return 0;
+}
+
+static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_MemberAccessNode);
+
+
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    return 0;
+
+}
+
+/* pp_semantic_analyzer_check_struct_initializer_expression Checklist (based on cz_semantic_analyzer_check_struct_init):
+ * [x] Validate inputs via asserts / NULL_POINTER_ERROR_HANDLE and node type check
+ * [x] Early exit if expr already has decoration
+ * [x] Look up struct type by name in GTT, verify exists and kind is PP_TK_Struct
+ * [x] Check member_count <= field_count, error if too many initializers
+ * [x] For each field that is const or reference and has no default initializer, ensure it is present in the initializer list
+ * [x] For each initializer member:
+ *     [x] Check for duplicate member names within the initializer
+ *     [x] Validate member name exists in struct layout
+ *     [x] Recursively check member expression via pp_semantic_analyzer_check_expression
+ *     [x] Retrieve member decoration, ensure not NULL
+ *     [x] Decay both field type and initializer type and compare for equality
+ *     [x] If field type is reference:
+ *         [x] Initializer must be l-value
+ *         [x] Const-correctness: non-const reference cannot bind to const value
+ *     [x] Track constexpr flag: initializer_is_constexpr = AND of all member is_constexpr
+ * [x] Create PP_AST_Decoration for the struct init with resolved_type = struct type, PP_VALUE_CATEGORY_RVALUE, is_constexpr as aggregated, escapable_ref false
+ * [x] Attach decoration to expr and return success
+ */
+static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_StructInitializerNode);
+
+
+    // If already decorated, we are done.
+    if (expr->struct_initializer.decoration) return 1;
+
+    const char* struct_name = expr->struct_initializer.identifier;
+    assert(struct_name);
+    const PPType* struct_type = pp_global_type_table_find_by_name(sa->gtt, struct_name);
+    if (!struct_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Unknown type '%s'", struct_name);
+        goto error_cleanup;
+    }
+    // Check if struct type.
+    if (struct_type->kind != PP_TK_Struct) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Expected type '%s' to be a struct", struct_name);
+        goto error_cleanup;
+    }
+
+    // Initializer count check
+    if (expr->struct_initializer.entry_count > struct_type->type.pp_type_struct.layout->field_count) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Too many entries in struct initializer for type '%s'", struct_name);
+        goto error_cleanup;
+    }
+
+    // Check if each const/reference field has either default initializer or given initializer
+    for (size_t i = 0; i < struct_type->type.pp_type_struct.layout->field_count; i++) {
+        const PPStructField* field = &struct_type->type.pp_type_struct.layout->fields[i];
+        const PPType* field_type = field->field_type;
+        if ((pp_type_is_const(field_type) || pp_type_is_reference(field_type)) && !field->default_initializer) {
+            bool found = false;
+            for (size_t j = 0; j < expr->struct_initializer.entry_count; j++) {
+                if (field->field_name == expr->struct_initializer.entries[j].member_identifier->identifier.identifier) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "No initializer given for const or reference field \"%s\"", field->field_name);
+                goto error_cleanup;
+            }
+        }
+    }
+
+    // For each initializer field
+    bool is_constexpr = true;
+    for (size_t i = 0; i < expr->struct_initializer.entry_count; i++) {
+        const char* field_name = expr->struct_initializer.entries[i].member_identifier->identifier.identifier;
+        // Check for duplicate field names
+        for (size_t j = 0; j < i; j++) {
+            if (expr->struct_initializer.entries[j].member_identifier->identifier.identifier == field_name) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "Duplicate field name \"%s\" in the initializer", field_name);
+                goto error_cleanup;
+            }
+        }
+        
+        // Check if struct initializer field name exists
+        const PPType* field_type = NULL;
+        {
+            bool found = false;
+            for (size_t j = 0; j < struct_type->type.pp_type_struct.layout->field_count; j++) {
+                if (field_name == struct_type->type.pp_type_struct.layout->fields[j].field_name) {
+                    found = true;
+                    field_type = struct_type->type.pp_type_struct.layout->fields[j].field_type;
+                    assert(field_type);
+                    break;
+                }
+            }
+            if (!found) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "Field \"%s\" within initializer does not exist", field_name);
+                goto error_cleanup;
+            }
+        }
+
+        // Check each initializer
+        if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->struct_initializer.entries[i].member_value)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Initializer for field \"%s\" is invalid", field_name);
+            goto error_cleanup;
+        }
+        const PP_AST_Decoration* field_initializer_decor = pp_ast_get_decoration(expr->struct_initializer.entries[i].member_value);
+        assert(field_initializer_decor);
+
+        // Decayed type check
+        const PPType* decayed_field_type = pp_type_decay(sa->gtt, field_type);
+        const PPType* decayed_field_initializer_type = pp_type_decay(sa->gtt, field_initializer_decor->resolved_type);
+        if (!pp_type_equal(decayed_field_type, decayed_field_initializer_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Initializer for field \"%s\" does not match the field type.", field_name);
+            goto error_cleanup;
+        }
+        // Reference
+        if (pp_type_is_reference(field_type)) {
+            // L-value check
+            if (field_initializer_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "Field \"%s\" is a reference, but the initializer is not an l-value.", field_name);
+                goto error_cleanup;
+            }
+            // Non-const field cannot bind to const variable.
+            if (!pp_type_is_const(field_type) && pp_type_is_const(field_initializer_decor->resolved_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "Field \"%s\" is a mutable reference, but the initializer is immutable", field_name);
+                goto error_cleanup;
+            }
+        }
+
+        if (!field_initializer_decor->is_constexpr) {
+            is_constexpr = false;
+        }
+    }
+
+    decoration = pp_ast_decoration_create(struct_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr, false);
+    NULL_POINTER_ERROR_HANDLE(decoration);
+
+    expr->struct_initializer.decoration = decoration;
     decoration = NULL;
 
     return 1;
