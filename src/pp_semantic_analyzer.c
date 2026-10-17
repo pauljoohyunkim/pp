@@ -142,6 +142,7 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
 static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_collection_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
 /**
  * @brief Creates semantic analyzer from parser
@@ -2173,6 +2174,7 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
             if (!pp_semantic_analyzer_check_cast_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_CollectionInitializerNode:
+            if (!pp_semantic_analyzer_check_collection_initializer_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
         default:
             goto error_cleanup;
@@ -2947,5 +2949,97 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
 
 error_cleanup:
     pp_ast_decoration_free(decoration);
+    return 0;
+}
+
+/* Collection Initializer Expression Checklist (PP-specific):
+ * [x] Verify node kind is PP_AST_CollectionInitializerNode and target type context exists.
+ * [ ] Determine collection kind from resolved target type:
+ *      - PP_TK_Array  → fixed size, element type = array element type
+ *      - PP_TK_List   → unbounded, element type = list element type
+ * [ ] For arrays with static size:
+ *      - Compare entry count to array size; error on mismatch.
+ *      - Reject zero-size arrays or treat as empty per policy.
+ * [ ] For each initializer entry:
+ *      - Recursively check expression via pp_semantic_analyzer_check_expression.
+ *      - Require constexpr in global/struct default contexts.
+ *      - Ensure decayed element type matches collection element type.
+ *      - If element type is reference: initializer must be l-value and const-correct.
+ * [ ] For lists:
+ *      - No size check; allow any number of entries.
+ *      - Same per-element validity, constexpr and type matching.
+ * [ ] Populate AST decoration:
+ *      - resolved_type = collection type
+ *      - is_constexpr = all entries constexpr
+ *      - value_category set appropriately for context
+ * [ ] Error reporting via sa->error_list with line/col from expr.
+ */
+static int pp_semantic_analyzer_check_collection_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    PPType* tmp = NULL;
+    const PPType* elem_type = NULL;
+    const PPType* coll_type = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_CollectionInitializerNode);
+
+    // If already decorated, we are done.
+    if (expr->collection_initializer.decoration) return 1;
+
+    // Determine collection kind from resolved target type
+    PP_AST_Node* type_expr = expr->collection_initializer.type_expr;
+    if (!type_expr) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Collection initializer missing type");
+        goto error_cleanup;
+    }
+    elem_type = pp_type_from_type_node(sa, type_expr);
+    if (!elem_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Failed to resolve collection element type");
+        goto error_cleanup;
+    }
+
+    int is_array = expr->collection_initializer.size_expr != NULL;
+    /* Element type resolved, collection kind can be inferred:
+     *  - size_expr present => fixed-size array initializer
+     *  - no size_expr    => list initializer
+     */
+
+    if (is_array) {
+        size_t arr_size = 0;
+        if (!pp_array_size_from_simple_expr(sa, expr->collection_initializer.size_expr, &arr_size)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Invalid array size expression in collection initializer");
+            goto error_cleanup;
+        }
+        if (arr_size == 0) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Array size cannot be zero");
+            goto error_cleanup;
+        }
+        tmp = pp_type_create(PP_TK_Array);
+        if (!tmp) goto error_cleanup;
+        tmp->type.pp_type_array.element_type = elem_type;
+        tmp->type.pp_type_array.size = arr_size;
+        coll_type = pp_global_type_table_intern(sa->gtt, tmp);
+        if (!coll_type) goto error_cleanup;
+        tmp = NULL;
+    } else {
+        tmp = pp_type_create(PP_TK_List);
+        if (!tmp) goto error_cleanup;
+        tmp->type.pp_type_list.element_type = elem_type;
+        coll_type = pp_global_type_table_intern(sa->gtt, tmp);
+        if (!coll_type) goto error_cleanup;
+        tmp = NULL;
+    }
+
+    /* TODO: Continue with per-element checks and decoration population */
+    decoration = pp_ast_decoration_create(coll_type, PP_VALUE_CATEGORY_RVALUE, false, false);
+    if (!decoration) goto error_cleanup;
+    expr->collection_initializer.decoration = decoration;
+    decoration = NULL;
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    pp_type_free(tmp);
     return 0;
 }
