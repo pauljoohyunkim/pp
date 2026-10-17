@@ -4,10 +4,17 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
 #define SCOPE_LEVEL_FUNC_BODY (2)
+
+typedef enum {
+    PP_STRUCT_CYCLE_UNVISITED,
+    PP_STRUCT_CYCLE_RESOLVING,
+    PP_STRUCT_CYCLE_RESOLVED
+} PP_StructRecursiveCycleState;
 
 // TODO: There are two passes, and certain checks in pass 2 are unnecessary if pass 1 does not allow them.
 // In which case, either push as error, or abort immediately (marking as "unreachable")
@@ -109,6 +116,7 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
 /* Pass II */
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
 static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
+static int pp_semantic_analyzer_struct_cycle_detect(PP_SemanticAnalyzer* sa, const PPType* type, PP_StructRecursiveCycleState* states);
 static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
@@ -896,6 +904,83 @@ error_cleanup:
     return 0;
 }
 
+static ssize_t pp_find_type_index(PP_GlobalTypeTable* gtt, const PPType* type) {
+    if (!gtt || !type) return -1;
+    for (size_t i = 0; i < gtt->type_count; i++) {
+        if (gtt->types[i] == type) {
+            return (ssize_t)i;
+        }
+    }
+    return -1;
+}
+
+static int pp_semantic_analyzer_struct_cycle_detect(PP_SemanticAnalyzer* sa, const PPType* type, PP_StructRecursiveCycleState* states) {
+    if (!type) return 1;
+    if (type->kind != PP_TK_Struct) return 1;
+
+    ssize_t idx = pp_find_type_index(sa->gtt, type);
+    if (idx == -1) {
+        return 1;
+    }
+
+    if (states[(size_t)idx] == PP_STRUCT_CYCLE_RESOLVING) {
+        const char* name = type->type.pp_type_struct.name ? type->type.pp_type_struct.name : "<unnamed>";
+        for (size_t i = 0; i < sa->program->program.decl_count; i++) {
+            PP_AST_Node* decl = sa->program->program.decls[i];
+            if (decl->node_type == PP_AST_StructDeclarationNode && decl->struct_declaration.name && strcmp(decl->struct_declaration.name, name) == 0) {
+                pp_error_list_push_error(sa->error_list, sa->filename, decl->line, decl->col, "Struct '%s' contains recursive cycle", name);
+                break;
+            }
+        }
+        return 0;
+    }
+
+    if (states[(size_t)idx] == PP_STRUCT_CYCLE_RESOLVED) {
+        return 1;
+    }
+
+    states[(size_t)idx] = PP_STRUCT_CYCLE_RESOLVING;
+
+    const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+    if (!layout) return 1;
+    for (size_t i = 0; i < layout->field_count; i++) {
+            const PPType* field_type = layout->fields[i].field_type;
+            if (!field_type) continue;
+            const PPType* t = field_type;
+            while (t) {
+                switch (t->kind) {
+                    case PP_TK_Const:
+                        t = t->type.pp_type_const.const_of;
+                        continue;
+                    case PP_TK_Reference:
+                    case PP_TK_List:
+                        /* Non-by-value edge: stop following */
+                        t = NULL;
+                        break;
+                    case PP_TK_Array:
+                        t = t->type.pp_type_array.element_type;
+                        continue;
+                    case PP_TK_Newtype:
+                        t = t->type.pp_type_newtype.underlying;
+                        continue;
+                    case PP_TK_Struct:
+                        if (!pp_semantic_analyzer_struct_cycle_detect(sa, t, states)) {
+                            return 0;
+                        }
+                        t = NULL;
+                        break;
+                    default:
+                        t = NULL;
+                        break;
+                }
+                if (!t) break;
+            }
+        }
+
+    states[(size_t)idx] = PP_STRUCT_CYCLE_RESOLVED;
+    return 1;
+}
+
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
     NULL_POINTER_ERROR_HANDLE(sa);
     NULL_POINTER_ERROR_HANDLE(sa->program);
@@ -916,7 +1001,28 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
         }
     }
 
-    // TODO: Step 2: Struct cycle check
+    // Step 2: Struct cycle check
+    {
+        size_t type_count = sa->gtt ? sa->gtt->type_count : 0;
+        PP_StructRecursiveCycleState* states = NULL;
+        if (type_count > 0) {
+            states = calloc(type_count, sizeof(PP_StructRecursiveCycleState));
+            if (!states) {
+                pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Failed to allocate cycle detection states");
+                goto error_cleanup;
+            }
+        }
+        for (size_t i = 0; i < sa->program->program.decl_count; i++) {
+            PP_AST_Node* decl = sa->program->program.decls[i];
+            if (decl->node_type == PP_AST_StructDeclarationNode) {
+                PPType* struct_type = pp_global_type_table_find_by_name_mut(sa->gtt, decl->struct_declaration.name);
+                if (struct_type) {
+                    pp_semantic_analyzer_struct_cycle_detect(sa, struct_type, states);
+                }
+            }
+        }
+        free(states);
+    }
 
     // Step 3: struct default initializer checking
     for (size_t i = 0; i < sa->program->program.decl_count; i++) {

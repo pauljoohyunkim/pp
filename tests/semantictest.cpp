@@ -385,4 +385,72 @@ TEST(SemanticTest, StructInitializerReferenceFieldNonLvalueError) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, StructCycleDirectSelfReference) {
+    const char* source =
+        "struct S { s :: S; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, StructCycleIndirect) {
+    const char* source =
+        "struct A { b :: B; }\n"
+        "struct B { a :: A; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, StructCycleViaArray) {
+    const char* source =
+        "struct A { a :: A[1]; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, StructCycleAllowedViaList) {
+    const char* source =
+        "struct Node { next :: Node&; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, StructCycleViaConstArray) {
+    const char* source =
+        "struct A { a :: const A[1]; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, StructCycleViaNewtype) {
+    const char* source =
+        "struct A { x :: B; }\n"
+        "newtype A B;\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
 
