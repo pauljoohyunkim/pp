@@ -581,17 +581,50 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
 
 after_base_resolution:
     if (type_node->type_expression.is_const) {
-        temp_type = pp_type_create(PP_TK_Const);
-        if (!temp_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create const type");
-            goto error_cleanup;
-        }
-        temp_type->type.pp_type_const.const_of = gtt_registered_type;
-        gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
-        temp_type = NULL;
-        if (!gtt_registered_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern const type");
-            goto error_cleanup;
+        // Canonicalize const for arrays/lists by pushing const inward
+        if (gtt_registered_type && (gtt_registered_type->kind == PP_TK_Array || gtt_registered_type->kind == PP_TK_List)) {
+            // Build a new collection with const element type
+            const PPType* elem = NULL;
+            size_t sz = 0;
+            if (gtt_registered_type->kind == PP_TK_Array) {
+                elem = gtt_registered_type->type.pp_type_array.element_type;
+                sz = gtt_registered_type->type.pp_type_array.size;
+            } else {
+                elem = gtt_registered_type->type.pp_type_list.element_type;
+            }
+            // Create const element type
+            PPType* const_elem = pp_type_create(PP_TK_Const);
+            if (!const_elem) goto error_cleanup;
+            const_elem->type.pp_type_const.const_of = elem;
+            const PPType* const_elem_interned = pp_global_type_table_intern(sa->gtt, const_elem);
+            const_elem = NULL;
+            if (!const_elem_interned) goto error_cleanup;
+            // Rebuild collection with const element
+            temp_type = (gtt_registered_type->kind == PP_TK_Array) ? pp_type_create(PP_TK_Array) : pp_type_create(PP_TK_List);
+            if (!temp_type) goto error_cleanup;
+            if (gtt_registered_type->kind == PP_TK_Array) {
+                temp_type->type.pp_type_array.element_type = const_elem_interned;
+                temp_type->type.pp_type_array.size = sz;
+            } else {
+                temp_type->type.pp_type_list.element_type = const_elem_interned;
+            }
+            gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+            temp_type = NULL;
+            if (!gtt_registered_type) goto error_cleanup;
+        } else {
+            // Regular const wrapping for non-collection types
+            temp_type = pp_type_create(PP_TK_Const);
+            if (!temp_type) {
+                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create const type");
+                goto error_cleanup;
+            }
+            temp_type->type.pp_type_const.const_of = gtt_registered_type;
+            gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+            temp_type = NULL;
+            if (!gtt_registered_type) {
+                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern const type");
+                goto error_cleanup;
+            }
         }
     }
 
