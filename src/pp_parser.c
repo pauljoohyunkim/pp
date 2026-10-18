@@ -416,10 +416,10 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
     PP_AST_Node* node = NULL;
     PP_AST_Node* inner_type = NULL;
     PP_AST_Node* size_expr = NULL;
-    PP_Token* l_bracket_tok = NULL;
-    PP_Token* colon_tok = NULL;
-    PP_Token* r_bracket_tok = NULL;
-    PP_Token* base_tok = NULL;
+    const PP_Token* l_bracket_tok = NULL;
+    const PP_Token* colon_tok = NULL;
+    const PP_Token* r_bracket_tok = NULL;
+    const PP_Token* base_tok = NULL;
     NULL_POINTER_ERROR_HANDLE(parser);
 
     if (pp_parser_peek_token_type(parser, 0) == PP_TT_LEFT_SQUARE_BRACKET) {
@@ -494,10 +494,12 @@ error_cleanup:
 
 static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
     PP_AST_Node* node = NULL;
-    PP_Token* const_tok = NULL;
+    PP_AST_Node* wrapper = NULL;
+    const PP_Token* const_tok = NULL;
     NULL_POINTER_ERROR_HANDLE(parser);
     bool is_const = false;
-    unsigned int line = 0, col = 0;
+    unsigned int line = 0;
+    unsigned int col = 0;
     if (pp_parser_peek_token_type(parser, 0) == PP_TT_CONST) {
         {
             const_tok = pp_parser_consume_token(parser, PP_TT_CONST);
@@ -517,7 +519,7 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
         pp_parser_consume_token(parser, PP_TT_AMPERSAND);
         is_ref = true;
     }
-    PP_AST_Node* wrapper = pp_ast_node_create(PP_AST_TypeExpressionNode, line, col);
+    wrapper = pp_ast_node_create(PP_AST_TypeExpressionNode, line, col);
     NULL_POINTER_ERROR_HANDLE(wrapper);
     wrapper->type_expression.is_const = is_const;
     wrapper->type_expression.is_reference = is_ref;
@@ -526,6 +528,7 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
     return wrapper;
 error_cleanup:
     pp_ast_root_free(node);
+    pp_ast_root_free(wrapper);
     return NULL;
 }
 

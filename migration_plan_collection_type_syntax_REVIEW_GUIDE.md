@@ -11,10 +11,10 @@ Review all changes in the `collection-type-syntax-change` branch. Check each ite
 
 ## 2. AST / Parser
 - [x] `include/pp_ast.h` – `PP_AST_TypeBaseNode`, `PP_AST_TypeArrayNode`, `PP_AST_TypeListNode` exist and are used; legacy `array_spec` field removed
-- [ ] `src/pp_parser.c` – parser emits recursive type expression for `[T : N]` and `[T]`
-- [ ] `tests/parsertest.cpp` – all tests migrated to prefix syntax
-  - [ ] `ParserTest.NestedArrayType` – `[[int32 : 3u] : 4u]`
-  - [ ] `ParserTest.ArrayReferenceType` – `[int32 : 4u]&`
+- [x] `src/pp_parser.c` – parser emits recursive type expression for `[T : N]` and `[T]`
+- [x] `tests/parsertest.cpp` – all tests migrated to prefix syntax
+  - [x] `ParserTest.NestedArrayType` – `[[int32 : 3u] : 4u]`
+  - [x] `ParserTest.ArrayReferenceType` – `[int32 : 4u]&`
 
 ## 3. Semantic Analyzer – Type Construction
 - [ ] `src/pp_semantic_analyzer.c` – `pp_type_from_type_node` handles recursive collection nodes
