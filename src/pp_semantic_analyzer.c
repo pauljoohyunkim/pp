@@ -291,7 +291,6 @@ void pp_semantic_analyzer_free(PP_SemanticAnalyzer* sa) {
  */
 int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
     if (!sa) return 0;
-#warning "Multiple passes might need return value checking for each pass."
 
     if (!pp_semantic_analyzer_build_global_table(sa)) {
         return 0;
@@ -564,7 +563,6 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             }
             break;
         default:
-            #warning "Type from type node default case not implemented"
             abort();
             break;
     }
@@ -1113,7 +1111,6 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
     NULL_POINTER_ERROR_HANDLE(sa);
     NULL_POINTER_ERROR_HANDLE(sa->program);
 
-    #warning "Recommended full analysis (Pass 2) is to split it into substeps"
     /*
         1. Handle only struct declarations (Ignore default initializers for now)
         2. Cycle check
@@ -2251,7 +2248,6 @@ static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer*
 
     for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) {
         PP_AST_Node* stmt = node->statement_list.stmts[i];
-        #warning "Decide what to do when there is an error while checking statement."
         pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, stmt);
     }
 
@@ -2539,7 +2535,6 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
             ) {
                 binary_type = pp_type_create(PP_TK_Bool);
             }
-            #warning "Array/List handling"
             break;
         case PP_TT_LESS:
         case PP_TT_GREATER:
@@ -3055,7 +3050,6 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     const PPType* primitive_target_type = decayed_target_type->kind == PP_TK_Newtype ? decayed_target_type->type.pp_type_newtype.underlying : decayed_target_type;
     assert(decayed_expr_type);
     
-    #warning "List/Array not supported yet"
     if (primitive_expr_type->kind == primitive_target_type->kind) {
         // Same machine type (OK)
     } else if (pp_type_is_numerical(primitive_expr_type) && pp_type_is_numerical(primitive_target_type)) {
@@ -3167,6 +3161,20 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
         }
         const PP_AST_Decoration* elem_dec = pp_ast_get_decoration(elem);
         assert(elem_dec);
+        // Verify element type matches collection element type after decay
+        if (elem_dec->resolved_type && !pp_type_equal(elem_dec->resolved_type, elem_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, elem->line, elem->col,
+                "Collection element type mismatch");
+            goto error_cleanup;
+        }
+        // Reference element types require lvalue initializer
+        if (pp_type_is_reference(elem_type)) {
+            if (elem_dec->value_category != PP_VALUE_CATEGORY_LVALUE) {
+                pp_error_list_push_error(sa->error_list, sa->filename, elem->line, elem->col,
+                    "Initializer for reference collection element must be an lvalue");
+                goto error_cleanup;
+            }
+        }
         if (!elem_dec->is_constexpr) {
             all_constexpr = false;
             break;
