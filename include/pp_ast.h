@@ -149,7 +149,6 @@ struct PP_AST_Node {
             bool is_reference;
             const char* identifier_name; /* identifier for named types, NULL for primitives */
             PP_AST_TypeKind kind;
-            PP_AST_ArrayListSpecifier* array_spec; /* NULL = plain type, deprecated for new syntax */
             PP_AST_Node* type_node; /* recursive collection type for prefix syntax */
         } type_expression;
 

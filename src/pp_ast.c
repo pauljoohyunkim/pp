@@ -186,10 +186,6 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
         }
         case PP_AST_TypeExpressionNode: {
             /* type_expression.identifier_name is pool-owned const char* – do not free */
-            if (node->type_expression.array_spec) {
-                pp_ast_root_free_internal(node->type_expression.array_spec->size_expr);
-                free(node->type_expression.array_spec);
-            }
             pp_ast_root_free_internal(node->type_expression.type_node);
             break;
         }
