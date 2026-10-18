@@ -142,3 +142,28 @@ typedef struct {
 
 Use these anchors when implementing the recursive type expression parser and type resolver.
 
+## Progress as of 2026-09-18
+
+### Completed
+* **1. BNF / docs** – `notes/bnf.md` updated to prefix collection types.
+* **2. AST** – TypeBase/TypeArray/TypeList nodes in use; parser emits recursive type expression wrapper.
+* **3. Parser** – Prefix collection parsing implemented; all parser tests migrated to `[T : N]` / `[T]` syntax.
+* **4. Semantic Analyzer** – Recursive `pp_type_from_type_node`, element reference rejection, per-element checks for collection initializers, const canonicalisation pushed inward for Array/List. `pp_type_decay` descends through structural containers only; stops at nominal Struct/Newtype.
+* **5. Type System** – No structural changes required; existing onion model sufficient.
+* **6. Tests** – Parser + Semantic suites migrated and extended:
+  * `ParserTest.NestedArrayType`, `ParserTest.ArrayReferenceType`
+  * `SemanticTest.IllegalElementReferenceArray`, `SemanticTest.NestedArrayTypeValid`, `SemanticTest.CollectionInitializerSuccessCriteria`
+  * All 172 Parser + Semantic tests pass.
+* **7. Validation** – `make unittest` green.
+
+### Design decisions locked in
+* Canonicalisation: `const [T : N]` ≡ `[const T : N]`. Const is pushed inward on construction for Array/List.
+* Decay descends only through structural containers (Array/List); stops at nominal types (Struct/Newtype).
+* Element reference ban enforced at type construction via `pp_type_validate_collection_element`.
+
+### Remaining polish
+* Pretty-printing for recursive collection types
+* Full end-to-end initializer-with-values success demo and size-mismatch reporting
+* Minor warning clean-up (unused error_cleanup label)
+
+
