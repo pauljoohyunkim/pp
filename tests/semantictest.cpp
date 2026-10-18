@@ -410,7 +410,7 @@ TEST(SemanticTest, StructCycleIndirect) {
 
 TEST(SemanticTest, StructCycleViaArray) {
     const char* source =
-        "struct A { a :: A[1]; }\n"
+        "struct A { a :: [A : 1u]; }\n"
         "func main :: () -> int32 { return 0; }\n";
     int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
     semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
@@ -432,7 +432,7 @@ TEST(SemanticTest, StructCycleAllowedViaList) {
 
 TEST(SemanticTest, StructCycleViaConstArray) {
     const char* source =
-        "struct A { a :: const A[1]; }\n"
+        "struct A { a :: const [A : 1u]; }\n"
         "func main :: () -> int32 { return 0; }\n";
     int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
     semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
