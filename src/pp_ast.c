@@ -190,6 +190,7 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
                 pp_ast_root_free_internal(node->type_expression.array_spec->size_expr);
                 free(node->type_expression.array_spec);
             }
+            pp_ast_root_free_internal(node->type_expression.type_node);
             break;
         }
         case PP_AST_TypeBaseNode: {
@@ -374,6 +375,7 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             break;
         case PP_AST_TypeExpressionNode:
             printf("TypeExpression\n");
+            if (node->type_expression.type_node) pp_ast_root_print(node->type_expression.type_node, depth+1);
             break;
         case PP_AST_TypeBaseNode:
             printf("TypeBase\n");

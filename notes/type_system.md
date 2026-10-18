@@ -50,6 +50,16 @@ The number of values is determined at compile-time.
 * List is similar, but size can be changed at run-time.
 Expected to be less efficient than array, but easier to use.
 * Infinite size is not supported.
+* **Array/List element types must be complete default-constructible value types.**
+  The general rule for element types:
+  - No `Reference`.
+  - No `void`.
+  - No function or lambda types (for now).
+  - No type that transitively contains a reference, e.g. a struct with a reference field or an array/list of such a struct. Use the existing `type_contains_reference` helper.
+  - Type must be complete. Array size must be non-zero.
+  - Newtype is judged by its underlying type.
+  Reference is allowed only as an outer modifier to the whole collection, e.g. `const [int32 : 4u]&` meaning `Ref(Array(4, Const(Int32)))`. The banned form `[const int32& : 4u]` is illegal because the element type is a reference and would require per-element initialization and rebinding semantics.
+
 
 ## Tuple
 * A tuple is a type containing multiple values of potentially different types.

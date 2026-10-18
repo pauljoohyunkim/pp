@@ -477,8 +477,6 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
         }
         node = pp_ast_node_create(PP_AST_TypeBaseNode, base_tok->line, base_tok->column);
         NULL_POINTER_ERROR_HANDLE(node);
-        node->type_base.is_const = false;
-        node->type_base.is_reference = false;
         node->type_base.kind = kind;
         if (tt == PP_TT_IDENTIFIER) {
             node->type_base.identifier_name = base_tok->lexeme;
@@ -519,11 +517,13 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
         pp_parser_consume_token(parser, PP_TT_AMPERSAND);
         is_ref = true;
     }
-    if (node->node_type == PP_AST_TypeBaseNode) {
-        node->type_base.is_const = is_const;
-        node->type_base.is_reference = is_ref;
-    }
-    return node;
+    PP_AST_Node* wrapper = pp_ast_node_create(PP_AST_TypeExpressionNode, line, col);
+    NULL_POINTER_ERROR_HANDLE(wrapper);
+    wrapper->type_expression.is_const = is_const;
+    wrapper->type_expression.is_reference = is_ref;
+    wrapper->type_expression.type_node = node;
+    node = NULL; /* ownership transferred */
+    return wrapper;
 error_cleanup:
     pp_ast_root_free(node);
     return NULL;
