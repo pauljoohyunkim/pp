@@ -104,6 +104,8 @@ typedef enum {
 
 static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_Node* simple_expr_node, size_t* val);
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node);
+static bool pp_type_contains_reference(const PPType* type);
+static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, unsigned int line, unsigned int col);
 /* Pass I */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
 static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
@@ -302,6 +304,45 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
 }
 
 
+static bool pp_type_contains_reference(const PPType* t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case PP_TK_Reference:
+            return true;
+        case PP_TK_Const:
+            return pp_type_contains_reference(t->type.pp_type_const.const_of);
+        case PP_TK_Array:
+            return pp_type_contains_reference(t->type.pp_type_array.element_type);
+        case PP_TK_List:
+            return pp_type_contains_reference(t->type.pp_type_list.element_type);
+        case PP_TK_Newtype:
+            return pp_type_contains_reference(t->type.pp_type_newtype.underlying);
+        case PP_TK_Struct:
+            if (t->type.pp_type_struct.layout) {
+                for (size_t i = 0; i < t->type.pp_type_struct.layout->field_count; i++) {
+                    if (pp_type_contains_reference(t->type.pp_type_struct.layout->fields[i].field_type)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        case PP_TK_Function:
+            if (pp_type_contains_reference(t->type.pp_type_function.return_type)) return true;
+            for (size_t i = 0; i < t->type.pp_type_function.param_count; i++) {
+                if (pp_type_contains_reference(t->type.pp_type_function.param_types[i])) return true;
+            }
+            return false;
+        case PP_TK_Lambda:
+            if (pp_type_contains_reference(t->type.pp_type_lambda.return_type)) return true;
+            for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
+                if (pp_type_contains_reference(t->type.pp_type_lambda.param_types[i])) return true;
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
 static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_Node* simple_expr_node, size_t* val) {
     assert(sa);
     assert(simple_expr_node);
@@ -402,6 +443,30 @@ error_cleanup:
     return 0;
 }
 
+static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, unsigned int line, unsigned int col) {
+    if (!elem_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, line, col, "Element type is null");
+        return 0;
+    }
+    if (pp_type_is_reference(elem_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, line, col, "element type cannot be a reference");
+        return 0;
+    }
+    if (elem_type->kind == PP_TK_Void) {
+        pp_error_list_push_error(sa->error_list, sa->filename, line, col, "Array/List element type cannot be void");
+        return 0;
+    }
+    if (elem_type->kind == PP_TK_Function || elem_type->kind == PP_TK_Lambda) {
+        pp_error_list_push_error(sa->error_list, sa->filename, line, col, "Array/List element type cannot be function/lambda");
+        return 0;
+    }
+    if (pp_type_contains_reference(elem_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, line, col, "Array/List element type cannot transitively contain a reference");
+        return 0;
+    }
+    return 1;
+}
+
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node) {
     assert(sa);
     assert(type_node);
@@ -411,7 +476,68 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     const PPType* gtt_lookedup_type = NULL;   /* For alias and named types */
     const PPType *gtt_registered_type = NULL;/* borrowed from GTT – must not be freed here */
 
-    switch (type_node->type_expression.kind) {
+    // Resolve base type via new recursive AST or legacy fields
+    const PP_AST_Node* inner = type_node->type_expression.type_node;
+    PP_AST_TypeKind base_kind = PP_AST_TYPE_KIND_IDENTIFIER;
+    const char* base_identifier = NULL;
+
+    if (inner) {
+        if (inner->node_type == PP_AST_TypeBaseNode) {
+            base_kind = inner->type_base.kind;
+            base_identifier = inner->type_base.identifier_name;
+        } else if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode) {
+            // Collection handling deferred to later step – for now fall through to collection path
+            // We will handle via separate logic below
+        } else {
+            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Unsupported type node");
+            goto error_cleanup;
+        }
+    } else {
+        // legacy fallback for existing code paths
+        base_kind = type_node->type_expression.kind;
+        base_identifier = type_node->type_expression.identifier_name;
+    }
+
+    // Handle collection types from new AST
+    if (inner && (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode)) {
+        const PPType* elem_type = NULL;
+        if (inner->node_type == PP_AST_TypeArrayNode) {
+            elem_type = pp_type_from_type_node(sa, inner->type_array.element_type);
+        } else {
+            elem_type = pp_type_from_type_node(sa, inner->type_list.element_type);
+        }
+        if (!elem_type) goto error_cleanup;
+        if (!pp_type_validate_collection_element(sa, elem_type, type_node->line, type_node->col)) goto error_cleanup;
+        if (inner->node_type == PP_AST_TypeArrayNode) {
+            size_t sz = 0;
+            if (!pp_array_size_from_simple_expr(sa, inner->type_array.size_expr, &sz)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Could not compute array size");
+                goto error_cleanup;
+            }
+            if (sz == 0) {
+                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Array size cannot be zero");
+                goto error_cleanup;
+            }
+            temp_type = pp_type_create(PP_TK_Array);
+            if (!temp_type) goto error_cleanup;
+            temp_type->type.pp_type_array.element_type = elem_type;
+            temp_type->type.pp_type_array.size = sz;
+        } else {
+            temp_type = pp_type_create(PP_TK_List);
+            if (!temp_type) goto error_cleanup;
+            temp_type->type.pp_type_list.element_type = elem_type;
+        }
+        gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+        temp_type = NULL;
+        if (!gtt_registered_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern array/list");
+            goto error_cleanup;
+        }
+        // Skip base_kind switch; proceed to const/reference handling below
+        goto after_base_resolution;
+    }
+
+    switch (base_kind) {
         case PP_AST_TYPE_KIND_VOID:
             temp_type = pp_type_create(PP_TK_Void);
             break;
@@ -428,11 +554,11 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             temp_type = pp_type_create(PP_TK_Bool);
             break;
         case PP_AST_TYPE_KIND_IDENTIFIER:
-            gtt_lookedup_type = pp_global_type_table_find_by_name(sa->gtt, type_node->type_expression.identifier_name);
+            gtt_lookedup_type = pp_global_type_table_find_by_name(sa->gtt, base_identifier);
             if (gtt_lookedup_type) {
                 break;
             }
-            gtt_lookedup_type = pp_global_type_table_find_alias(sa->gtt, type_node->type_expression.identifier_name);
+            gtt_lookedup_type = pp_global_type_table_find_alias(sa->gtt, base_identifier);
             if (gtt_lookedup_type) {
                 break;
             }
@@ -455,6 +581,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         goto error_cleanup;
     }
 
+after_base_resolution:
     if (type_node->type_expression.is_const) {
         temp_type = pp_type_create(PP_TK_Const);
         if (!temp_type) {
@@ -3059,3 +3186,4 @@ error_cleanup:
     pp_type_free(tmp);
     return 0;
 }
+
