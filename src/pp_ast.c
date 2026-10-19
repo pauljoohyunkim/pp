@@ -45,24 +45,6 @@ const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node *node) {
     }
 }
 
-PP_AST_ArrayListSpecifier* pp_ast_array_spec_create(PP_ArraySpecKind kind, PP_AST_Node* size_expr) {
-    PP_AST_ArrayListSpecifier* spec = (PP_AST_ArrayListSpecifier*)calloc(1, sizeof(PP_AST_ArrayListSpecifier));
-    if (!spec) return NULL;
-    spec->kind = kind;
-    spec->size_expr = size_expr;
-    spec->next = NULL;
-    return spec;
-}
-
-void pp_ast_array_spec_free(PP_AST_ArrayListSpecifier* spec) {
-    if (!spec) return;
-    PP_AST_ArrayListSpecifier* next = spec->next;
-    spec->next = NULL; /* break potential cycles */
-    pp_ast_root_free(spec->size_expr);
-    free(spec);
-    pp_ast_array_spec_free(next);
-}
-
 static void pp_ast_root_free_internal(PP_AST_Node* node) {
     if (!node) return;
     switch (node->node_type) {

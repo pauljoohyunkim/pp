@@ -477,24 +477,16 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
 
     // Resolve base type via new recursive AST or legacy fields
     const PP_AST_Node* inner = type_node->type_expression.type_node;
+    assert(inner != NULL && "TypeExpression must have type_node after migration");
     PP_AST_TypeKind base_kind = PP_AST_TYPE_KIND_IDENTIFIER;
     const char* base_identifier = NULL;
 
-    if (inner) {
-        if (inner->node_type == PP_AST_TypeBaseNode) {
-            base_kind = inner->type_base.kind;
-            base_identifier = inner->type_base.identifier_name;
-        } else if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode) {
-            // Collection handling deferred to later step – for now fall through to collection path
-            // We will handle via separate logic below
-        } else {
-            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Unsupported type node");
-            goto error_cleanup;
-        }
-    } else {
-        // legacy fallback for existing code paths
-        base_kind = type_node->type_expression.kind;
-        base_identifier = type_node->type_expression.identifier_name;
+    if (inner->node_type == PP_AST_TypeBaseNode) {
+        base_kind = inner->type_base.kind;
+        base_identifier = inner->type_base.identifier_name;
+    } else if (inner->node_type != PP_AST_TypeArrayNode && inner->node_type != PP_AST_TypeListNode) {
+        pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Unsupported type node");
+        goto error_cleanup;
     }
 
     // Handle collection types from new AST
