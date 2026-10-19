@@ -524,54 +524,51 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern array/list");
             goto error_cleanup;
         }
-        // Skip base_kind switch; proceed to const/reference handling below
-        goto after_base_resolution;
-    }
-
-    switch (base_kind) {
-        case PP_AST_TYPE_KIND_VOID:
-            temp_type = pp_type_create(PP_TK_Void);
-            break;
-        case PP_AST_TYPE_KIND_INT32:
-            temp_type = pp_type_create(PP_TK_Int32);
-            break;
-        case PP_AST_TYPE_KIND_UINT32:
-            temp_type = pp_type_create(PP_TK_UInt32);
-            break;
-        case PP_AST_TYPE_KIND_FLOAT:
-            temp_type = pp_type_create(PP_TK_Float);
-            break;
-        case PP_AST_TYPE_KIND_BOOL:
-            temp_type = pp_type_create(PP_TK_Bool);
-            break;
-        case PP_AST_TYPE_KIND_IDENTIFIER:
-            gtt_lookedup_type = pp_global_type_table_find_by_name(sa->gtt, base_identifier);
-            if (gtt_lookedup_type) {
+    } else {
+        switch (base_kind) {
+            case PP_AST_TYPE_KIND_VOID:
+                temp_type = pp_type_create(PP_TK_Void);
                 break;
-            }
-            gtt_lookedup_type = pp_global_type_table_find_alias(sa->gtt, base_identifier);
-            if (gtt_lookedup_type) {
+            case PP_AST_TYPE_KIND_INT32:
+                temp_type = pp_type_create(PP_TK_Int32);
                 break;
-            }
-            break;
-        default:
-            abort();
-            break;
-    }
-    if (!temp_type && !gtt_lookedup_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create type");
-        goto error_cleanup;
+            case PP_AST_TYPE_KIND_UINT32:
+                temp_type = pp_type_create(PP_TK_UInt32);
+                break;
+            case PP_AST_TYPE_KIND_FLOAT:
+                temp_type = pp_type_create(PP_TK_Float);
+                break;
+            case PP_AST_TYPE_KIND_BOOL:
+                temp_type = pp_type_create(PP_TK_Bool);
+                break;
+            case PP_AST_TYPE_KIND_IDENTIFIER:
+                gtt_lookedup_type = pp_global_type_table_find_by_name(sa->gtt, base_identifier);
+                if (gtt_lookedup_type) {
+                    break;
+                }
+                gtt_lookedup_type = pp_global_type_table_find_alias(sa->gtt, base_identifier);
+                if (gtt_lookedup_type) {
+                    break;
+                }
+                break;
+            default:
+                abort();
+                break;
+        }
+        if (!temp_type && !gtt_lookedup_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to create type");
+            goto error_cleanup;
+        }
+
+        //gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type ? temp_type : gtt_lookedup_type);
+        gtt_registered_type = temp_type ? pp_global_type_table_intern(sa->gtt, temp_type) : gtt_lookedup_type;
+        temp_type = NULL;
+        if (!gtt_registered_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern type");
+            goto error_cleanup;
+        }
     }
 
-    //gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type ? temp_type : gtt_lookedup_type);
-    gtt_registered_type = temp_type ? pp_global_type_table_intern(sa->gtt, temp_type) : gtt_lookedup_type;
-    temp_type = NULL;
-    if (!gtt_registered_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col, "Failed to intern type");
-        goto error_cleanup;
-    }
-
-after_base_resolution:
     if (type_node->type_expression.is_const) {
         // Canonicalize const for arrays/lists by pushing const inward
         if (gtt_registered_type && (gtt_registered_type->kind == PP_TK_Array || gtt_registered_type->kind == PP_TK_List)) {
