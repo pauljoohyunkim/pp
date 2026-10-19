@@ -3151,14 +3151,8 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
                 "Collection element type mismatch");
             goto error_cleanup;
         }
-        // Reference element types require lvalue initializer
-        if (pp_type_is_reference(elem_type)) {
-            if (elem_dec->value_category != PP_VALUE_CATEGORY_LVALUE) {
-                pp_error_list_push_error(sa->error_list, sa->filename, elem->line, elem->col,
-                    "Initializer for reference collection element must be an lvalue");
-                goto error_cleanup;
-            }
-        }
+        // Collection element types must never be references – rejected at type construction
+        assert(!pp_type_contains_reference(elem_type) && "Collection element type must not contain a reference");
         if (!elem_dec->is_constexpr) {
             all_constexpr = false;
             break;

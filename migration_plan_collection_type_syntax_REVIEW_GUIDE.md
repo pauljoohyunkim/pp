@@ -17,21 +17,21 @@ Review all changes in the `collection-type-syntax-change` branch. Check each ite
   - [x] `ParserTest.ArrayReferenceType` – `[int32 : 4u]&`
 
 ## 3. Semantic Analyzer – Type Construction
-- [ ] `src/pp_semantic_analyzer.c` – `pp_type_from_type_node` handles recursive collection nodes
-- [ ] Canonical const normalisation implemented
-  - [ ] `const [T : N]` is pushed inward to `[const T : N]`
-  - [ ] Nested arrays push const recursively
-  - [ ] No double `Const(Const(...))`
-- [ ] Element reference ban enforced
-  - [ ] `pp_type_validate_collection_element` rejects element types containing references
-  - [ ] `SemanticTest.IllegalElementReferenceArray` passes: `[int32& : 4u]` rejected
+- [x] `src/pp_semantic_analyzer.c` – `pp_type_from_type_node` handles recursive collection nodes
+- [x] Canonical const normalisation implemented
+  - [x] `const [T : N]` is pushed inward to `[const T : N]`
+  - [x] Nested arrays push const recursively
+  - [x] No double `Const(Const(...))`
+- [x] Element reference ban enforced
+  - [x] `pp_type_validate_collection_element` rejects element types containing references
+  - [x] `SemanticTest.IllegalElementReferenceArray` passes: `[int32& : 4u]` rejected
 
 ## 4. Semantic Analyzer – Collection Initializers
-- [ ] `pp_semantic_analyzer_check_collection_initializer_expression` re-enabled from HEAD
-- [ ] Element type resolved via `pp_type_from_type_node`
-- [ ] Array size computed via `pp_array_size_from_simple_expr`
-- [ ] Per-element constexpr and type matching enforced
-- [ ] `SemanticTest.CollectionInitializerSuccessCriteria` passes
+- [x] `pp_semantic_analyzer_check_collection_initializer_expression` re-enabled from HEAD
+- [x] Element type resolved via `pp_type_from_type_node`
+- [x] Array size computed via `pp_array_size_from_simple_expr`
+- [x] Per-element constexpr and type matching enforced
+- [x] `SemanticTest.CollectionInitializerSuccessCriteria` passes
 
 ## 5. Type System
 - [ ] `src/pp_type_table.c` – `pp_type_equal` handles Array/List element equality
