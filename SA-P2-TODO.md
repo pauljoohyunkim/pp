@@ -3,15 +3,15 @@
 Order is recommended execution order. Each major area gets its own heading.
 
 ## 1. Member Access Expression
-- [ ] Implement `pp_semantic_analyzer_check_member_access_expression`
-  - [ ] Resolve base expression via `pp_semantic_analyzer_check_expression`
-  - [ ] Decay base type to nominal `Struct`/`Newtype`
-  - [ ] Lookup field name in struct layout; error if not found
-  - [ ] Propagate const/value category from base and field
-  - [ ] Reject member access on non-nominal types
-  - [ ] Create decoration with resolved field type, value category, is_constexpr, escapable_ref
-- [ ] Add checklist comment block above function
-- [ ] Unit test: struct member read/write, const propagation, missing field error
+- [x] Implement `pp_semantic_analyzer_check_member_access_expression`
+  - [x] Resolve base expression via `pp_semantic_analyzer_check_expression`
+  - [x] Decay base type to nominal `Struct`/`Newtype`
+  - [x] Lookup field name in struct layout; error if not found
+  - [x] Propagate const/value category from base and field
+  - [x] Reject member access on non-nominal types
+  - [x] Create decoration with resolved field type, value category, is_constexpr, escapable_ref
+- [x] Add checklist comment block above function
+- [x] Unit test: struct member read/write, const propagation, missing field error
 
 ## 2. Array / List Indexing
 - [ ] Wire `PP_AST_ArrayAccessNode` in `pp_semantic_analyzer_check_expression`
