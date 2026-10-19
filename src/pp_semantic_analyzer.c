@@ -3059,25 +3059,25 @@ error_cleanup:
 
 /* Collection Initializer Expression Checklist (PP-specific):
  * [x] Verify node kind is PP_AST_CollectionInitializerNode and target type context exists.
- * [ ] Determine collection kind from resolved target type:
+ * [x] Determine collection kind from resolved target type:
  *      - PP_TK_Array  → fixed size, element type = array element type
  *      - PP_TK_List   → unbounded, element type = list element type
  * [ ] For arrays with static size:
  *      - Compare entry count to array size; error on mismatch.
  *      - Reject zero-size arrays or treat as empty per policy.
- * [ ] For each initializer entry:
+ * [x] For each initializer entry:
  *      - Recursively check expression via pp_semantic_analyzer_check_expression.
  *      - Require constexpr in global/struct default contexts.
  *      - Ensure decayed element type matches collection element type.
  *      - If element type is reference: initializer must be l-value and const-correct.
- * [ ] For lists:
+ * [x] For lists:
  *      - No size check; allow any number of entries.
  *      - Same per-element validity, constexpr and type matching.
- * [ ] Populate AST decoration:
+ * [x] Populate AST decoration:
  *      - resolved_type = collection type
  *      - is_constexpr = all entries constexpr
  *      - value_category set appropriately for context
- * [ ] Error reporting via sa->error_list with line/col from expr.
+ * [x] Error reporting via sa->error_list with line/col from expr.
  */
 static int pp_semantic_analyzer_check_collection_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
@@ -3146,10 +3146,14 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
         const PP_AST_Decoration* elem_dec = pp_ast_get_decoration(elem);
         assert(elem_dec);
         // Verify element type matches collection element type after decay
-        if (elem_dec->resolved_type && !pp_type_equal(elem_dec->resolved_type, elem_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, elem->line, elem->col,
-                "Collection element type mismatch");
-            goto error_cleanup;
+        if (elem_dec->resolved_type) {
+            const PPType* decayed_elem_type = pp_type_decay(sa->gtt, elem_dec->resolved_type);
+            const PPType* decayed_coll_elem_type = pp_type_decay(sa->gtt, elem_type);
+            if (!pp_type_equal(decayed_elem_type, decayed_coll_elem_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, elem->line, elem->col,
+                    "Collection element type mismatch");
+                goto error_cleanup;
+            }
         }
         // Collection element types must never be references – rejected at type construction
         assert(!pp_type_contains_reference(elem_type) && "Collection element type must not contain a reference");

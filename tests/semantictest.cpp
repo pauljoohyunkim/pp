@@ -490,4 +490,59 @@ TEST(SemanticTest, CollectionInitializerSuccessCriteria) {
     EXPECT_EQ(semantic_errors, 0);
 }
 
+TEST(SemanticTest, CollectionInitializerWithLiterals) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32 : 3u] = [int32 : 3u; 1, 2, 3];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerListWithLiterals) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32] = [int32; 10, 20, 30];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerStructWithAlias) {
+    const char* source =
+        "typedef float myfloat;\n"
+        "struct S { a :: int32; b :: myfloat; }\n"
+        "func main :: () -> int32 {\n"
+        "    let arr :: [S : 2u] = [S : 2u; S { .a = 1, .b = 2.0 }, S { .a = 3, .b = 4.0 }];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerNestedCollections) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [[int32 : 2u]] = [[int32 : 2u]; [int32 : 2u; 1, 2], [int32 : 2u; 3, 4]];\n"
+        "    let b :: [[int32] : 2u] = [[int32] : 2u; [int32; 1, 2], [int32; 3]];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
 
