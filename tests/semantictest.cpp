@@ -570,4 +570,39 @@ TEST(SemanticTest, CollectionInitializerUndersizeAllowed) {
     EXPECT_EQ(semantic_errors, 0);
 }
 
+TEST(SemanticTest, MemberAccessValid) {
+    const char* source =
+        "struct Point { x :: int32; y :: int32; }\n"
+        "func main :: () -> int32 { let p :: Point = Point { .x = 1, .y = 2 }; let v :: int32 = p.x; return v; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, MemberAccessUnknownFieldError) {
+    const char* source =
+        "struct Point { x :: int32; y :: int32; }\n"
+        "func main :: () -> int32 { let p :: Point = Point { .x = 1, .y = 2 }; let v :: int32 = p.z; return v; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, MemberAccessNewtypeError) {
+    const char* source =
+        "struct Point { x :: int32; }\n"
+        "newtype int32 Vec;\n"
+        "func main :: (v :: Vec) -> int32 { let x :: int32 = v.x; return x; }\n";
+    // Member access on a newtype whose underlying type is not a struct should be rejected
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Expect semantic error for member access on non-struct type
+    EXPECT_GT(semantic_errors, 0);
+}
+
 
