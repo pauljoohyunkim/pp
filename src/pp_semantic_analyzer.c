@@ -2815,6 +2815,14 @@ error_cleanup:
     return 0;
 }
 
+/*
+ * [x] Resolve base expression via `pp_semantic_analyzer_check_expression`
+ * [ ] Decay base type to nominal `Struct`/`Newtype`
+ * [x] Lookup field name in struct layout; error if not found
+ * [ ] Propagate const/value category from base and field
+ * [ ] Reject member access on non-nominal types
+ * [ ] Create decoration with resolved field type, value category, is_constexpr, escapable_ref
+*/
 static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     assert(sa);
@@ -2822,7 +2830,42 @@ static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyz
     assert(expr);
     assert(expr->node_type == PP_AST_MemberAccessNode);
 
+    // Check the base expression
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->member_access.object)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Base expression for member access is invalid.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* base_decoration = pp_ast_get_decoration(expr->member_access.object);
+    assert(base_decoration);
+    const PPType* decayed_base_type = pp_type_decay(sa->gtt, base_decoration->resolved_type);
+    assert(decayed_base_type);
 
+    // TODO: Decide whether or not to allow newtypes.
+    if (decayed_base_type->kind != PP_TK_Struct) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Member access is only allowed for structs.");
+        goto error_cleanup;
+    }
+
+    const char* field_name = expr->member_access.member;
+    assert(field_name);
+    // Look up field name.
+    bool field_found = false;
+    for (size_t i = 0; i < decayed_base_type->type.pp_type_struct.layout->field_count; i++) {
+        if (decayed_base_type->type.pp_type_struct.layout->fields[i].field_name == field_name) {
+            field_found = true;
+            break;
+        }
+    }
+    if (!field_found) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Member access field \"%s\" is not found on the given struct type.", field_name);
+        goto error_cleanup;
+    }
+
+
+    return 1;
 
 error_cleanup:
     pp_ast_decoration_free(decoration);
