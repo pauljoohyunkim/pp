@@ -141,6 +141,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
@@ -2271,6 +2272,9 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
         case PP_AST_IdentifierNode:
             if (!pp_semantic_analyzer_check_identifier_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
+        case PP_AST_ArrayListAccessNode:
+            if (!pp_semantic_analyzer_check_array_list_access_expression(sa, symbol_table, expr)) goto error_cleanup;
+            break;    
         case PP_AST_MemberAccessNode:
             if (!pp_semantic_analyzer_check_member_access_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
@@ -2809,6 +2813,22 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     decoration = NULL;
 
     return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    return 0;
+}
+
+static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_ArrayListAccessNode);
+
+    if (expr->array_list_access.decoration) {
+        return 1;
+    }
 
 error_cleanup:
     pp_ast_decoration_free(decoration);
