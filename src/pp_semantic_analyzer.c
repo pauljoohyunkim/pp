@@ -2815,6 +2815,20 @@ error_cleanup:
     return 0;
 }
 
+/* pp_semantic_analyzer_check_member_access_expression Checklist:
+ * [x] Validate inputs via asserts and node type check
+ * [x] Early exit if expr already has decoration
+ * [x] Check base expression recursively
+ * [x] Get base decoration and decay base type
+ * [x] Require decayed base kind == PP_TK_Struct, error otherwise (no newtype unwrapping)
+ * [x] Find field by name in struct layout, error if missing
+ * [x] Const propagation from base to field, skip for reference fields
+ * [x] Compute value category from base
+ * [x] Inherit is_constexpr from base
+ * [x] Inherit is_escapable_ref for lvalues
+ * [x] Create decoration with resolved_type, value_category, is_constexpr, is_escapable_ref
+ * [x] Attach decoration to expr and return success
+ */
 static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     assert(sa);
@@ -2822,7 +2836,76 @@ static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyz
     assert(expr);
     assert(expr->node_type == PP_AST_MemberAccessNode);
 
+    if (expr->member_access.decoration) {
+        return 1;
+    }
 
+    // Check the base expression
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->member_access.object)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Base expression for member access is invalid.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* base_decoration = pp_ast_get_decoration(expr->member_access.object);
+    assert(base_decoration);
+    const PPType* decayed_base_type = pp_type_decay(sa->gtt, base_decoration->resolved_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_base_type);
+
+    if (decayed_base_type->kind != PP_TK_Struct) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Member access is only allowed for structs.");
+        goto error_cleanup;
+    }
+
+    const char* field_name = expr->member_access.member;
+    assert(field_name);
+    const PP_StructLayout* layout = decayed_base_type->type.pp_type_struct.layout;
+    NULL_POINTER_ERROR_HANDLE(layout);
+
+    const PPType* field_type = NULL;
+    for (size_t i = 0; i < layout->field_count; i++) {
+        if (layout->fields[i].field_name == field_name) {
+            field_type = layout->fields[i].field_type;
+            break;
+        }
+    }
+    if (!field_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Member access field \"%s\" is not found on the given struct type.", field_name);
+        goto error_cleanup;
+    }
+
+    // Const propagation from base to field
+    const PPType* result_type = field_type;
+    bool base_is_const = pp_type_is_const(base_decoration->resolved_type);
+    bool field_is_ref = pp_type_is_reference(field_type);
+    if (base_is_const && !pp_type_is_const(field_type) && !field_is_ref) {
+        PPType* const_wrap = pp_type_create(PP_TK_Const);
+        NULL_POINTER_ERROR_HANDLE(const_wrap);
+        const_wrap->type.pp_type_const.const_of = field_type;
+        const PPType* interned = pp_global_type_table_intern(sa->gtt, const_wrap);
+        const_wrap = NULL;
+        NULL_POINTER_ERROR_HANDLE(interned);
+        result_type = interned;
+    }
+
+    PP_ValueCategory value_cat = base_decoration->value_category == PP_VALUE_CATEGORY_LVALUE
+        ? PP_VALUE_CATEGORY_LVALUE
+        : PP_VALUE_CATEGORY_RVALUE;
+
+    bool is_constexpr = base_decoration->is_constexpr;
+    bool is_escapable_ref = false;
+    if (value_cat == PP_VALUE_CATEGORY_LVALUE) {
+        is_escapable_ref = base_decoration->is_escapable_ref;
+    }
+
+    decoration = pp_ast_decoration_create(result_type, value_cat, is_constexpr, is_escapable_ref);
+    NULL_POINTER_ERROR_HANDLE(decoration);
+
+    expr->member_access.decoration = decoration;
+    decoration = NULL;
+
+    return 1;
 
 error_cleanup:
     pp_ast_decoration_free(decoration);
