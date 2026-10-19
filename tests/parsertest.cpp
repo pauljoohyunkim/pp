@@ -502,7 +502,7 @@ TEST(ParserTest, TestUnaryPrecedenceAdd) {
 }
 
 TEST(ParserTest, TestTypeInt32ArraySize) {
-    const char* source = "func f :: (x :: int32[10]) -> void { }";
+    const char* source = "func f :: (x :: [int32 : 10u]) -> void { }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -510,7 +510,7 @@ TEST(ParserTest, TestTypeInt32ArraySize) {
 }
 
 TEST(ParserTest, TestTypeFloatArrayEmpty) {
-    const char* source = "func f :: (x :: float[]) -> void { }";
+    const char* source = "func f :: (x :: [float]) -> void { }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -518,7 +518,7 @@ TEST(ParserTest, TestTypeFloatArrayEmpty) {
 }
 
 TEST(ParserTest, TestTypeBoolArrayRef) {
-    const char* source = "func f :: (x :: bool[4]&) -> void { }";
+    const char* source = "func f :: (x :: [bool : 4u]& ) -> void { }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -526,7 +526,7 @@ TEST(ParserTest, TestTypeBoolArrayRef) {
 }
 
 TEST(ParserTest, TestTypeInt32EmptyArrayRef) {
-    const char* source = "func f :: (x :: int32[]&) -> void { }";
+    const char* source = "func f :: (x :: [int32]& ) -> void { }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -534,7 +534,7 @@ TEST(ParserTest, TestTypeInt32EmptyArrayRef) {
 }
 
 TEST(ParserTest, TestTypeConstInt32ArraySize) {
-    const char* source = "func f :: (x :: const int32[5]) -> void { }";
+    const char* source = "func f :: (x :: const [int32 : 5u]) -> void { }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -983,7 +983,7 @@ TEST(ParserTest, TestCollectionInitEmptyList) {
 }
 
 TEST(ParserTest, TestTypeConstInt32ArrayEmptyRef) {
-    const char* source = "func f :: (x :: const int32[]&) -> void { }";
+    const char* source = "func f :: (x :: const [int32]& ) -> void { }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -991,7 +991,7 @@ TEST(ParserTest, TestTypeConstInt32ArrayEmptyRef) {
 }
 
 TEST(ParserTest, TestTypeFloatArraySizeRef) {
-    const char* source = "func f :: (x :: float[8]&) -> void { }";
+    const char* source = "func f :: (x :: [float : 8u]& ) -> void { }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -1055,7 +1055,7 @@ TEST(ParserTest, TestFunctionCallChain) {
 }
 
 TEST(ParserTest, TestVariableDeclConstRefArray) {
-    const char* source = "func f ::() -> void { let a :: const int32[4]& = b; }";
+    const char* source = "func f ::() -> void { let a :: const [int32 : 4u]& = b; }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -1079,7 +1079,7 @@ TEST(ParserTest, TestNewtypeChain) {
 }
 
 TEST(ParserTest, TestStructWithMultipleFields) {
-    const char* source = "struct S { a :: int32; b :: float; c :: bool; d :: int32[10]; }";
+    const char* source = "struct S { a :: int32; b :: float; c :: bool; d :: [int32 : 10u]; }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -1189,3 +1189,22 @@ TEST(ParserTest, CzGoodVerificationAnchor) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, NestedArrayType) {
+    const char* source =
+        "func f :: (x :: [[int32 : 3u] : 4u]) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, ArrayReferenceType) {
+    const char* source =
+        "func f :: (x :: [int32 : 4u]& ) -> void { }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+

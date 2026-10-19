@@ -45,24 +45,6 @@ const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node *node) {
     }
 }
 
-PP_AST_ArrayListSpecifier* pp_ast_array_spec_create(PP_ArraySpecKind kind, PP_AST_Node* size_expr) {
-    PP_AST_ArrayListSpecifier* spec = (PP_AST_ArrayListSpecifier*)calloc(1, sizeof(PP_AST_ArrayListSpecifier));
-    if (!spec) return NULL;
-    spec->kind = kind;
-    spec->size_expr = size_expr;
-    spec->next = NULL;
-    return spec;
-}
-
-void pp_ast_array_spec_free(PP_AST_ArrayListSpecifier* spec) {
-    if (!spec) return;
-    PP_AST_ArrayListSpecifier* next = spec->next;
-    spec->next = NULL; /* break potential cycles */
-    pp_ast_root_free(spec->size_expr);
-    free(spec);
-    pp_ast_array_spec_free(next);
-}
-
 static void pp_ast_root_free_internal(PP_AST_Node* node) {
     if (!node) return;
     switch (node->node_type) {
@@ -186,10 +168,20 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
         }
         case PP_AST_TypeExpressionNode: {
             /* type_expression.identifier_name is pool-owned const char* – do not free */
-            if (node->type_expression.array_spec) {
-                pp_ast_root_free_internal(node->type_expression.array_spec->size_expr);
-                free(node->type_expression.array_spec);
-            }
+            pp_ast_root_free_internal(node->type_expression.type_node);
+            break;
+        }
+        case PP_AST_TypeBaseNode: {
+            /* type_base.identifier_name is pool-owned */
+            break;
+        }
+        case PP_AST_TypeArrayNode: {
+            pp_ast_root_free_internal(node->type_array.element_type);
+            pp_ast_root_free_internal(node->type_array.size_expr);
+            break;
+        }
+        case PP_AST_TypeListNode: {
+            pp_ast_root_free_internal(node->type_list.element_type);
             break;
         }
         case PP_AST_TypedefDeclarationNode: {
@@ -361,6 +353,19 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             break;
         case PP_AST_TypeExpressionNode:
             printf("TypeExpression\n");
+            if (node->type_expression.type_node) pp_ast_root_print(node->type_expression.type_node, depth+1);
+            break;
+        case PP_AST_TypeBaseNode:
+            printf("TypeBase\n");
+            break;
+        case PP_AST_TypeArrayNode:
+            printf("TypeArray\n");
+            pp_ast_root_print(node->type_array.element_type, depth+1);
+            if (node->type_array.size_expr) pp_ast_root_print(node->type_array.size_expr, depth+1);
+            break;
+        case PP_AST_TypeListNode:
+            printf("TypeList\n");
+            pp_ast_root_print(node->type_list.element_type, depth+1);
             break;
         case PP_AST_StructInitializerNode:
             printf("StructInitializer %s\n", node->struct_initializer.identifier ? node->struct_initializer.identifier : "");

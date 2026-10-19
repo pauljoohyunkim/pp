@@ -410,7 +410,7 @@ TEST(SemanticTest, StructCycleIndirect) {
 
 TEST(SemanticTest, StructCycleViaArray) {
     const char* source =
-        "struct A { a :: A[1]; }\n"
+        "struct A { a :: [A : 1u]; }\n"
         "func main :: () -> int32 { return 0; }\n";
     int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
     semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
@@ -432,7 +432,7 @@ TEST(SemanticTest, StructCycleAllowedViaList) {
 
 TEST(SemanticTest, StructCycleViaConstArray) {
     const char* source =
-        "struct A { a :: const A[1]; }\n"
+        "struct A { a :: const [A : 1u]; }\n"
         "func main :: () -> int32 { return 0; }\n";
     int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
     semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
@@ -451,6 +451,123 @@ TEST(SemanticTest, StructCycleViaNewtype) {
     EXPECT_EQ(analyze_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
     EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, IllegalElementReferenceArray) {
+    const char* source =
+        "struct A { a :: [int32& : 4u]; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, NestedArrayTypeValid) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [[int32 : 3u] : 4u];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerSuccessCriteria) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32 : 3u];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerWithLiterals) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32 : 3u] = [int32 : 3u; 1, 2, 3];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerListWithLiterals) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32] = [int32; 10, 20, 30];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerStructWithAlias) {
+    const char* source =
+        "typedef float myfloat;\n"
+        "struct S { a :: int32; b :: myfloat; }\n"
+        "func main :: () -> int32 {\n"
+        "    let arr :: [S : 2u] = [S : 2u; S { .a = 1, .b = 2.0 }, S { .a = 3, .b = 4.0 }];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerNestedCollections) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [[int32 : 2u]] = [[int32 : 2u]; [int32 : 2u; 1, 2], [int32 : 2u; 3, 4]];\n"
+        "    let b :: [[int32] : 2u] = [[int32] : 2u; [int32; 1, 2], [int32; 3]];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerOversizeError) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32 : 2u] = [int32 : 2u; 1, 2, 3];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerUndersizeAllowed) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32 : 4u] = [int32 : 4u; 1, 2, 3];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
 }
 
 

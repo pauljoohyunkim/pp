@@ -46,6 +46,7 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
 static PP_AST_Node* pp_parser_create_expression_or_assignment(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_literal(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_type(PP_Parser* parser);
+static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_collection_initializer(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_function_declaration(PP_Parser* parser);
@@ -411,72 +412,123 @@ error_cleanup:
     return NULL;
 }
 
+static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* inner_type = NULL;
+    PP_AST_Node* size_expr = NULL;
+    const PP_Token* l_bracket_tok = NULL;
+    const PP_Token* colon_tok = NULL;
+    const PP_Token* r_bracket_tok = NULL;
+    const PP_Token* base_tok = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    if (pp_parser_peek_token_type(parser, 0) == PP_TT_LEFT_SQUARE_BRACKET) {
+        {
+            l_bracket_tok = pp_parser_consume_token(parser, PP_TT_LEFT_SQUARE_BRACKET);
+            NULL_POINTER_ERROR_HANDLE(l_bracket_tok);
+        }
+        inner_type = pp_parser_create_type(parser);
+        NULL_POINTER_ERROR_HANDLE(inner_type);
+        size_expr = NULL;
+        if (pp_parser_peek_token_type(parser, 0) == PP_TT_COLON) {
+            {
+                colon_tok = pp_parser_consume_token(parser, PP_TT_COLON);
+                NULL_POINTER_ERROR_HANDLE(colon_tok);
+            }
+            size_expr = pp_parser_create_expression_or_assignment(parser);
+            NULL_POINTER_ERROR_HANDLE(size_expr);
+        }
+        {
+            r_bracket_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET);
+            NULL_POINTER_ERROR_HANDLE(r_bracket_tok);
+        }
+        if (size_expr) {
+            node = pp_ast_node_create(PP_AST_TypeArrayNode, l_bracket_tok->line, l_bracket_tok->column);
+            NULL_POINTER_ERROR_HANDLE(node);
+            node->type_array.element_type = inner_type;
+            inner_type = NULL;
+            node->type_array.size_expr = size_expr;
+            size_expr = NULL;
+        } else {
+            node = pp_ast_node_create(PP_AST_TypeListNode, l_bracket_tok->line, l_bracket_tok->column);
+            NULL_POINTER_ERROR_HANDLE(node);
+            node->type_list.element_type = inner_type;
+            inner_type = NULL;
+        }
+    } else {
+        PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
+        unsigned int line = pp_parser_get_line(parser);
+        unsigned int col = pp_parser_get_col(parser);
+        int kind = PP_AST_TYPE_KIND_IDENTIFIER;
+        switch (tt) {
+            case PP_TT_VOID: kind = PP_AST_TYPE_KIND_VOID; break;
+            case PP_TT_INT32: kind = PP_AST_TYPE_KIND_INT32; break;
+            case PP_TT_UINT32: kind = PP_AST_TYPE_KIND_UINT32; break;
+            case PP_TT_FLOAT: kind = PP_AST_TYPE_KIND_FLOAT; break;
+            case PP_TT_BOOL: kind = PP_AST_TYPE_KIND_BOOL; break;
+            case PP_TT_IDENTIFIER: kind = PP_AST_TYPE_KIND_IDENTIFIER; break;
+            default:
+                pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected type name");
+                goto error_cleanup;
+        }
+        {
+            base_tok = pp_parser_consume_token(parser, tt);
+            NULL_POINTER_ERROR_HANDLE(base_tok);
+        }
+        node = pp_ast_node_create(PP_AST_TypeBaseNode, base_tok->line, base_tok->column);
+        NULL_POINTER_ERROR_HANDLE(node);
+        node->type_base.kind = kind;
+        if (tt == PP_TT_IDENTIFIER) {
+            node->type_base.identifier_name = base_tok->lexeme;
+        } else {
+            node->type_base.identifier_name = NULL;
+        }
+    }
+    return node;
+error_cleanup:
+    pp_ast_root_free(node);
+    pp_ast_root_free(inner_type);
+    pp_ast_root_free(size_expr);
+    return NULL;
+}
+
 static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
     PP_AST_Node* node = NULL;
-    PP_AST_Node* size_expr = NULL;
-    PP_AST_ArrayListSpecifier* array_spec = NULL;
-    PP_AST_ArrayListSpecifier* spec = NULL;
+    PP_AST_Node* wrapper = NULL;
+    const PP_Token* const_tok = NULL;
     NULL_POINTER_ERROR_HANDLE(parser);
     bool is_const = false;
-    unsigned int line = 0, col = 0;
+    unsigned int line = 0;
+    unsigned int col = 0;
     if (pp_parser_peek_token_type(parser, 0) == PP_TT_CONST) {
-        PP_Token* const_tok = pp_parser_consume_token(parser, PP_TT_CONST);
-        if (const_tok) { line = const_tok->line; col = const_tok->column; }
+        {
+            const_tok = pp_parser_consume_token(parser, PP_TT_CONST);
+            NULL_POINTER_ERROR_HANDLE(const_tok);
+        }
         is_const = true;
+        line = const_tok->line;
+        col = const_tok->column;
     } else {
         line = pp_parser_get_line(parser);
         col = pp_parser_get_col(parser);
     }
-    PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
-    PP_Token* tok = NULL;
-    int kind = PP_AST_TYPE_KIND_IDENTIFIER; /* identifier default */
-    switch (tt) {
-        case PP_TT_VOID: kind = PP_AST_TYPE_KIND_VOID; tok = pp_parser_consume_token(parser, PP_TT_VOID); break;
-        case PP_TT_INT32: kind = PP_AST_TYPE_KIND_INT32; tok = pp_parser_consume_token(parser, PP_TT_INT32); break;
-        case PP_TT_UINT32: kind = PP_AST_TYPE_KIND_UINT32; tok = pp_parser_consume_token(parser, PP_TT_UINT32); break;
-        case PP_TT_FLOAT: kind = PP_AST_TYPE_KIND_FLOAT; tok = pp_parser_consume_token(parser, PP_TT_FLOAT); break;
-        case PP_TT_BOOL: kind = PP_AST_TYPE_KIND_BOOL; tok = pp_parser_consume_token(parser, PP_TT_BOOL); break;
-        case PP_TT_IDENTIFIER: kind = PP_AST_TYPE_KIND_IDENTIFIER; tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER); break;
-        default:
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected type name");
-            return NULL;
-    }
-    /* Array specifier */
-    while (pp_parser_peek_token_type(parser, 0) == PP_TT_LEFT_SQUARE_BRACKET) {
-        pp_parser_consume_token(parser, PP_TT_LEFT_SQUARE_BRACKET);
-        size_expr = NULL;
-        if (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_SQUARE_BRACKET && pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
-            size_expr = pp_parser_create_expression_or_assignment(parser);
-        }
-        if (!pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET)) {
-            pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected ']' to close array specifier");
-        }
-        PP_ArraySpecKind kind_spec = size_expr ? PP_ARRAY_SPEC_SIZE : PP_ARRAY_SPEC_EMPTY;
-        spec = pp_ast_array_spec_create(kind_spec, size_expr);
-        NULL_POINTER_ERROR_HANDLE(spec);
-        spec->next = array_spec;
-        array_spec = spec;
-        spec = NULL;
-        size_expr = NULL;
-    }
+    node = pp_parser_parse_collection_type(parser);
+    NULL_POINTER_ERROR_HANDLE(node);
     bool is_ref = false;
     if (pp_parser_peek_token_type(parser, 0) == PP_TT_AMPERSAND) {
         pp_parser_consume_token(parser, PP_TT_AMPERSAND);
         is_ref = true;
     }
-    node = pp_ast_node_create(PP_AST_TypeExpressionNode, tok ? tok->line : 0, tok ? tok->column : 0);
-    NULL_POINTER_ERROR_HANDLE(node);
-    node->type_expression.is_const = is_const;
-    node->type_expression.is_reference = is_ref;
-    node->type_expression.identifier_name = (tt == PP_TT_IDENTIFIER && tok) ? tok->lexeme : NULL;
-    node->type_expression.kind = kind;
-    node->type_expression.array_spec = array_spec;
-    return node;
+    wrapper = pp_ast_node_create(PP_AST_TypeExpressionNode, line, col);
+    NULL_POINTER_ERROR_HANDLE(wrapper);
+    wrapper->type_expression.is_const = is_const;
+    wrapper->type_expression.is_reference = is_ref;
+    wrapper->type_expression.type_node = node;
+    node = NULL; /* ownership transferred */
+    return wrapper;
 error_cleanup:
     pp_ast_root_free(node);
-    pp_ast_root_free(size_expr);
-    pp_ast_array_spec_free(array_spec);
-    pp_ast_array_spec_free(spec);
+    pp_ast_root_free(wrapper);
     return NULL;
 }
 

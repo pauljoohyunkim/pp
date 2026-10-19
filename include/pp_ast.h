@@ -41,17 +41,6 @@ typedef struct {
 } PP_AST_StructInitEntry;
 
 typedef enum {
-    PP_ARRAY_SPEC_EMPTY,
-    PP_ARRAY_SPEC_SIZE
-} PP_ArraySpecKind;
-
-typedef struct PP_AST_ArrayListSpecifier {
-    PP_ArraySpecKind kind;
-    PP_AST_Node* size_expr; /* valid if kind == PP_ARRAY_SPEC_SIZE */
-    struct PP_AST_ArrayListSpecifier* next;
-} PP_AST_ArrayListSpecifier;
-
-typedef enum {
     PP_AST_ProgramNode,
     PP_AST_StructDeclarationNode,
     PP_AST_VariableDeclarationNode,
@@ -61,6 +50,9 @@ typedef enum {
     PP_AST_WhileStatementNode,
     PP_AST_ForStatementNode,
     PP_AST_TypeExpressionNode,
+    PP_AST_TypeBaseNode,
+    PP_AST_TypeArrayNode,
+    PP_AST_TypeListNode,
     PP_AST_TypedefDeclarationNode,
     PP_AST_NewtypeDeclarationNode,
     PP_AST_FunctionDeclarationNode,
@@ -146,8 +138,22 @@ struct PP_AST_Node {
             bool is_reference;
             const char* identifier_name; /* identifier for named types, NULL for primitives */
             PP_AST_TypeKind kind;
-            PP_AST_ArrayListSpecifier* array_spec; /* NULL = plain type */
+            PP_AST_Node* type_node; /* recursive collection type for prefix syntax */
         } type_expression;
+
+        struct { /* TypeBase */
+            const char* identifier_name;
+            PP_AST_TypeKind kind;
+        } type_base;
+
+        struct { /* TypeArray */
+            PP_AST_Node* element_type;
+            PP_AST_Node* size_expr; /* NULL for list, non-NULL for array */
+        } type_array;
+
+        struct { /* TypeList */
+            PP_AST_Node* element_type;
+        } type_list;
 
         struct { /* TypedefDeclaration */
             PP_AST_Node* base_type;
@@ -255,9 +261,6 @@ PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueC
 void pp_ast_decoration_free(PP_AST_Decoration* decor);
 
 const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node *node);
-
-PP_AST_ArrayListSpecifier* pp_ast_array_spec_create(PP_ArraySpecKind kind, PP_AST_Node* size_expr);
-void pp_ast_array_spec_free(PP_AST_ArrayListSpecifier* spec);
 
 PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, unsigned int col);
 void pp_ast_root_free(PP_AST_Node* node);

@@ -16,11 +16,11 @@ Syntax           | Internal PP_Type Structure                        | Nesting O
 `int32&`         | Ref(Base(Int32))                                  | 3. Mutable Reference
 `const int32&`   | Ref(Const(Base(Int32)))                           | 3. Immutable Reference (copy)
 
-`int32[5]`       | Array(Size=5, Base(Int32))                        | 2b. Mutable elements
-`const int32[5]` | Array(Size=5, Const(Base(Int32)))                 | 2b. Immutable elements
+`[int32 : 5]`       | Array(Size=5, Base(Int32))                        | 2b. Mutable elements
+`const [int32 : 5]` | Array(Size=5, Const(Base(Int32)))                 | 2b. Immutable elements
 
-`int32[5]&`      | Ref(Array(Size=5, Base(Int32)))                   | 3a. Reference to block
-`const int32[5]&`| Ref(Array(Size=5, Const(Base(Int32))))            | 3a. Ref to immutable block
+`[int32 : 5]&`      | Ref(Array(Size=5, Base(Int32)))                   | 3a. Reference to block
+`const [int32 : 5]&`| Ref(Array(Size=5, Const(Base(Int32))))            | 3a. Ref to immutable block
 
 
 CONSTRUCTION ORDER (Right-to-Left in BNF)
