@@ -545,4 +545,29 @@ TEST(SemanticTest, CollectionInitializerNestedCollections) {
     EXPECT_EQ(semantic_errors, 0);
 }
 
+TEST(SemanticTest, CollectionInitializerOversizeError) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32 : 2u] = [int32 : 2u; 1, 2, 3];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionInitializerUndersizeAllowed) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32 : 4u] = [int32 : 4u; 1, 2, 3];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
 

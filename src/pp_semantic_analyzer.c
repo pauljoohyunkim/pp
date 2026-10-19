@@ -3062,8 +3062,8 @@ error_cleanup:
  * [x] Determine collection kind from resolved target type:
  *      - PP_TK_Array  → fixed size, element type = array element type
  *      - PP_TK_List   → unbounded, element type = list element type
- * [ ] For arrays with static size:
- *      - Compare entry count to array size; error on mismatch.
+ * [x] For arrays with static size:
+ *      - Compare entry count to array size; error if > size, allow <= size for implicit zero-fill.
  *      - Reject zero-size arrays or treat as empty per policy.
  * [x] For each initializer entry:
  *      - Recursively check expression via pp_semantic_analyzer_check_expression.
@@ -3117,6 +3117,11 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
         }
         if (arr_size == 0) {
             pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Array size cannot be zero");
+            goto error_cleanup;
+        }
+        // Oversize initializer is an error; undersize is allowed for implicit zero-fill
+        if (expr->collection_initializer.element_count > arr_size) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Collection initializer has too many elements");
             goto error_cleanup;
         }
         tmp = pp_type_create(PP_TK_Array);

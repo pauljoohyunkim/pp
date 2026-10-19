@@ -34,26 +34,26 @@ Review all changes in the `collection-type-syntax-change` branch. Check each ite
 - [x] `SemanticTest.CollectionInitializerSuccessCriteria` passes
 
 ## 5. Type System
-- [ ] `src/pp_type_table.c` – `pp_type_equal` handles Array/List element equality
-- [ ] `pp_type_decay` descends through Array/List elements, strips Const recursively
-- [ ] Decay stops at nominal types: Struct, Newtype
+- [x] `src/pp_type_table.c` – `pp_type_equal` handles Array/List element equality
+- [x] `pp_type_decay` descends through Array/List elements, strips Const recursively
+- [x] Decay stops at nominal types: Struct, Newtype
 
 ## 6. Tests
-- [ ] `tests/semantictest.cpp`
-  - [ ] `StructCycleViaArray` – `A[1]` → `[A : 1u]`
-  - [ ] `StructCycleViaConstArray` – `const A[1]` → `const [A : 1u]`
-  - [ ] `SemanticTest.NestedArrayTypeValid` passes
-  - [ ] All 38 Semantic tests pass
-- [ ] `tests/parsertest.cpp` – all parser tests pass
-- [ ] Full suite: `make bin/unittest && bin/unittest --gtest_filter="*Parser*:*Semantic*"` → 172/172
+- [x] `tests/semantictest.cpp`
+  - [x] `StructCycleViaArray` – `A[1]` → `[A : 1u]`
+  - [x] `StructCycleViaConstArray` – `const A[1]` → `const [A : 1u]`
+  - [x] `SemanticTest.NestedArrayTypeValid` passes
+  - [x] All Semantic tests pass
+- [x] `tests/parsertest.cpp` – all parser tests pass
+- [x] Full suite: `make bin/unittest && bin/unittest --gtest_filter="*Parser*:*Semantic*"` → 176/176
 
 ## 7. Clean-up
-- [ ] `#warning` directives removed from `src/pp_semantic_analyzer.c`
-- [ ] Unused label warnings noted but non-blocking
+- [x] `#warning` directives removed from `src/pp_semantic_analyzer.c`
+- [x] Unused label warnings noted but non-blocking
 
 ## 8. Migration Plan
-- [ ] `migration_plan_collection_type_syntax.md` progress section updated and accurate
-- [ ] Design decisions documented: const push inward, decay structural vs nominal
+- [x] `migration_plan_collection_type_syntax.md` progress section updated and accurate
+- [x] Design decisions documented: const push inward, decay structural vs nominal
 
 ---
 
