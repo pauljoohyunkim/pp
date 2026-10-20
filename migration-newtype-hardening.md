@@ -26,7 +26,7 @@ Make `newtype` nominal and chainable. Currently `newtype` declarations are regis
 
 ## Step-by-step plan
 
-### 1. Create Newtype node in Pass 1
+### 1. Create Newtype node in Pass 1 (ready for review)
 File: `src/pp_semantic_analyzer.c`, `pp_semantic_analyzer_build_global_table_newtype_decl`
 * After resolving `base_type`:
   1. Check duplicate name against `named_types` and alias table.
@@ -37,24 +37,24 @@ File: `src/pp_semantic_analyzer.c`, `pp_semantic_analyzer_build_global_table_new
   6. Intern `nt` via `pp_global_type_table_intern`.
   7. Register named entry: `pp_global_type_table_register_named(gtt, identifier, interned)`.
 
-### 2. Machine-type helper
+### 2. Machine-type helper (ready for review)
 File: `src/pp_type_table.c` or `src/pp_semantic_analyzer.c`
 * Add `static const PPType* pp_type_resolve_machine_type(const PPType* t)`.
 * Loop while `t && t->kind == PP_TK_Newtype` → `t = t->type.pp_type_newtype.underlying`.
 * Return final type.
 
-### 3. Update cast checker
+### 3. Update cast checker (ready for review)
 File: `src/pp_semantic_analyzer.c`, `pp_semantic_analyzer_check_cast_expression`
 * Replace one-level unwrap with machine-type helper.
 * Validate target type exists.
 * Allow cast if `pp_type_resolve_machine_type(expr_type)` and `pp_type_resolve_machine_type(target_type)` are compatible / share same machine type.
 * Keep existing bans: cast to reference not allowed, reject unsafe nominal casts per policy.
 
-### 4. Update checklists
+### 4. Update checklists (ready for review)
 * Update `pp_semantic_analyzer_check_cast_expression` checklist to reflect machine-type resolution.
 * Mark any checklist items that become N/A.
 
-### 5. Tests
+### 5. Tests (ready for review)
 * Add semantic tests for newtype chains:
   * `newtype int32 AGE; newtype AGE WEIGHT;` – `WEIGHT` and `AGE` are distinct, assignment between them errors.
   * Cast `AGE` → `WEIGHT` allowed via machine-type equality.

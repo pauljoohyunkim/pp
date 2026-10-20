@@ -20,10 +20,10 @@ Review all changes in the `migration-newtype-hardening` branch. Check each item 
   - [x] Proper cleanup on error via `pp_type_free`
 
 ## 3. Machine-type Helper
-- [ ] `src/pp_type_table.c` `pp_type_resolve_machine_type`
-  - [ ] Walks `PP_TK_Newtype` chain until non-newtype
-  - [ ] Handles NULL input safely
-  - [ ] Declared `const PPType*`
+- [x] `src/pp_type_table.c` `pp_type_resolve_machine_type`
+  - [x] Walks `PP_TK_Newtype` chain until non-newtype
+  - [x] Handles NULL input safely
+  - [x] Declared `const PPType*`
 
 ## 4. Cast Expression Hardening
 - [ ] `src/pp_semantic_analyzer.c` `pp_semantic_analyzer_check_cast_expression`
