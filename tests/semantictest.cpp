@@ -748,4 +748,46 @@ TEST(SemanticTest, NewtypeChainCastToUnderlying) {
     EXPECT_EQ(semantic_errors, 0);
 }
 
+TEST(SemanticTest, CastToConstTargetRejected) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let x :: int32 = 5 as const int32;\n"
+        "    return x;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0); // casting to const target should error
+}
+
+TEST(SemanticTest, CastToReferenceTargetRejected) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let x :: int32 = 5 as int32&;\n"
+        "    return x;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0); // casting to reference target should error
+}
+
+TEST(SemanticTest, NewtypeChainThreeLevels) {
+    const char* source =
+        "newtype int32 A;\n"
+        "newtype A B;\n"
+        "newtype B C;\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: A = 1 as A;\n"
+        "    let c :: C = a as C;\n"
+        "    let i :: int32 = c as int32;\n"
+        "    return i;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
 

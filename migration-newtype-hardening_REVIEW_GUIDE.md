@@ -26,12 +26,12 @@ Review all changes in the `migration-newtype-hardening` branch. Check each item 
   - [x] Declared `const PPType*`
 
 ## 4. Cast Expression Hardening
-- [ ] `src/pp_semantic_analyzer.c` `pp_semantic_analyzer_check_cast_expression`
-  - [ ] Decays both expression and target types
-  - [ ] Resolves machine types via `pp_type_resolve_machine_type`
-  - [ ] Allows cast if machine types equal or both numerical
-  - [ ] Reject cast to reference unchanged
-  - [ ] Checklist updated to reflect machine-type resolution
+- [x] `src/pp_semantic_analyzer.c` `pp_semantic_analyzer_check_cast_expression`
+  - [x] Decays both expression and target types
+  - [x] Resolves machine types via `pp_type_resolve_machine_type`
+  - [x] Allows cast if machine types equal or both numerical
+  - [x] Reject cast to reference unchanged
+  - [x] Checklist updated to reflect machine-type resolution
 
 ## 5. Type Equality / Decay
 - [ ] `src/pp_type_table.c` `pp_type_equal` for `PP_TK_Newtype` compares by name only – nominal

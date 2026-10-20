@@ -3211,12 +3211,13 @@ error_cleanup:
  * [x] Recursively check inner expression via pp_semantic_analyzer_check_expression
  * [x] Retrieve target type via pp_type_from_type_node
  * [x] Reject casting to reference type with error push
+ * [x] Reject casting to const type with error push
  * [x] Decay expression type and target type via pp_type_decay
  * [x] Resolve machine type via pp_type_resolve_machine_type for both decayed types
  * [x] Allow cast if resolved machine types are equal or both numerical via pp_type_is_numerical
  * [x] Create decoration with target_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr propagated from expr, escapable_ref false
- * [ ] Propagate environment scope level into decoration, CZ uses env->scope_level
- * [ ] Preserve is_constexpr from inner expression explicitly as done in PP, matches CZ intent
+ * [-] Propagate environment scope level into decoration, CZ uses env->scope_level -> N/A in PP, scope_level field is commented out
+ * [x] Preserve is_constexpr from inner expression explicitly as done in PP, matches CZ intent
  */
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
@@ -3240,6 +3241,12 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     if (pp_type_is_reference(target_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
         "Casting to reference is not allowed.");
+        goto error_cleanup;
+    }
+
+    if (pp_type_is_const(target_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Casting to const is not allowed.");
         goto error_cleanup;
     }
 
