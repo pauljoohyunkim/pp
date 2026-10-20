@@ -3243,22 +3243,20 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     const PPType* decayed_expr_type = pp_type_decay(sa->gtt, expr_decoration->resolved_type);
     NULL_POINTER_ERROR_HANDLE(decayed_expr_type);
     const PPType* decayed_target_type = pp_type_decay(sa->gtt, target_type);
-    NULL_POINTER_ERROR_HANDLE(decayed_expr_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_target_type);
 
-    const PPType* primitive_expr_type = decayed_expr_type->kind == PP_TK_Newtype ? decayed_expr_type->type.pp_type_newtype.underlying : decayed_expr_type;
-    assert(primitive_expr_type);
-    const PPType* primitive_target_type = decayed_target_type->kind == PP_TK_Newtype ? decayed_target_type->type.pp_type_newtype.underlying : decayed_target_type;
-    assert(decayed_expr_type);
-    
-    if (primitive_expr_type->kind == primitive_target_type->kind) {
+    const PPType* resolved_expr_type = pp_type_resolve_machine_type(decayed_expr_type);
+    const PPType* resolved_target_type = pp_type_resolve_machine_type(decayed_target_type);
+
+    if (pp_type_equal(resolved_expr_type, resolved_target_type)) {
         // Same machine type (OK)
-    } else if (pp_type_is_numerical(primitive_expr_type) && pp_type_is_numerical(primitive_target_type)) {
+    } else if (pp_type_is_numerical(resolved_expr_type) && pp_type_is_numerical(resolved_target_type)) {
         // Numerical types can be casted to each other (OK)
     } else {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
         "Casting is not supported from the given expression to the given target type.");
         goto error_cleanup;
-    }
+   }
 
     decoration = pp_ast_decoration_create(target_type, PP_VALUE_CATEGORY_RVALUE, expr_decoration->is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
