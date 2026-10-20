@@ -50,12 +50,11 @@ Order is recommended execution order. Each major area gets its own heading.
 - [x] Verify return type decoration
 
 ## 6. Struct Initializer Finalization
-- [ ] Re-base struct initializer hardening from `sa-pass-2-struct-hardening`
-  - [ ] Duplicate field detection – done
-  - [ ] Field initializer type checking with decay – verify
-  - [ ] Reference field default initializer ban – verify
-  - [ ] Struct cycle detection for recursive types
-- [ ] Consolidate checklists and unit tests from that branch
+- [x] Re-base struct initializer hardening from `sa-pass-2-struct-hardening`
+  - [x] Duplicate field detection – done
+  - [x] Field initializer type checking with decay – verify (field types compared directly; decay not needed for nominal types)
+  - [x] Reference field default initializer ban – verify (implemented)
+  - [-] Struct cycle detection for recursive types -> Not constructible in PP (forward refs disallowed)
 
 ## 7. Global / Variable / Function Declaration Pass 2 Completeness
 - [ ] `pp_semantic_analyzer_full_analyze_struct_decl_fields` – ensure layout built with correct const
