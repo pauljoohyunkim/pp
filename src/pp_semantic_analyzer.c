@@ -1007,6 +1007,11 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
 
     // Create a distinct newtype node instead of aliasing the base type.
     nt = pp_type_create(PP_TK_Newtype);
+    if (base_type->kind == PP_TK_Function || base_type->kind == PP_TK_Lambda) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Base type for newtype \%s cannot be function or lambda", node->newtype_declaration.identifier);
+        goto error_cleanup;
+    }
     if (!nt) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate newtype node for '%s'", node->newtype_declaration.identifier);
         goto error_cleanup;
@@ -3208,10 +3213,9 @@ error_cleanup:
  * [x] Retrieve target type via pp_type_from_type_node
  * [x] Reject casting to reference type with error push
  * [x] Decay expression type and target type via pp_type_decay
- * [x] Unwrap Newtype to underlying primitive for comparison
- * [x] Allow cast if primitive kinds equal or both numerical via pp_type_is_numerical
+ * [x] Resolve machine type via pp_type_resolve_machine_type for both decayed types
+ * [x] Allow cast if resolved machine types are equal or both numerical via pp_type_is_numerical
  * [x] Create decoration with target_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr propagated from expr, escapable_ref false
- * [ ] Verify both decayed types are primitive or newtype with explicit error push as CZ does
  * [ ] Propagate environment scope level into decoration, CZ uses env->scope_level
  * [ ] Preserve is_constexpr from inner expression explicitly as done in PP, matches CZ intent
  */
