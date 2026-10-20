@@ -987,6 +987,7 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_NewtypeDeclarationNode);
+    PPType* nt = NULL; // initialize to NULL for safe cleanup
 
     if (pp_global_type_table_find_alias(sa->gtt, node->newtype_declaration.identifier) || pp_global_type_table_find_by_name(sa->gtt, node->newtype_declaration.identifier)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Type '%s' previously defined", node->newtype_declaration.identifier);
@@ -1004,7 +1005,22 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
         goto error_cleanup;
     }
 
-    if (!pp_global_type_table_register_named(sa->gtt, node->newtype_declaration.identifier, base_type)) {
+    // Create a distinct newtype node instead of aliasing the base type.
+    nt = pp_type_create(PP_TK_Newtype);
+    if (!nt) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate newtype node for '%s'", node->newtype_declaration.identifier);
+        goto error_cleanup;
+    }
+    nt->type.pp_type_newtype.name = node->newtype_declaration.identifier;
+    nt->type.pp_type_newtype.underlying = base_type;
+
+    const PPType* interned = pp_global_type_table_intern(sa->gtt, nt);
+    if (!interned) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to intern newtype '%s'", node->newtype_declaration.identifier);
+        goto error_cleanup;
+    }
+    // Register the newtype as a named type.
+    if (!pp_global_type_table_register_named(sa->gtt, node->newtype_declaration.identifier, interned)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register newtype '%s'", node->newtype_declaration.identifier);
         goto error_cleanup;
     }
@@ -1012,6 +1028,10 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
     return 1;
 
 error_cleanup:
+    // If nt was not interned, free it; otherwise it has been consumed.
+    // pp_global_type_table_intern frees the candidate on success, but on failure we must free.
+    // Since we jumped here after possible failures before interning, free if nt exists.
+    if (nt) pp_type_free(nt);
     return 0;
 }
 
