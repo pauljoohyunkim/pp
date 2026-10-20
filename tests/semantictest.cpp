@@ -477,6 +477,34 @@ TEST(SemanticTest, NestedArrayTypeValid) {
     EXPECT_EQ(semantic_errors, 0);
 }
 
+TEST(SemanticTest, ArrayTransitiveReferenceBan) {
+    const char* source =
+        "struct S { x :: int32&; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: [S : 4u];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Array element type S contains a reference, so it should be rejected.
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ListTransitiveReferenceBan) {
+    const char* source =
+        "struct S { x :: int32&; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: [S];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // List element type S contains a reference, so it should be rejected.
+    EXPECT_GT(semantic_errors, 0);
+}
+
 TEST(SemanticTest, CollectionInitializerSuccessCriteria) {
     const char* source =
         "func main :: () -> int32 {\n"
@@ -770,6 +798,64 @@ TEST(SemanticTest, CastToReferenceTargetRejected) {
     semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
     EXPECT_GT(semantic_errors, 0); // casting to reference target should error
+}
+
+TEST(SemanticTest, MemberAccessConstPropagation) {
+    const char* source =
+        "struct Point { x :: int32; y :: int32; }\n"
+        "func main :: () -> int32 {\n"
+        "    let p :: const Point = Point { .x = 1, .y = 2 };\n"
+        "    let v :: const int32 = p.x;\n"
+        "    return v;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, MemberAccessConstViolation) {
+    const char* source =
+        "struct Point { x :: int32; y :: int32; }\n"
+        "func main :: () -> int32 {\n"
+        "    let p :: const Point = Point { .x = 1, .y = 2 };\n"
+        "    p.x = 10;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Assignment to member of const struct should be error
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ArrayAccessConstPropagation) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: const [int32 : 3u] = [int32 : 3u; 1, 2, 3];\n"
+        "    let v :: const int32 = a[0u];\n"
+        "    return v;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ArrayAccessConstViolation) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: const [int32 : 3u] = [int32 : 3u; 1, 2, 3];\n"
+        "    a[0u] = 10;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Assignment to element of const array should be error
+    EXPECT_GT(semantic_errors, 0);
 }
 
 TEST(SemanticTest, NewtypeChainThreeLevels) {

@@ -2861,10 +2861,12 @@ error_cleanup:
  * [x] Verify base is `Array`/`List` after decay
  * [x] Resolve index expression, require integral type and constexpr where needed
  * [x] Decay element type and create decoration for access result
+ * [x] Const propagation from base to element
  * [x] Reference ban for collection element types already enforced at type construction
  */
 static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
+    PPType* const_wrap = NULL;
     assert(sa);
     assert(symbol_table);
     assert(expr);
@@ -2932,6 +2934,19 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     }
     NULL_POINTER_ERROR_HANDLE(element_type);
 
+    // Const propagation from base to element
+    const PPType* result_type = element_type;
+    bool base_is_const = pp_type_is_const(base_decoration->resolved_type);
+    if (base_is_const && !pp_type_is_const(element_type)) {
+        const_wrap = pp_type_create(PP_TK_Const);
+        NULL_POINTER_ERROR_HANDLE(const_wrap);
+        const_wrap->type.pp_type_const.const_of = element_type;
+        const PPType* interned = pp_global_type_table_intern(sa->gtt, const_wrap);
+        const_wrap = NULL;
+        NULL_POINTER_ERROR_HANDLE(interned);
+        result_type = interned;
+    }
+
     // Value category: propagate lvalue from base if base is lvalue
     PP_ValueCategory value_cat = base_decoration->value_category == PP_VALUE_CATEGORY_LVALUE
         ? PP_VALUE_CATEGORY_LVALUE
@@ -2939,7 +2954,7 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
 
     bool is_constexpr = base_decoration->is_constexpr && index_decoration->is_constexpr;
 
-    decoration = pp_ast_decoration_create(element_type, value_cat, is_constexpr, false);
+    decoration = pp_ast_decoration_create(result_type, value_cat, is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
 
     expr->array_list_access.decoration = decoration;
@@ -2949,6 +2964,7 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
 
 error_cleanup:
     pp_ast_decoration_free(decoration);
+    pp_type_free(const_wrap);
     return 0;
 }
 
