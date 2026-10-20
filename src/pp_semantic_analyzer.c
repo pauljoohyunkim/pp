@@ -2464,8 +2464,8 @@ error_cleanup:
  * [x] Decay lhs and rhs types via pp_type_decay
  * [x] Validate operator-specific type compatibility and set binary_type per operator
  * [x] Create decoration with result_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr = lhs&&rhs, escapable_ref false
- * [ ] Explicitly verify both operands are primitive after decay with an error push
- * [ ] Propagate maximum scope level of operands into decoration, CZ uses MAX(lhs_scope,rhs_scope)
+ * [-] Explicitly verify both operands are primitive after decay with an error push -> PP checks operator-specific compatibility explicitly; a blanket primitive guard would prevent future non-primitive overloads
+ * [-] Propagate maximum scope level of operands into decoration, CZ uses MAX(lhs_scope,rhs_scope) -> PP does not track scope level in decorations
  */
 static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
@@ -2586,7 +2586,11 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
         default:
             abort();
     }
-    NULL_POINTER_ERROR_HANDLE(binary_type);
+    if (!binary_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Binary operator requires compatible operand types");
+        goto error_cleanup;
+    }
 
     decoration = pp_ast_decoration_create(binary_type, PP_VALUE_CATEGORY_RVALUE, lhs_decoration->is_constexpr && rhs_decoration->is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
@@ -2614,8 +2618,8 @@ error_cleanup:
  *    - MINUS: PP allows Int32/UInt32/Float, CZ allows Int32/Float only
  *    - EXCLAMATION: requires Bool
  * [x] Create decoration with result_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr propagated from operand, escapable_ref false
- * [ ] Explicitly verify operand is primitive after decay with error push
- * [ ] Preserve operand scope level in decoration, CZ passes operand->decoration->scope_level
+ * [-] Explicitly verify operand is primitive after decay with error push -> PP checks operator-specific compatibility explicitly; blanket primitive guard would prevent future non-primitive overloads
+ * [-] Preserve operand scope level in decoration, CZ passes operand->decoration->scope_level -> PP does not track scope level in decorations
  */
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
@@ -2657,21 +2661,31 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                     unary_type = pp_type_create(PP_TK_Float);
                     break;
                 default:
-                    abort();
+                    pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                    "Unary operator '-' requires Int32, UInt32 or Float");
+                    goto error_cleanup;
             }
             break;
         case PP_TT_EXCLAMATION:
             if (decayed_operand_type->kind == PP_TK_Bool) {
                 unary_type = pp_type_create(PP_TK_Bool);
             } else {
-                abort();
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "Unary operator '!' requires Bool");
+                goto error_cleanup;
             }
             break;
         default:
-            abort();
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Unsupported unary operator");
+            goto error_cleanup;
     }
 
-    NULL_POINTER_ERROR_HANDLE(unary_type);
+    if (!unary_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Unary operator requires compatible operand type");
+        goto error_cleanup;
+    }
 
     decoration = pp_ast_decoration_create(unary_type, PP_VALUE_CATEGORY_RVALUE, operand_decoration->is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
