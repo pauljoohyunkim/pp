@@ -660,4 +660,17 @@ TEST(SemanticTest, ListAccessValid) {
     EXPECT_EQ(semantic_errors, 0);
 }
 
+TEST(SemanticTest, ArrayAccessOutOfBounds) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32 : 3u] = [int32 : 3u; 1, 2, 3];\n"
+        "    let v :: int32 = a[3u];\n"
+        "    return v;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
 

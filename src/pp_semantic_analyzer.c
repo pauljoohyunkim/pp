@@ -2876,6 +2876,20 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
         goto error_cleanup;
     }
 
+    // Compile-time bounds check for fixed-size arrays with constexpr index
+    if (decayed_base_type->kind == PP_TK_Array && index_decoration->is_constexpr) {
+        size_t idx_val = 0;
+        if (pp_array_size_from_simple_expr(sa, expr->array_list_access.index, &idx_val)) {
+            size_t arr_size = decayed_base_type->type.pp_type_array.size;
+            if (idx_val >= arr_size) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                    "Compile-time evaluation found out-of-bounds array access: index %zu >= size %zu",
+                    idx_val, arr_size);
+                goto error_cleanup;
+            }
+        }
+    }
+
     // Resolve element type
     const PPType* element_type = NULL;
     if (decayed_base_type->kind == PP_TK_Array) {

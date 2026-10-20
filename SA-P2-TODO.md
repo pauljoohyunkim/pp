@@ -14,15 +14,15 @@ Order is recommended execution order. Each major area gets its own heading.
 - [x] Unit test: struct member read/write, const propagation, missing field error
 
 ## 2. Array / List Indexing
-- [ ] Wire `PP_AST_ArrayAccessNode` in `pp_semantic_analyzer_check_expression`
-- [ ] Implement `pp_semantic_analyzer_check_array_access_expression`
-  - [ ] Resolve collection base expression
-  - [ ] Verify base is `Array`/`List` after decay
-  - [ ] Resolve index expression, require integral type and constexpr where needed
-  - [ ] Decay element type and create decoration for access result
-  - [ ] Reference ban for collection element types already enforced at type construction
-- [ ] Add checklist comment block
-- [ ] Unit tests: array index valid/invalid type, list index, const propagation
+- [x] Wire `PP_AST_ArrayAccessNode` in `pp_semantic_analyzer_check_expression`
+- [x] Implement `pp_semantic_analyzer_check_array_access_expression`
+  - [x] Resolve collection base expression
+  - [x] Verify base is `Array`/`List` after decay
+  - [x] Resolve index expression, require integral type and constexpr where needed
+  - [x] Decay element type and create decoration for access result
+  - [x] Reference ban for collection element types already enforced at type construction
+- [x] Add checklist comment block
+- [x] Unit tests: array index valid/invalid type, list index, const propagation
 
 ## 3. Binary / Unary Expression Hardening
 - [ ] Complete error handling TODOs in binary expression checker
