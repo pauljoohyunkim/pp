@@ -701,4 +701,51 @@ TEST(SemanticTest, BinaryConstArithmeticMismatchedTypes) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, NewtypeChainNominalDistinct) {
+    const char* source =
+        "newtype int32 AGE;\n"
+        "newtype AGE WEIGHT;\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: AGE = 5 as AGE;\n"
+        "    let w :: WEIGHT = a;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0); // nominal mismatch should error
+}
+
+TEST(SemanticTest, NewtypeChainCastAllowed) {
+    const char* source =
+        "newtype int32 AGE;\n"
+        "newtype AGE WEIGHT;\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: AGE = 5 as AGE;\n"
+        "    let w :: WEIGHT = a as WEIGHT;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, NewtypeChainCastToUnderlying) {
+    const char* source =
+        "newtype int32 AGE;\n"
+        "newtype AGE WEIGHT;\n"
+        "func main :: () -> int32 {\n"
+        "    let w :: WEIGHT = 5 as WEIGHT;\n"
+        "    let i :: int32 = w as int32;\n"
+        "    return i;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
 
