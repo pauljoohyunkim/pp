@@ -2,6 +2,8 @@
 
 Order is recommended execution order. Each major area gets its own heading.
 
+> Note: Checklists are living documents. Items may be marked `[-]` with `->` explanations when a design decision deviates from the original CZ checklist. The list can be modified as implementation proceeds.
+
 ## 1. Member Access Expression
 - [x] Implement `pp_semantic_analyzer_check_member_access_expression`
   - [x] Resolve base expression via `pp_semantic_analyzer_check_expression`
