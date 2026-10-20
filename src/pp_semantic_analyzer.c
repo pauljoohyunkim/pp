@@ -2654,15 +2654,12 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                 case PP_TK_Int32:
                     unary_type = pp_type_create(PP_TK_Int32);
                     break;
-                case PP_TK_UInt32:
-                    unary_type = pp_type_create(PP_TK_UInt32);
-                    break;
                 case PP_TK_Float:
                     unary_type = pp_type_create(PP_TK_Float);
                     break;
                 default:
                     pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-                    "Unary operator '-' requires Int32, UInt32 or Float");
+                    "Unary operator '-' requires Int32 or Float");
                     goto error_cleanup;
             }
             break;
@@ -2676,9 +2673,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
             }
             break;
         default:
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-            "Unsupported unary operator");
-            goto error_cleanup;
+            abort();
     }
 
     if (!unary_type) {
