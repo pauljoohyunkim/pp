@@ -9,15 +9,15 @@ Review all changes in the `migration-newtype-hardening` branch. Check each item 
 - [ ] No other notes contain outdated newtype-alias assumptions
 
 ## 2. Pass 1 – Newtype Node Creation
-- [ ] `src/pp_semantic_analyzer.c` `pp_semantic_analyzer_build_global_table_newtype_decl`
-  - [ ] Allocates `PP_TK_Newtype` node via `pp_type_create`
-  - [ ] Sets `name` and `underlying` correctly
-  - [ ] Interns node via `pp_global_type_table_intern`
-  - [ ] Registers named entry with `pp_global_type_table_register_named`
-  - [ ] Duplicate name check remains
-  - [ ] Base type const/reference check remains
-  - [ ] Function/Lambda base rejection added
-  - [ ] Proper cleanup on error via `pp_type_free`
+- [x] `src/pp_semantic_analyzer.c` `pp_semantic_analyzer_build_global_table_newtype_decl`
+  - [x] Allocates `PP_TK_Newtype` node via `pp_type_create`
+  - [x] Sets `name` and `underlying` correctly
+  - [x] Interns node via `pp_global_type_table_intern`
+  - [x] Registers named entry with `pp_global_type_table_register_named`
+  - [x] Duplicate name check remains
+  - [x] Base type const/reference check remains
+  - [x] Function/Lambda base rejection added
+  - [x] Proper cleanup on error via `pp_type_free`
 
 ## 3. Machine-type Helper
 - [ ] `src/pp_type_table.c` `pp_type_resolve_machine_type`
