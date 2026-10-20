@@ -36,12 +36,12 @@ Order is recommended execution order. Each major area gets its own heading.
 - [-] Unit tests for reference ban on operands -> PP allows references in binary/unary via decay; reference ban is enforced at type construction/assignment sites, not on arithmetic operands
 
 ## 4. Cast Expression
-- [ ] Finish `pp_semantic_analyzer_check_cast_expression`
-  - [ ] Validate target type exists
-  - [ ] Allow only permitted casts: nominal ↔ underlying, const stripping, decay
-  - [ ] Reject reference-to-value casts and unsafe downcasts
-  - [ ] Propagate const/value category correctly
-- [ ] Checklist + unit tests
+- [x] Finish `pp_semantic_analyzer_check_cast_expression`
+  - [x] Validate target type exists
+  - [x] Allow only permitted casts: nominal ↔ underlying, const stripping, decay
+  - [x] Reject reference-to-value casts and unsafe downcasts
+  - [x] Propagate const/value category correctly
+- [x] Checklist + unit tests
 
 ## 5. Function Call / Lambda Invocation
 - [ ] Complete argument type checking with decayed comparison
