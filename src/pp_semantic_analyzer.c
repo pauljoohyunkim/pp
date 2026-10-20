@@ -1422,7 +1422,7 @@ error_cleanup:
  *      - [-] If field is reference: initializer must be l-value, const-correctness (non-const ref cannot bind to const).
  *             -> Reference fields cannot have default initializers at global scope per PP design; notes/global_statement_types.md
  *      - [x] Store default initializer in struct layout field.
- * [ ] Detect struct recursive cycles via separate pass (cz_semantic_analyzer_struct_cycle_detect).
+ * [-] Detect struct recursive cycles via separate pass -> Not needed in PP (forward refs disallowed) (cz_semantic_analyzer_struct_cycle_detect)
  */
 static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     PP_StructLayout* struct_layout = NULL;

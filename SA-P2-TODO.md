@@ -57,9 +57,9 @@ Order is recommended execution order. Each major area gets its own heading.
   - [-] Struct cycle detection for recursive types -> Not constructible in PP (forward refs disallowed)
 
 ## 7. Global / Variable / Function Declaration Pass 2 Completeness
-- [ ] `pp_semantic_analyzer_full_analyze_struct_decl_fields` – ensure layout built with correct const
-- [ ] `pp_semantic_analyzer_full_analyze_global_variable_decl` – initializer constexpr enforcement for globals
-- [ ] Ensure all Pass 2 checklists are marked complete in comments
+- [x] `pp_semantic_analyzer_full_analyze_struct_decl_fields` – layout built with correct const handling
+- [x] `pp_semantic_analyzer_full_analyze_global_variable_decl` – constexpr enforcement for globals
+- [x] Ensure all Pass 2 checklists are marked complete in comments (including struct‑cycle detection marked N/A)
 
 ## 8. Test Coverage
 - [ ] Add semantic tests for member access, array access, cast
