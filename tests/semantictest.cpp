@@ -673,4 +673,32 @@ TEST(SemanticTest, ArrayAccessOutOfBounds) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, BinaryConstArithmetic) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int32 = 1 + 2;\n"
+        "    let b :: int32 = a + 3;\n"
+        "    return b;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, BinaryConstArithmeticMismatchedTypes) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int32 = 1;\n"
+        "    let b :: float = 2.0;\n"
+        "    let c :: int32 = a + b;\n"
+        "    return c;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
 
