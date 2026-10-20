@@ -25,11 +25,11 @@ Order is recommended execution order. Each major area gets its own heading.
 - [x] Unit tests: array index valid/invalid type, list index, const propagation
 
 ## 3. Binary / Unary Expression Hardening
-- [ ] Complete error handling TODOs in binary expression checker
-  - [ ] Type compatibility and promotion rules
-  - [ ] Const propagation for results
-- [ ] Complete error handling TODOs in unary expression checker
-- [ ] Ensure `pp_type_decay` is used consistently for operand comparison
+- [x] Complete error handling TODOs in binary expression checker
+  - [x] Type compatibility and promotion rules
+  - [x] Const propagation for results
+- [x] Complete error handling TODOs in unary expression checker
+- [x] Ensure `pp_type_decay` is used consistently for operand comparison
 - [ ] Unit tests for const arithmetic, reference ban on operands
 
 ## 4. Cast Expression
