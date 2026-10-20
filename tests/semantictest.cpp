@@ -605,4 +605,59 @@ TEST(SemanticTest, MemberAccessNewtypeError) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, ArrayAccessValid) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32 : 3u] = [int32 : 3u; 1, 2, 3];\n"
+        "    let v :: int32 = a[0u];\n"
+        "    return v;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ArrayAccessInvalidBase) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int32 = 1;\n"
+        "    let v :: int32 = a[0u];\n"
+        "    return v;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ArrayAccessNonIntegralIndex) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32 : 3u] = [int32 : 3u; 1, 2, 3];\n"
+        "    let i :: float = 1.0;\n"
+        "    let v :: int32 = a[i];\n"
+        "    return v;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ListAccessValid) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [int32] = [int32; 1, 2];\n"
+        "    let v :: int32 = a[0u];\n"
+        "    return v;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
 
