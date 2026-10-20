@@ -44,10 +44,10 @@ Order is recommended execution order. Each major area gets its own heading.
 - [x] Checklist + unit tests
 
 ## 5. Function Call / Lambda Invocation
-- [ ] Complete argument type checking with decayed comparison
-- [ ] Enforce const-correctness for reference parameters
-- [ ] Handle default arguments and varargs if applicable
-- [ ] Verify return type decoration
+- [x] Complete argument type checking with decayed comparison
+- [x] Enforce const-correctness for reference parameters
+- [-] Handle default arguments and varargs if applicable -> Not supported in current PP language (no defaults/varargs)
+- [x] Verify return type decoration
 
 ## 6. Struct Initializer Finalization
 - [ ] Re-base struct initializer hardening from `sa-pass-2-struct-hardening`
