@@ -141,6 +141,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
 static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
@@ -2271,6 +2272,9 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
         case PP_AST_IdentifierNode:
             if (!pp_semantic_analyzer_check_identifier_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
+        case PP_AST_ArrayListAccessNode:
+            if (!pp_semantic_analyzer_check_array_list_access_expression(sa, symbol_table, expr)) goto error_cleanup;
+            break;    
         case PP_AST_MemberAccessNode:
             if (!pp_semantic_analyzer_check_member_access_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
@@ -2713,16 +2717,20 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
     switch (expr->literal.literal_type) {
         case PP_TT_INTEGER_LITERAL:
             resolved_type = pp_global_type_table_find_alias(sa->gtt, "int32");
-            NULL_POINTER_ERROR_HANDLE(resolved_type);
+            assert(resolved_type);
+            break;
+        case PP_TT_UNSIGNED_INTEGER_LITERAL:
+            resolved_type = pp_global_type_table_find_alias(sa->gtt, "uint32");
+            assert(resolved_type);
             break;
         case PP_TT_TRUE:
         case PP_TT_FALSE:
             resolved_type = pp_global_type_table_find_alias(sa->gtt, "bool");
-            NULL_POINTER_ERROR_HANDLE(resolved_type);
+            assert(resolved_type);
             break;
         case PP_TT_FLOAT_LITERAL:
             resolved_type = pp_global_type_table_find_alias(sa->gtt, "float");
-            NULL_POINTER_ERROR_HANDLE(resolved_type);
+            assert(resolved_type);
             break;
         default:
             goto error_cleanup;
@@ -2806,6 +2814,102 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     NULL_POINTER_ERROR_HANDLE(decoration);
     
     expr->identifier.decoration = decoration;
+    decoration = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
+    return 0;
+}
+
+/*
+ * [x] Resolve collection base expression
+ * [x] Verify base is `Array`/`List` after decay
+ * [x] Resolve index expression, require integral type and constexpr where needed
+ * [x] Decay element type and create decoration for access result
+ * [x] Reference ban for collection element types already enforced at type construction
+ */
+static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_ArrayListAccessNode);
+
+    if (expr->array_list_access.decoration) {
+        return 1;
+    }
+
+    // Check base expression
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->array_list_access.expr)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Base expression for array/list access is invalid.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* base_decoration = pp_ast_get_decoration(expr->array_list_access.expr);
+    assert(base_decoration);
+    const PPType* decayed_base_type = pp_type_decay(sa->gtt, base_decoration->resolved_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_base_type);
+
+    if (decayed_base_type->kind != PP_TK_Array && decayed_base_type->kind != PP_TK_List) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Array/list access requires an array or list base type.");
+        goto error_cleanup;
+    }
+
+    // Check index expression
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->array_list_access.index)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Index expression for array/list access is invalid.");
+        goto error_cleanup;
+    }
+    const PP_AST_Decoration* index_decoration = pp_ast_get_decoration(expr->array_list_access.index);
+    assert(index_decoration);
+
+    const PPType* decayed_index_type = pp_type_decay(sa->gtt, index_decoration->resolved_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_index_type);
+
+    if (decayed_index_type->kind != PP_TK_UInt32) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Array/list index must be unsigned 32-bit integer.");
+        goto error_cleanup;
+    }
+
+    // Compile-time bounds check for fixed-size arrays with constexpr index
+    if (decayed_base_type->kind == PP_TK_Array && index_decoration->is_constexpr) {
+        size_t idx_val = 0;
+        if (pp_array_size_from_simple_expr(sa, expr->array_list_access.index, &idx_val)) {
+            size_t arr_size = decayed_base_type->type.pp_type_array.size;
+            if (idx_val >= arr_size) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                    "Compile-time evaluation found out-of-bounds array access: index %zu >= size %zu",
+                    idx_val, arr_size);
+                goto error_cleanup;
+            }
+        }
+    }
+
+    // Resolve element type
+    const PPType* element_type = NULL;
+    if (decayed_base_type->kind == PP_TK_Array) {
+        element_type = decayed_base_type->type.pp_type_array.element_type;
+    } else { // List
+        element_type = decayed_base_type->type.pp_type_list.element_type;
+    }
+    NULL_POINTER_ERROR_HANDLE(element_type);
+
+    // Value category: propagate lvalue from base if base is lvalue
+    PP_ValueCategory value_cat = base_decoration->value_category == PP_VALUE_CATEGORY_LVALUE
+        ? PP_VALUE_CATEGORY_LVALUE
+        : PP_VALUE_CATEGORY_RVALUE;
+
+    bool is_constexpr = base_decoration->is_constexpr && index_decoration->is_constexpr;
+
+    decoration = pp_ast_decoration_create(element_type, value_cat, is_constexpr, false);
+    NULL_POINTER_ERROR_HANDLE(decoration);
+
+    expr->array_list_access.decoration = decoration;
     decoration = NULL;
 
     return 1;
