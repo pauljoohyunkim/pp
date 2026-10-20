@@ -109,6 +109,13 @@ bool pp_type_is_const(const PPType* type);
 bool pp_type_is_reference(const PPType* type);
 bool pp_type_is_numerical(const PPType* type);
 
+/**
+ * @brief Resolve the underlying machine type of a possibly chained newtype.
+ * Walks through PP_TK_Newtype wrappers until a non-newtype type is reached.
+ * Used for cast legality where nominal types are ignored.
+ */
+const PPType* pp_type_resolve_machine_type(const PPType* t);
+
 #ifdef __cplusplus
 }
 #endif

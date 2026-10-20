@@ -981,9 +981,10 @@ error_cleanup:
  * [x] Detect duplicate newtype name
  * [-] Detect cycles in newtype definition  -> See comments for pass 1 typedef
  * [x] Register named type in GTT
- * [ ] Do not allow function or lambda types as newtype.
+ * [x] Do not allow function or lambda types as newtype.
  */
 static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    PPType* nt = NULL;
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_NewtypeDeclarationNode);
@@ -1004,7 +1005,29 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
         goto error_cleanup;
     }
 
-    if (!pp_global_type_table_register_named(sa->gtt, node->newtype_declaration.identifier, base_type)) {
+    if (base_type->kind == PP_TK_Function || base_type->kind == PP_TK_Lambda) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Base type for newtype \%s cannot be function or lambda", node->newtype_declaration.identifier);
+        goto error_cleanup;
+    }
+
+    // Create a distinct newtype node instead of aliasing the base type.
+    nt = pp_type_create(PP_TK_Newtype);
+    if (!nt) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to allocate newtype node for '%s'", node->newtype_declaration.identifier);
+        goto error_cleanup;
+    }
+    nt->type.pp_type_newtype.name = node->newtype_declaration.identifier;
+    nt->type.pp_type_newtype.underlying = base_type;
+
+    const PPType* interned = pp_global_type_table_intern(sa->gtt, nt);
+    if (!interned) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to intern newtype '%s'", node->newtype_declaration.identifier);
+        goto error_cleanup;
+    }
+    nt = NULL; // ownership transferred to GTT
+    // Register the newtype as a named type.
+    if (!pp_global_type_table_register_named(sa->gtt, node->newtype_declaration.identifier, interned)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register newtype '%s'", node->newtype_declaration.identifier);
         goto error_cleanup;
     }
@@ -1012,6 +1035,7 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
     return 1;
 
 error_cleanup:
+    pp_type_free(nt);
     return 0;
 }
 
@@ -3187,13 +3211,13 @@ error_cleanup:
  * [x] Recursively check inner expression via pp_semantic_analyzer_check_expression
  * [x] Retrieve target type via pp_type_from_type_node
  * [x] Reject casting to reference type with error push
+ * [x] Reject casting to const type with error push
  * [x] Decay expression type and target type via pp_type_decay
- * [x] Unwrap Newtype to underlying primitive for comparison
- * [x] Allow cast if primitive kinds equal or both numerical via pp_type_is_numerical
+ * [x] Resolve machine type via pp_type_resolve_machine_type for both decayed types
+ * [x] Allow cast if resolved machine types are equal or both numerical via pp_type_is_numerical
  * [x] Create decoration with target_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr propagated from expr, escapable_ref false
- * [ ] Verify both decayed types are primitive or newtype with explicit error push as CZ does
- * [ ] Propagate environment scope level into decoration, CZ uses env->scope_level
- * [ ] Preserve is_constexpr from inner expression explicitly as done in PP, matches CZ intent
+ * [-] Propagate environment scope level into decoration, CZ uses env->scope_level -> N/A in PP, scope_level field is commented out
+ * [x] Preserve is_constexpr from inner expression explicitly as done in PP, matches CZ intent
  */
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
@@ -3220,25 +3244,29 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
         goto error_cleanup;
     }
 
+    if (pp_type_is_const(target_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Casting to const is not allowed.");
+        goto error_cleanup;
+    }
+
     const PPType* decayed_expr_type = pp_type_decay(sa->gtt, expr_decoration->resolved_type);
     NULL_POINTER_ERROR_HANDLE(decayed_expr_type);
     const PPType* decayed_target_type = pp_type_decay(sa->gtt, target_type);
-    NULL_POINTER_ERROR_HANDLE(decayed_expr_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_target_type);
 
-    const PPType* primitive_expr_type = decayed_expr_type->kind == PP_TK_Newtype ? decayed_expr_type->type.pp_type_newtype.underlying : decayed_expr_type;
-    assert(primitive_expr_type);
-    const PPType* primitive_target_type = decayed_target_type->kind == PP_TK_Newtype ? decayed_target_type->type.pp_type_newtype.underlying : decayed_target_type;
-    assert(decayed_expr_type);
-    
-    if (primitive_expr_type->kind == primitive_target_type->kind) {
+    const PPType* resolved_expr_type = pp_type_resolve_machine_type(decayed_expr_type);
+    const PPType* resolved_target_type = pp_type_resolve_machine_type(decayed_target_type);
+
+    if (pp_type_equal(resolved_expr_type, resolved_target_type)) {
         // Same machine type (OK)
-    } else if (pp_type_is_numerical(primitive_expr_type) && pp_type_is_numerical(primitive_target_type)) {
+    } else if (pp_type_is_numerical(resolved_expr_type) && pp_type_is_numerical(resolved_target_type)) {
         // Numerical types can be casted to each other (OK)
     } else {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
         "Casting is not supported from the given expression to the given target type.");
         goto error_cleanup;
-    }
+   }
 
     decoration = pp_ast_decoration_create(target_type, PP_VALUE_CATEGORY_RVALUE, expr_decoration->is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);

@@ -279,10 +279,13 @@ error_cleanup:
     return NULL;
 }
 
-/**
- * @brief Print the global type table.
- * @param gtt Pointer to the global type table.
- */
+const PPType* pp_type_resolve_machine_type(const PPType* t) {
+    if (!t) return NULL;
+    while (t && t->kind == PP_TK_Newtype) {
+        t = t->type.pp_type_newtype.underlying;
+    }
+    return t;
+}
 void pp_global_type_table_print(const PP_GlobalTypeTable *gtt) {
     if (gtt == NULL) {
         printf("NULL global type table\n");

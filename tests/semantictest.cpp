@@ -673,4 +673,121 @@ TEST(SemanticTest, ArrayAccessOutOfBounds) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, BinaryConstArithmetic) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int32 = 1 + 2;\n"
+        "    let b :: int32 = a + 3;\n"
+        "    return b;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, BinaryConstArithmeticMismatchedTypes) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int32 = 1;\n"
+        "    let b :: float = 2.0;\n"
+        "    let c :: int32 = a + b;\n"
+        "    return c;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, NewtypeChainNominalDistinct) {
+    const char* source =
+        "newtype int32 AGE;\n"
+        "newtype AGE WEIGHT;\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: AGE = 5 as AGE;\n"
+        "    let w :: WEIGHT = a;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0); // nominal mismatch should error
+}
+
+TEST(SemanticTest, NewtypeChainCastAllowed) {
+    const char* source =
+        "newtype int32 AGE;\n"
+        "newtype AGE WEIGHT;\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: AGE = 5 as AGE;\n"
+        "    let w :: WEIGHT = a as WEIGHT;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, NewtypeChainCastToUnderlying) {
+    const char* source =
+        "newtype int32 AGE;\n"
+        "newtype AGE WEIGHT;\n"
+        "func main :: () -> int32 {\n"
+        "    let w :: WEIGHT = 5 as WEIGHT;\n"
+        "    let i :: int32 = w as int32;\n"
+        "    return i;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CastToConstTargetRejected) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let x :: int32 = 5 as const int32;\n"
+        "    return x;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0); // casting to const target should error
+}
+
+TEST(SemanticTest, CastToReferenceTargetRejected) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let x :: int32 = 5 as int32&;\n"
+        "    return x;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0); // casting to reference target should error
+}
+
+TEST(SemanticTest, NewtypeChainThreeLevels) {
+    const char* source =
+        "newtype int32 A;\n"
+        "newtype A B;\n"
+        "newtype B C;\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: A = 1 as A;\n"
+        "    let c :: C = a as C;\n"
+        "    let i :: int32 = c as int32;\n"
+        "    return i;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
 

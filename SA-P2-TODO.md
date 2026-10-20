@@ -2,6 +2,8 @@
 
 Order is recommended execution order. Each major area gets its own heading.
 
+> Note: Checklists are living documents. Items may be marked `[-]` with `->` explanations when a design decision deviates from the original CZ checklist. The list can be modified as implementation proceeds.
+
 ## 1. Member Access Expression
 - [x] Implement `pp_semantic_analyzer_check_member_access_expression`
   - [x] Resolve base expression via `pp_semantic_analyzer_check_expression`
@@ -30,7 +32,8 @@ Order is recommended execution order. Each major area gets its own heading.
   - [x] Const propagation for results
 - [x] Complete error handling TODOs in unary expression checker
 - [x] Ensure `pp_type_decay` is used consistently for operand comparison
-- [ ] Unit tests for const arithmetic, reference ban on operands
+- [x] Unit tests for const arithmetic
+- [-] Unit tests for reference ban on operands -> PP allows references in binary/unary via decay; reference ban is enforced at type construction/assignment sites, not on arithmetic operands
 
 ## 4. Cast Expression
 - [ ] Finish `pp_semantic_analyzer_check_cast_expression`
