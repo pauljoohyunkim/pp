@@ -91,6 +91,12 @@ bool pp_type_equal(const PPType *a, const PPType *b);
 const PPType* pp_type_decay(PP_GlobalTypeTable* gtt, const PPType* type);
 
 /**
+ * @brief Resolve the underlying machine type for a possibly chained newtype.
+ * Walks through PP_TK_Newtype nodes until a non-newtype type is reached.
+ */
+const PPType* pp_type_resolve_machine_type(const PPType* t);
+
+/**
  * @brief Print the global type table.
  * @param gtt Pointer to the global type table.
  */
