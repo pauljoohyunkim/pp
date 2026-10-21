@@ -86,7 +86,7 @@ int pp_symbol_table_push(PPSymbolTable* st, const char* name, PPSymbol* symbol) 
     st->names[st->count] = name;
     st->symbols[st->count] = symbol;
     st->count++;
-    
+
     return 1;
 
 error_cleanup:
@@ -95,18 +95,18 @@ error_cleanup:
     return 0;
 }
 
-const PPSymbol* pp_symbol_table_lookup(const PPSymbolTable* st, const char* name, bool cascade) {
+PPSymbol* pp_symbol_table_lookup_mut(PPSymbolTable* st, const char* name, bool cascade) {
     if (st == NULL || name == NULL) return NULL;
 
     for (size_t i = 0; i < st->count; i++) {
-        if (pp_name_match(st->names[i], name) != NULL) {
-            return st->symbols[i];
-        }
+        if (pp_name_match(st->names[i], name) != NULL) { return st->symbols[i]; }
     }
 
-    if (cascade && st->parent != NULL) {
-        return pp_symbol_table_lookup(st->parent, name, true);
-    }
+    if (cascade && st->parent != NULL) { return pp_symbol_table_lookup_mut(st->parent, name, true); }
 
     return NULL;
+}
+
+const PPSymbol* pp_symbol_table_lookup(const PPSymbolTable* st, const char* name, bool cascade) {
+    return pp_symbol_table_lookup_mut((PPSymbolTable*)st, name, cascade);
 }

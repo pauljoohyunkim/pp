@@ -5,8 +5,8 @@
 extern "C" {
 #endif
 
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 // Forward declare PP_AST_Node for PPStructField
 struct PP_AST_Node;
@@ -26,6 +26,7 @@ typedef struct {
 typedef enum {
     PP_TK_Void,
     PP_TK_Int32,
+    PP_TK_UInt32,
     PP_TK_Float,
     PP_TK_Bool,
     PP_TK_Struct,
@@ -96,8 +97,7 @@ PP_StructLayout* pp_struct_layout_create(void);
 void pp_struct_layout_free(PP_StructLayout* layout);
 /** @brief Append a field to a struct layout. Reallocates the fields array.
  * Returns 1 on success, 0 on failure. */
-int pp_struct_layout_push_field(PP_StructLayout* layout, const char* field_name,
-                                const PPType* field_type,
+int pp_struct_layout_push_field(PP_StructLayout* layout, const char* field_name, const PPType* field_type,
                                 const struct PP_AST_Node* default_initializer);
 
 /** @brief Append a parameter type to a function or lambda type. Reallocates the
@@ -106,6 +106,14 @@ int pp_type_push_param(PPType* type, const PPType* param_type);
 
 bool pp_type_is_const(const PPType* type);
 bool pp_type_is_reference(const PPType* type);
+bool pp_type_is_numerical(const PPType* type);
+
+/**
+ * @brief Resolve the underlying machine type of a possibly chained newtype.
+ * Walks through PP_TK_Newtype wrappers until a non-newtype type is reached.
+ * Used for cast legality where nominal types are ignored.
+ */
+const PPType* pp_type_resolve_machine_type(const PPType* t);
 
 #ifdef __cplusplus
 }

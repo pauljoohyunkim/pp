@@ -1,10 +1,12 @@
-typedef int32 int;
-newtype int32 AGE;
-let x :: const int32 = 2;
 struct Vector {
-    x :: int32;
-    y :: int32 = 1;
+    x :: int32 = 1;
+    y :: int32&;
 }
-func relu :: (x :: float) -> float {
-    
+
+let X :: int32 = 2;
+
+func function :: (x :: float) -> float {
+    let v :: Vector = Vector {
+        .y = X
+    };
 }

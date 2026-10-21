@@ -208,7 +208,7 @@ TEST(Lexer, NumericEdgeCases) {
     auto lexer_h = pp_lexer_create(".5 5. 5.5.5 5..5 5u5U .5u 5.u", nullptr);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
-    ASSERT_EQ(lexer->n_tokens, 15);
+    ASSERT_EQ(lexer->n_tokens, 16);
     ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_PERIOD);
     ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_INTEGER_LITERAL);
     ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_FLOAT_LITERAL);
@@ -218,12 +218,13 @@ TEST(Lexer, NumericEdgeCases) {
     ASSERT_EQ(lexer->tokens[6].token_type, PP_TT_FLOAT_LITERAL);
     ASSERT_EQ(lexer->tokens[7].token_type, PP_TT_PERIOD);
     ASSERT_EQ(lexer->tokens[8].token_type, PP_TT_INTEGER_LITERAL);
-    ASSERT_EQ(lexer->tokens[9].token_type, PP_TT_INTEGER_LITERAL);
-    ASSERT_EQ(lexer->tokens[10].token_type, PP_TT_INTEGER_LITERAL);
+    ASSERT_EQ(lexer->tokens[9].token_type, PP_TT_UNSIGNED_INTEGER_LITERAL);
+    ASSERT_EQ(lexer->tokens[10].token_type, PP_TT_UNSIGNED_INTEGER_LITERAL);
     ASSERT_EQ(lexer->tokens[11].token_type, PP_TT_PERIOD);
-    ASSERT_EQ(lexer->tokens[12].token_type, PP_TT_INTEGER_LITERAL);
+    ASSERT_EQ(lexer->tokens[12].token_type, PP_TT_UNSIGNED_INTEGER_LITERAL);
     ASSERT_EQ(lexer->tokens[13].token_type, PP_TT_FLOAT_LITERAL);
-    ASSERT_EQ(lexer->tokens[14].token_type, PP_TT_EOF);
+    ASSERT_EQ(lexer->tokens[14].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[15].token_type, PP_TT_EOF);
     ASSERT_STREQ(lexer->tokens[0].lexeme, ".");
     ASSERT_STREQ(lexer->tokens[1].lexeme, "5");
     ASSERT_STREQ(lexer->tokens[2].lexeme, "5.");

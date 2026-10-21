@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+
 #include "pp_symbol.h"
 
 typedef struct PPSymbolTable {
@@ -43,6 +44,16 @@ void pp_symbol_table_free(PPSymbolTable* st);
  * @return int 1 on success, 0 on failure
  */
 int pp_symbol_table_push(PPSymbolTable* st, const char* name, PPSymbol* symbol);
+
+/**
+ * @brief Lookup a symbol by name (Mutable)
+ *
+ * @param st Symbol table
+ * @param name Name to look up
+ * @param cascade If true, search parent chain
+ * @return const PPSymbol* Found symbol or NULL
+ */
+PPSymbol* pp_symbol_table_lookup_mut(PPSymbolTable* st, const char* name, bool cascade);
 
 /**
  * @brief Lookup a symbol by name

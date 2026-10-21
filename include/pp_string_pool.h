@@ -49,8 +49,7 @@ void pp_string_pool_free(PP_StringPool* sp);
  * @note The text is copied and null-terminated internally. Duplicate pushes
  * return the existing pointer without allocating.
  */
-const char* pp_string_pool_push(PP_StringPool* sp, const char* text,
-                                size_t length);
+const char* pp_string_pool_push(PP_StringPool* sp, const char* text, size_t length);
 
 #ifdef __cplusplus
 }

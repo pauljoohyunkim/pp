@@ -10,7 +10,7 @@
 /**
  * @brief Create a PPSymbol
  */
-PPSymbol* pp_symbol_create(const PPType* type, bool is_constexpr, bool is_escapable_ref) {
+PPSymbol* pp_symbol_create(const PPType* type, bool is_constexpr, bool is_escapable_ref, bool is_global) {
     PPSymbol* symbol = NULL;
 
     symbol = (PPSymbol*)calloc(1, sizeof(PPSymbol));
@@ -19,6 +19,7 @@ PPSymbol* pp_symbol_create(const PPType* type, bool is_constexpr, bool is_escapa
     symbol->type = type;
     symbol->is_constexpr = is_constexpr;
     symbol->is_escapable_ref = is_escapable_ref;
+    symbol->is_global = is_global;
 
     return symbol;
 
@@ -31,7 +32,5 @@ error_cleanup:
  * @brief Free a PPSymbol
  */
 void pp_symbol_free(PPSymbol* symbol) {
-    if (symbol != NULL) {
-        free(symbol);
-    }
+    if (symbol != NULL) { free(symbol); }
 }

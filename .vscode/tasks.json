@@ -7,6 +7,26 @@
             "label": "Build pplang",
             "type": "shell",
             "command": "make pplang"
+        },
+        {
+            "label": "Build pplang (Stop at Lexer)",
+            "type": "shell",
+            "command": "make pplang CFLAGS_EXTRA=-DSTOP_AT_LEXER"
+        },
+        {
+            "label": "Build pplang (Stop at Parser)",
+            "type": "shell",
+            "command": "make pplang CFLAGS_EXTRA=-DSTOP_AT_PARSER"
+        },
+        {
+            "label": "Build pplang (Stop at Semantic Analyzer)",
+            "type": "shell",
+            "command": "make pplang CFLAGS_EXTRA=-DSTOP_AT_SEMANTIC_ANALYZER"
+        },
+        {
+            "label": "Make unittest",
+            "type": "shell",
+            "command": "make unittest"
         }
     ]
 }

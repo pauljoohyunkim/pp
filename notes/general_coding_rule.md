@@ -15,6 +15,9 @@
   }
   ```
   In such cases do not combine with `NULL_POINTER_ERROR_HANDLE`; the explicit check is intentional.
+- **Assertions for invariants**: Use `assert(expr)` for conditions that *must* hold by construction and indicate a programming error if violated, e.g. invariant relationships between AST node types and their fields that the parser guarantees. Assertions are for internal consistency, not for user-visible error reporting. Example in pp_semantic_analyzer.c: `assert(initializer_decoration);` after a prior check that guarantees decoration presence.
+- **Unreachable code**: Use `abort()` or `assert(false)` to mark code paths that should be logically unreachable. This signals a serious internal logic bug rather than a recoverable error.
+
 
 ## Memory / Free discipline
 - Custom free functions safely handle NULL: `free(NULL)` is valid in C.

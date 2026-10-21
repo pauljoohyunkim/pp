@@ -6,8 +6,10 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
-#include "pp_tokens.h"
+
 #include "pp_string_pool.h"
+#include "pp_symbol_table.h"
+#include "pp_tokens.h"
 #include "pp_type.h"
 
 #ifndef AST_VECTOR_INIT_CAP
@@ -16,15 +18,13 @@ extern "C" {
 
 typedef struct PP_AST_Node PP_AST_Node;
 
-typedef enum {
-    PP_VALUE_CATEGORY_LVALUE,
-    PP_VALUE_CATEGORY_RVALUE
-} PP_ValueCategory;
+typedef enum { PP_VALUE_CATEGORY_LVALUE, PP_VALUE_CATEGORY_RVALUE } PP_ValueCategory;
 
 typedef struct {
     const PPType* resolved_type;
     PP_ValueCategory value_category;
     bool is_constexpr;
+    bool is_escapable_ref;
     /* unsigned int scope_level; // reserved */
 } PP_AST_Decoration;
 
@@ -39,16 +39,6 @@ typedef struct {
 } PP_AST_StructInitEntry;
 
 typedef enum {
-    PP_ARRAY_SPEC_EMPTY,
-    PP_ARRAY_SPEC_SIZE
-} PP_ArraySpecKind;
-
-typedef struct {
-    PP_ArraySpecKind kind;
-    PP_AST_Node* size_expr; /* valid if kind == PP_ARRAY_SPEC_SIZE */
-} PP_AST_ArrayListSpecifier;
-
-typedef enum {
     PP_AST_ProgramNode,
     PP_AST_StructDeclarationNode,
     PP_AST_VariableDeclarationNode,
@@ -58,6 +48,9 @@ typedef enum {
     PP_AST_WhileStatementNode,
     PP_AST_ForStatementNode,
     PP_AST_TypeExpressionNode,
+    PP_AST_TypeBaseNode,
+    PP_AST_TypeArrayNode,
+    PP_AST_TypeListNode,
     PP_AST_TypedefDeclarationNode,
     PP_AST_NewtypeDeclarationNode,
     PP_AST_FunctionDeclarationNode,
@@ -79,6 +72,7 @@ typedef enum {
 typedef enum {
     PP_AST_TYPE_KIND_VOID,
     PP_AST_TYPE_KIND_INT32,
+    PP_AST_TYPE_KIND_UINT32,
     PP_AST_TYPE_KIND_FLOAT,
     PP_AST_TYPE_KIND_BOOL,
     PP_AST_TYPE_KIND_IDENTIFIER
@@ -103,9 +97,9 @@ struct PP_AST_Node {
             unsigned int field_capacity;
         } struct_declaration;
 
-        struct { /* VariableDeclaration */
-            PP_AST_Node* var_decl;      /* ParamDeclaration */
-            PP_AST_Node* initializer;   /* optional expression */
+        struct {                      /* VariableDeclaration */
+            PP_AST_Node* var_decl;    /* ParamDeclaration */
+            PP_AST_Node* initializer; /* optional expression */
         } variable_declaration;
 
         struct { /* Assignment */
@@ -129,11 +123,12 @@ struct PP_AST_Node {
             PP_AST_Node* body; /* StatementList */
         } while_statement;
 
-        struct { /* ForStatement */
-            PP_AST_Node* init;    /* optional VariableDeclaration or Assignment */
-            PP_AST_Node* cond;    /* optional expression */
-            PP_AST_Node* update;  /* optional expression/assignment */
-            PP_AST_Node* body;    /* StatementList */
+        struct {                 /* ForStatement */
+            PP_AST_Node* init;   /* optional VariableDeclaration or Assignment */
+            PP_AST_Node* cond;   /* optional expression */
+            PP_AST_Node* update; /* optional expression/assignment */
+            PP_AST_Node* body;   /* StatementList */
+            PPSymbolTable* for_init_symbol_table;
         } for_statement;
 
         struct { /* TypeExpression */
@@ -141,8 +136,22 @@ struct PP_AST_Node {
             bool is_reference;
             const char* identifier_name; /* identifier for named types, NULL for primitives */
             PP_AST_TypeKind kind;
-            PP_AST_ArrayListSpecifier* array_spec; /* NULL = plain type */
+            PP_AST_Node* type_node; /* recursive collection type for prefix syntax */
         } type_expression;
+
+        struct { /* TypeBase */
+            const char* identifier_name;
+            PP_AST_TypeKind kind;
+        } type_base;
+
+        struct { /* TypeArray */
+            PP_AST_Node* element_type;
+            PP_AST_Node* size_expr; /* NULL for list, non-NULL for array */
+        } type_array;
+
+        struct { /* TypeList */
+            PP_AST_Node* element_type;
+        } type_list;
 
         struct { /* TypedefDeclaration */
             PP_AST_Node* base_type;
@@ -159,6 +168,7 @@ struct PP_AST_Node {
             PP_AST_Node** params; /* ParamDeclaration nodes */
             unsigned int param_count;
             unsigned int param_capacity;
+            PPSymbolTable* param_symbol_table;
             PP_AST_Node* return_type;
             PP_AST_Node* body; /* StatementList */
         } function_declaration;
@@ -167,6 +177,7 @@ struct PP_AST_Node {
             PP_AST_Node** stmts;
             unsigned int stmt_count;
             unsigned int capacity;
+            PPSymbolTable* symbol_table;
         } statement_list;
 
         struct { /* BinaryExpression */
@@ -222,7 +233,7 @@ struct PP_AST_Node {
         struct { /* ParamDeclaration */
             const char* identifier;
             PP_AST_Node* type_expr;
-            //const PPType* resolved_type;
+            // const PPType* resolved_type;
         } param_declaration;
 
         struct { /* StructInitializer */
@@ -244,8 +255,11 @@ struct PP_AST_Node {
     };
 };
 
-PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueCategory value_category, bool is_constexpr, unsigned int scope_level);
+PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueCategory value_category,
+                                            bool is_constexpr, bool is_escapable_ref);
 void pp_ast_decoration_free(PP_AST_Decoration* decor);
+
+const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node* node);
 
 PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, unsigned int col);
 void pp_ast_root_free(PP_AST_Node* node);

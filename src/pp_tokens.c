@@ -1,6 +1,7 @@
+#include "pp_tokens.h"
+
 #include <stdbool.h>
 #include <stddef.h>
-#include "pp_tokens.h"
 
 bool pp_token_type_is_assignment(PP_TokenType token_type) {
     switch (token_type) {
