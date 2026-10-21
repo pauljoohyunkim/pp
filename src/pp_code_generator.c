@@ -1,5 +1,6 @@
 #include "pp_code_generator.h"
 
+#include <assert.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
@@ -205,13 +206,18 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
 
 int pp_code_generator_generate(PP_CodeGenerator* cg) {
     /* Stub: full code generation not yet implemented */
-    (void)cg;
+    assert(cg);
+    assert(cg->program);
+    assert(cg->program->node_type == PP_AST_ProgramNode);
+
+
+
     return 1;
 }
 
 int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename) {
-    /* Stub: object emission not yet implemented */
-    (void)module;
-    (void)output_filename;
+    #warning "Object file generation stubbed"
+    assert(module);
+    assert(output_filename);
     return 0;
 }
