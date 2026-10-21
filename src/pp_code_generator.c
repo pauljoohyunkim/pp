@@ -292,6 +292,43 @@ static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg) {
                     llvm_types = NULL;
                 }
                 break;
+            case PP_TK_Function:
+            case PP_TK_Lambda:
+                {
+                    bool is_lambda = type->kind == PP_TK_Lambda;
+                    const PPType* return_type = is_lambda ? type->type.pp_type_lambda.return_type : type->type.pp_type_function.return_type;
+                    assert(return_type);
+                    LLVMTypeRef llvm_return_type = pp_environment_backend_lookup_type(cg, return_type);
+
+                    size_t param_count = is_lambda ? type->type.pp_type_lambda.param_count : type->type.pp_type_function.param_count;
+                    if (param_count > 0) {
+                        llvm_types = (LLVMTypeRef*) calloc(param_count, sizeof(LLVMTypeRef));
+                        NULL_POINTER_ERROR_HANDLE(llvm_types);
+
+                        for (size_t j = 0; j < param_count; j++) {
+                            const PPType* param_type = is_lambda ? type->type.pp_type_lambda.param_types[j] : type->type.pp_type_function.param_types[j];
+                            assert(param_type);
+
+                            LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
+                            NULL_POINTER_ERROR_HANDLE(llvm_param_type);
+
+                            llvm_types[j] = llvm_param_type;
+                        }
+                    }
+                    
+                    LLVMTypeRef llvm_func_type = LLVMFunctionType(llvm_return_type, llvm_types, param_count, 0);
+                    assert(llvm_func_type);
+
+                    if (!pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_func_type)) {
+                        goto error_cleanup;
+                    }
+
+                    free(llvm_types);
+                    llvm_types = NULL;
+                }
+                break;
+            default:
+                break;
         }
     }
 
