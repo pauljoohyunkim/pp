@@ -47,7 +47,7 @@ typedef struct {
     LLVMBuilderRef builder;
 
     PP_AST_Node* program;
-    PPSymbolTable* global_symbol_table;
+    PPSymbolTable* gst;
     PP_Environment_Backend* global_env_b;
     PP_GlobalTypeTable* gtt;
     PP_StringPool* sp;
