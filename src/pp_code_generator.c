@@ -250,7 +250,7 @@ static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenera
         LLVMTypeRef llvm_type = pp_backend_lower_type(cg, type);
         assert(llvm_type);
 
-        if (pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_type)) { assert(0 && "Type push error"); }
+        if (!pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_type)) { assert(0 && "Type push error"); }
     }
 
     return 1;
