@@ -204,19 +204,75 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
     LLVMShutdown();
 }
 
+static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenerator* cg) {
+    /* Stub: primitive and opaque struct mapping not yet implemented */
+    (void)cg;
+    return 1;
+}
+
+static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg) {
+    /* Stub: complex type mapping not yet implemented */
+    (void)cg;
+    return 1;
+}
+
 int pp_code_generator_generate(PP_CodeGenerator* cg) {
-    /* Stub: full code generation not yet implemented */
     assert(cg);
     assert(cg->program);
     assert(cg->program->node_type == PP_AST_ProgramNode);
 
+    // Pass 1 to build type map. (Primitive & Opaque Struct & Reference)
+    if (pp_code_generator_fill_type_map_primitive_opaque_struct(cg) != 1) { goto error_cleanup; }
 
+    // Pass 2 to build type map. (Struct Body & Function)
+    if (pp_code_generator_fill_type_map_complex(cg) != 1) { goto error_cleanup; }
+
+    /*
+    for (unsigned int i = 0; i < cg->program->program.decl_count; i++) {
+        const PP_AST_Node* statement = cg->program->program.decls[i];
+        NULL_POINTER_ERROR_HANDLE(statement);
+
+        switch (statement->node_type) {
+            case PP_AST_FunctionDeclarationNode:
+                pp_code_generator_emit_function(cg, cg->global_symbol_table, cg->global_env_b, statement);
+                break;
+            case PP_AST_StructDeclarationNode:
+                break;
+            case PP_AST_VariableDeclarationNode:
+                pp_code_generator_emit_global_variable(cg, cg->global_symbol_table, cg->global_env_b, statement);
+                break;
+            case PP_AST_TypedefDeclarationNode:
+            case PP_AST_NewtypeDeclarationNode:
+                break;
+            default:
+                break;
+        }
+    }
+
+    for (unsigned int i = 0; i < cg->program->program.decl_count; i++) {
+        const PP_AST_Node* statement = cg->program->program.decls[i];
+        NULL_POINTER_ERROR_HANDLE(statement);
+
+        if (statement->node_type != PP_AST_FunctionDeclarationNode) {
+            continue;
+        }
+
+        const char* func_name = statement->function_declaration.name;
+
+        if (pp_code_generator_generate_function_body(cg, cg->global_symbol_table, cg->global_env_b, statement, false) !=
+    1) { pp_error_list_push_error(cg->error_list, cg->filename, statement->line, statement->col, "Function \"%s\" has a
+    problem in body generation.", func_name);
+        }
+    }
+    */
 
     return 1;
+error_cleanup:
+    return 0;
 }
 
 int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename) {
-    #warning "Object file generation stubbed"
+#warning "Object file generation stubbed"
     assert(module);
     assert(output_filename);
     return 0;
