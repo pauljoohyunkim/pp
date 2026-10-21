@@ -1,4 +1,8 @@
 #include "pp_code_generator.h"
+static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b,
+                                           const PP_AST_Node* stmt);
+static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbolTable* env,
+                                                  PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 
 #include <assert.h>
 #include <llvm-c/Core.h>
@@ -145,7 +149,7 @@ void pp_environment_backend_print_type_map(PP_Environment_Backend* env_b) {
         printf("  [%p] (", (void*)t);
         pp_debug_print_type_inner(t);
         printf(") -> LLVM Type: %p\n", (void*)ref);
-}
+    }
 }
 
 static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* type) {
@@ -415,19 +419,18 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
     // Pass 2 to build type map. (Struct Body & Function)
     if (pp_code_generator_fill_type_map_complex(cg) != 1) { goto error_cleanup; }
 
-    /*
     for (unsigned int i = 0; i < cg->program->program.decl_count; i++) {
         const PP_AST_Node* statement = cg->program->program.decls[i];
         NULL_POINTER_ERROR_HANDLE(statement);
 
         switch (statement->node_type) {
             case PP_AST_FunctionDeclarationNode:
-                pp_code_generator_emit_function(cg, cg->global_symbol_table, cg->global_env_b, statement);
+                pp_code_generator_emit_function(cg, cg->gst, cg->global_env_b, statement);
                 break;
             case PP_AST_StructDeclarationNode:
                 break;
             case PP_AST_VariableDeclarationNode:
-                pp_code_generator_emit_global_variable(cg, cg->global_symbol_table, cg->global_env_b, statement);
+                pp_code_generator_emit_global_variable(cg, cg->gst, cg->global_env_b, statement);
                 break;
             case PP_AST_TypedefDeclarationNode:
             case PP_AST_NewtypeDeclarationNode:
@@ -437,6 +440,7 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
         }
     }
 
+    /*
     for (unsigned int i = 0; i < cg->program->program.decl_count; i++) {
         const PP_AST_Node* statement = cg->program->program.decls[i];
         NULL_POINTER_ERROR_HANDLE(statement);
@@ -464,4 +468,26 @@ int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_
     assert(module);
     assert(output_filename);
     return 0;
+}
+
+static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b,
+                                           const PP_AST_Node* stmt) {
+    assert(cg);
+    assert(env);
+    assert(env_b);
+    assert(stmt);
+    assert(stmt->node_type == PP_AST_FunctionDeclarationNode);
+    // Stubbed for now.
+    return 1;
+}
+
+static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbolTable* env,
+                                                  PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    assert(cg);
+    assert(env);
+    assert(env_b);
+    assert(stmt);
+    assert(stmt->node_type == PP_AST_VariableDeclarationNode);
+    // Stubbed for now.
+    return 1;
 }
