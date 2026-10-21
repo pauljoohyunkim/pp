@@ -67,6 +67,22 @@ static const LLVMValueRef pp_environment_backend_lookup_val(const PP_Environment
     return NULL;
 }
 
+static const LLVMTypeRef pp_environment_backend_lookup_type(const PP_CodeGenerator* cg, const PPType* type) {
+    if (cg == NULL || type == NULL) return NULL;
+
+    const PPType* t = type;
+    while (t && t->kind == PP_TK_Const) { t = t->type.pp_type_const.const_of; }
+
+    PP_Environment_Backend* env_b = cg->global_env_b;
+    if (env_b == NULL) return NULL;
+
+    for (size_t i = 0; i < env_b->type_count; ++i) {
+        if (env_b->type_map[i].type == t) { return env_b->type_map[i].ref; }
+    }
+
+    return NULL;
+}
+
 static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* type) {
     NULL_POINTER_ERROR_HANDLE(cg);
     NULL_POINTER_ERROR_HANDLE(type);
@@ -96,7 +112,17 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
             /* Create opaque named struct. Actual body will be filled in a second pass. */
             {
                 const char* name = type->type.pp_type_struct.name;
-                if (name) { return LLVMStructCreateNamed(cg->ctx, name); }
+                const PPType* struct_type = pp_global_type_table_find_by_name(cg->gtt, name);
+                assert(struct_type);
+                const LLVMTypeRef struct_backend_type = pp_environment_backend_lookup_type(cg, struct_type);
+                if (struct_backend_type) {
+                    return struct_backend_type;
+                } else {
+                    // Assertion: Name collision should not happen!
+                    assert(!LLVMGetTypeByName2(cg->ctx, name));
+
+                    return LLVMStructCreateNamed(cg->ctx, name);
+                }
             }
             break;
 
@@ -161,7 +187,7 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
     cg->program = sa->program;
     sa->program = NULL;
 
-    cg->global_symbol_table = sa->gst;
+    cg->gst = sa->gst;
     sa->gst = NULL;
 
     cg->gtt = sa->gtt;
@@ -194,7 +220,7 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         LLVMContextDispose(cg->ctx);
         pp_ast_root_free(cg->program);
         pp_environment_backend_free(cg->global_env_b);
-        pp_symbol_table_free(cg->global_symbol_table);
+        pp_symbol_table_free(cg->gst);
         pp_error_list_free(cg->error_list);
         pp_global_type_table_free(cg->gtt);
         free((char*)cg->code);
@@ -205,8 +231,15 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
 }
 
 static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenerator* cg) {
-    /* Stub: primitive and opaque struct mapping not yet implemented */
-    (void)cg;
+    assert(cg);
+    assert(cg->gtt);
+    assert(cg->global_env_b);
+
+    for (size_t i = 0; i < cg->gtt->type_count; i++) {
+        const PPType* type = cg->gtt->types[i];
+        assert(type);
+    }
+
     return 1;
 }
 
