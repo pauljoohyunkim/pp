@@ -79,6 +79,62 @@ static const LLVMTypeRef pp_environment_backend_lookup_type(const PP_CodeGenerat
     return NULL;
 }
 
+static void pp_debug_print_type_inner(const PPType* t) {
+    if (t == NULL) return;
+    switch (t->kind) {
+        case PP_TK_Void:
+            printf("Void");
+            break;
+        case PP_TK_Int32:
+            printf("Int32");
+            break;
+        case PP_TK_UInt32:
+            printf("UInt32");
+            break;
+        case PP_TK_Float:
+            printf("Float");
+            break;
+        case PP_TK_Bool:
+            printf("Bool");
+            break;
+        case PP_TK_Struct:
+            if (t->type.pp_type_struct.name) {
+                printf("Struct: %s", t->type.pp_type_struct.name);
+            } else {
+                printf("Struct");
+            }
+            break;
+        case PP_TK_Reference:
+            printf("Reference(");
+            pp_debug_print_type_inner(t->type.pp_type_reference.reference_to);
+            printf(")");
+            break;
+        case PP_TK_Const:
+            printf("Const(");
+            pp_debug_print_type_inner(t->type.pp_type_const.const_of);
+            printf(")");
+            break;
+        case PP_TK_Newtype:
+            printf("Newtype: %s", t->type.pp_type_newtype.name);
+            break;
+        case PP_TK_Array:
+            printf("Array");
+            break;
+        case PP_TK_List:
+            printf("List");
+            break;
+        case PP_TK_Function:
+            printf("Function");
+            break;
+        case PP_TK_Lambda:
+            printf("Lambda");
+            break;
+        default:
+            printf("Unknown");
+            break;
+    }
+}
+
 void pp_environment_backend_print_type_map(PP_Environment_Backend* env_b) {
     if (env_b == NULL) return;
 
@@ -86,51 +142,10 @@ void pp_environment_backend_print_type_map(PP_Environment_Backend* env_b) {
     for (size_t i = 0; i < env_b->type_count; i++) {
         const PPType* t = env_b->type_map[i].type;
         LLVMTypeRef ref = env_b->type_map[i].ref;
-
-        const char* kind_str = "Unknown";
-        switch (t->kind) {
-            case PP_TK_Void:
-                kind_str = "Void";
-                break;
-            case PP_TK_Int32:
-                kind_str = "Int32";
-                break;
-            case PP_TK_UInt32:
-                kind_str = "UInt32";
-                break;
-            case PP_TK_Float:
-                kind_str = "Float";
-                break;
-            case PP_TK_Bool:
-                kind_str = "Bool";
-                break;
-            case PP_TK_Struct:
-                printf("  [%p] (Struct: %s) -> LLVM Type: %p\n", (void*)t, t->type.pp_type_struct.name, (void*)ref);
-                continue;
-            case PP_TK_Reference:
-                kind_str = "Reference";
-                break;
-            case PP_TK_Const:
-                kind_str = "Const";
-                break;
-            case PP_TK_Newtype:
-                kind_str = "Newtype";
-                break;
-            case PP_TK_Array:
-                kind_str = "Array";
-                break;
-            case PP_TK_List:
-                kind_str = "List";
-                break;
-            case PP_TK_Function:
-                kind_str = "Function";
-                break;
-            case PP_TK_Lambda:
-                kind_str = "Lambda";
-                break;
-        }
-        printf("  [%p] (%s) -> LLVM Type: %p\n", (void*)t, kind_str, (void*)ref);
-    }
+        printf("  [%p] (", (void*)t);
+        pp_debug_print_type_inner(t);
+        printf(") -> LLVM Type: %p\n", (void*)ref);
+}
 }
 
 static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* type) {
