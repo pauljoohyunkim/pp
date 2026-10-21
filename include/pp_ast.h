@@ -6,10 +6,11 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
-#include "pp_tokens.h"
+
 #include "pp_string_pool.h"
-#include "pp_type.h"
 #include "pp_symbol_table.h"
+#include "pp_tokens.h"
+#include "pp_type.h"
 
 #ifndef AST_VECTOR_INIT_CAP
 #define AST_VECTOR_INIT_CAP 8
@@ -17,10 +18,7 @@ extern "C" {
 
 typedef struct PP_AST_Node PP_AST_Node;
 
-typedef enum {
-    PP_VALUE_CATEGORY_LVALUE,
-    PP_VALUE_CATEGORY_RVALUE
-} PP_ValueCategory;
+typedef enum { PP_VALUE_CATEGORY_LVALUE, PP_VALUE_CATEGORY_RVALUE } PP_ValueCategory;
 
 typedef struct {
     const PPType* resolved_type;
@@ -99,9 +97,9 @@ struct PP_AST_Node {
             unsigned int field_capacity;
         } struct_declaration;
 
-        struct { /* VariableDeclaration */
-            PP_AST_Node* var_decl;      /* ParamDeclaration */
-            PP_AST_Node* initializer;   /* optional expression */
+        struct {                      /* VariableDeclaration */
+            PP_AST_Node* var_decl;    /* ParamDeclaration */
+            PP_AST_Node* initializer; /* optional expression */
         } variable_declaration;
 
         struct { /* Assignment */
@@ -125,11 +123,11 @@ struct PP_AST_Node {
             PP_AST_Node* body; /* StatementList */
         } while_statement;
 
-        struct { /* ForStatement */
-            PP_AST_Node* init;    /* optional VariableDeclaration or Assignment */
-            PP_AST_Node* cond;    /* optional expression */
-            PP_AST_Node* update;  /* optional expression/assignment */
-            PP_AST_Node* body;    /* StatementList */
+        struct {                 /* ForStatement */
+            PP_AST_Node* init;   /* optional VariableDeclaration or Assignment */
+            PP_AST_Node* cond;   /* optional expression */
+            PP_AST_Node* update; /* optional expression/assignment */
+            PP_AST_Node* body;   /* StatementList */
             PPSymbolTable* for_init_symbol_table;
         } for_statement;
 
@@ -235,7 +233,7 @@ struct PP_AST_Node {
         struct { /* ParamDeclaration */
             const char* identifier;
             PP_AST_Node* type_expr;
-            //const PPType* resolved_type;
+            // const PPType* resolved_type;
         } param_declaration;
 
         struct { /* StructInitializer */
@@ -257,10 +255,11 @@ struct PP_AST_Node {
     };
 };
 
-PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueCategory value_category, bool is_constexpr, bool is_escapable_ref);
+PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueCategory value_category,
+                                            bool is_constexpr, bool is_escapable_ref);
 void pp_ast_decoration_free(PP_AST_Decoration* decor);
 
-const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node *node);
+const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node* node);
 
 PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, unsigned int col);
 void pp_ast_root_free(PP_AST_Node* node);

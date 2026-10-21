@@ -1,14 +1,18 @@
 #include "pp_lexer.h"
-#include "pp_tokens.h"
-#include "pp_string_pool.h"
-#include "pp_error.h"
 
+#include <ctype.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include <ctype.h>
 
-#define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr) == NULL) goto error_cleanup; } while (0)
+#include "pp_error.h"
+#include "pp_string_pool.h"
+#include "pp_tokens.h"
+
+#define NULL_POINTER_ERROR_HANDLE(ptr)         \
+    do {                                       \
+        if ((ptr) == NULL) goto error_cleanup; \
+    } while (0)
 
 PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
     PP_Lexer* lexer = NULL;
@@ -73,7 +77,7 @@ void pp_lexer_free(PP_Lexer* lexer) {
 static int pp_lexer_push_token(PP_Lexer* lexer, PP_Token token) {
     if (lexer == NULL) return 0;
     if (lexer->n_tokens_capacity == lexer->n_tokens) {
-        PP_Token* new_tokens = (PP_Token*)realloc(lexer->tokens, sizeof(PP_Token)*lexer->n_tokens_capacity*2);
+        PP_Token* new_tokens = (PP_Token*)realloc(lexer->tokens, sizeof(PP_Token) * lexer->n_tokens_capacity * 2);
         if (!new_tokens) return 0;
         lexer->tokens = new_tokens;
         lexer->n_tokens_capacity *= 2;
@@ -89,7 +93,12 @@ static inline void advance_pp(PP_Lexer* lexer, unsigned int n) {
         char c = lexer->code[lexer->idx];
         lexer->idx++;
         if (lexer->idx >= lexer->code_length) break;
-        if (c == '\n') { lexer->row++; lexer->col = 1; } else { lexer->col++; }
+        if (c == '\n') {
+            lexer->row++;
+            lexer->col = 1;
+        } else {
+            lexer->col++;
+        }
     }
 }
 static inline char peek_pp(PP_Lexer* lexer, unsigned int n) {
@@ -99,7 +108,7 @@ static inline char peek_pp(PP_Lexer* lexer, unsigned int n) {
 static int pp_lexer_push_token_helper(PP_Lexer* lexer, PP_TokenType type, size_t length) {
     const char* lexeme = pp_string_pool_push(lexer->sp, lexer->code + lexer->idx, length);
     if (!lexeme) return 0;
-    PP_Token tok = { .token_type = type, .lexeme = lexeme, .line = lexer->row, .column = lexer->col };
+    PP_Token tok = {.token_type = type, .lexeme = lexeme, .line = lexer->row, .column = lexer->col};
     return pp_lexer_push_token(lexer, tok);
 }
 
@@ -134,7 +143,7 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 if (!pp_lexer_push_token_helper(lexer, PP_TT_RIGHT_CURLY_BRACKET, 1)) return 0;
                 advance_pp(lexer, 1);
                 break;
-            case '(': 
+            case '(':
                 if (!pp_lexer_push_token_helper(lexer, PP_TT_LEFT_PARENTHESIS, 1)) return 0;
                 advance_pp(lexer, 1);
                 break;
@@ -163,162 +172,204 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 advance_pp(lexer, 1);
                 break;
             case ':':
-                if (peek_pp(lexer,1) == ':') {
+                if (peek_pp(lexer, 1) == ':') {
                     if (!pp_lexer_push_token_helper(lexer, PP_TT_COLON_COLON, 2)) return 0;
-                    advance_pp(lexer,2);
+                    advance_pp(lexer, 2);
                 } else {
                     if (!pp_lexer_push_token_helper(lexer, PP_TT_COLON, 1)) return 0;
-                    advance_pp(lexer,1);
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '!':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_EXCLAMATION_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_EXCLAMATION_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_EXCLAMATION,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_EXCLAMATION, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '>':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_GREATER_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_GREATER_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_GREATER,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_GREATER, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '<':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_LESS_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_LESS_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_LESS,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_LESS, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '=':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_EQUAL_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_EQUAL_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_EQUAL,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_EQUAL, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '+':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_PLUS_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_PLUS_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_PLUS,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_PLUS, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '-':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_MINUS_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
-                } else if (peek_pp(lexer,1) == '>') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_RIGHT_ARROW,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_MINUS_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
+                } else if (peek_pp(lexer, 1) == '>') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_RIGHT_ARROW, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_MINUS,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_MINUS, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '*':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_STAR_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_STAR_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_STAR,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_STAR, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '/':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_SLASH_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
-                } else if (peek_pp(lexer,1) == '/') {
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_SLASH_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
+                } else if (peek_pp(lexer, 1) == '/') {
                     // comment
-                    advance_pp(lexer,2);
-                    while (!is_at_end(lexer) && lexer->code[lexer->idx] != '\n') advance_pp(lexer,1);
+                    advance_pp(lexer, 2);
+                    while (!is_at_end(lexer) && lexer->code[lexer->idx] != '\n') advance_pp(lexer, 1);
                     continue;
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_SLASH,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_SLASH, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '%':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_PERCENT_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_PERCENT_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_PERCENT,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_PERCENT, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '&':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_AMPERSAND_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
-                } else if (peek_pp(lexer,1) == '&') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_AMPERSAND_AMPERSAND,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_AMPERSAND_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
+                } else if (peek_pp(lexer, 1) == '&') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_AMPERSAND_AMPERSAND, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_AMPERSAND,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_AMPERSAND, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '|':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_BAR_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
-                } else if (peek_pp(lexer,1) == '|') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_BAR_BAR,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_BAR_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
+                } else if (peek_pp(lexer, 1) == '|') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_BAR_BAR, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_BAR,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_BAR, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             case '^':
-                if (peek_pp(lexer,1) == '=') {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_CARET_EQUAL,2)) return 0;
-                    advance_pp(lexer,2);
+                if (peek_pp(lexer, 1) == '=') {
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_CARET_EQUAL, 2)) return 0;
+                    advance_pp(lexer, 2);
                 } else {
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_CARET,1)) return 0;
-                    advance_pp(lexer,1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_CARET, 1)) return 0;
+                    advance_pp(lexer, 1);
                 }
                 break;
             default:
                 if (isalpha((unsigned char)c) || c == '_') {
                     size_t len = 1;
-                    while (!is_at_end(lexer) && (isalnum((unsigned char)peek_pp(lexer,len)) || peek_pp(lexer,len) == '_')) len++;
+                    while (!is_at_end(lexer) &&
+                           (isalnum((unsigned char)peek_pp(lexer, len)) || peek_pp(lexer, len) == '_'))
+                        len++;
                     // Keyword check
-                    if (pp_lexer_exactly_match_keyword(lexer, "for")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_FOR, 3)) return 0; advance_pp(lexer,3); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "while")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_WHILE,5)) return 0; advance_pp(lexer,5); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "if")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_IF,2)) return 0; advance_pp(lexer,2); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "else")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_ELSE,4)) return 0; advance_pp(lexer,4); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "return")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_RETURN,6)) return 0; advance_pp(lexer,6); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "func")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_FUNC,4)) return 0; advance_pp(lexer,4); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "lambda")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_LAMBDA,6)) return 0; advance_pp(lexer,6); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "let")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_LET,3)) return 0; advance_pp(lexer,3); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "const")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_CONST,5)) return 0; advance_pp(lexer,5); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "void")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_VOID,4)) return 0; advance_pp(lexer,4); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "bool")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_BOOL,4)) return 0; advance_pp(lexer,4); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "int32")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_INT32,5)) return 0; advance_pp(lexer,5); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "uint32")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_UINT32,6)) return 0; advance_pp(lexer,6); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "float")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_FLOAT,5)) return 0; advance_pp(lexer,5); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "struct")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_STRUCT,6)) return 0; advance_pp(lexer,6); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "typedef")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_TYPEDEF,7)) return 0; advance_pp(lexer,7); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "newtype")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_NEWTYPE,7)) return 0; advance_pp(lexer,7); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "as")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_AS,2)) return 0; advance_pp(lexer,2); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "true")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_TRUE,4)) return 0; advance_pp(lexer,4); }
-                    else if (pp_lexer_exactly_match_keyword(lexer, "false")) { if (!pp_lexer_push_token_helper(lexer, PP_TT_FALSE,5)) return 0; advance_pp(lexer,5); }
-                    else {
+                    if (pp_lexer_exactly_match_keyword(lexer, "for")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_FOR, 3)) return 0;
+                        advance_pp(lexer, 3);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "while")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_WHILE, 5)) return 0;
+                        advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "if")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_IF, 2)) return 0;
+                        advance_pp(lexer, 2);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "else")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_ELSE, 4)) return 0;
+                        advance_pp(lexer, 4);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "return")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_RETURN, 6)) return 0;
+                        advance_pp(lexer, 6);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "func")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_FUNC, 4)) return 0;
+                        advance_pp(lexer, 4);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "lambda")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_LAMBDA, 6)) return 0;
+                        advance_pp(lexer, 6);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "let")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_LET, 3)) return 0;
+                        advance_pp(lexer, 3);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "const")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_CONST, 5)) return 0;
+                        advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "void")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_VOID, 4)) return 0;
+                        advance_pp(lexer, 4);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "bool")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_BOOL, 4)) return 0;
+                        advance_pp(lexer, 4);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "int32")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_INT32, 5)) return 0;
+                        advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "uint32")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_UINT32, 6)) return 0;
+                        advance_pp(lexer, 6);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "float")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_FLOAT, 5)) return 0;
+                        advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "struct")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_STRUCT, 6)) return 0;
+                        advance_pp(lexer, 6);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "typedef")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_TYPEDEF, 7)) return 0;
+                        advance_pp(lexer, 7);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "newtype")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_NEWTYPE, 7)) return 0;
+                        advance_pp(lexer, 7);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "as")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_AS, 2)) return 0;
+                        advance_pp(lexer, 2);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "true")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_TRUE, 4)) return 0;
+                        advance_pp(lexer, 4);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "false")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_FALSE, 5)) return 0;
+                        advance_pp(lexer, 5);
+                    } else {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_IDENTIFIER, len)) return 0;
                         advance_pp(lexer, len);
                     }
@@ -326,44 +377,54 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     size_t len = 1;
                     bool is_float = false;
                     bool is_unsigned = false;
-                    while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer,len))) len++;
-                    if (!is_at_end(lexer) && peek_pp(lexer,len) == '.') {
-                        is_float = true; len++;
-                        while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer,len))) len++;
+                    while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer, len))) len++;
+                    if (!is_at_end(lexer) && peek_pp(lexer, len) == '.') {
+                        is_float = true;
+                        len++;
+                        while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer, len))) len++;
                     }
-                    if (!is_at_end(lexer) && (peek_pp(lexer,len)=='e' || peek_pp(lexer,len)=='E')) {
-                        is_float = true; len++;
-                        if (!is_at_end(lexer) && (peek_pp(lexer,len)=='+'||peek_pp(lexer,len)=='-')) len++;
-                        while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer,len))) len++;
+                    if (!is_at_end(lexer) && (peek_pp(lexer, len) == 'e' || peek_pp(lexer, len) == 'E')) {
+                        is_float = true;
+                        len++;
+                        if (!is_at_end(lexer) && (peek_pp(lexer, len) == '+' || peek_pp(lexer, len) == '-')) len++;
+                        while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer, len))) len++;
                     }
-                    if (!is_float && !is_at_end(lexer) && (peek_pp(lexer,len)=='u'||peek_pp(lexer,len)=='U')) {
+                    if (!is_float && !is_at_end(lexer) && (peek_pp(lexer, len) == 'u' || peek_pp(lexer, len) == 'U')) {
                         is_unsigned = true;
                         len++;
                     }
-                    if (is_float) { if (!pp_lexer_push_token_helper(lexer, PP_TT_FLOAT_LITERAL, len)) return 0; }
-                    else if (is_unsigned) { if (!pp_lexer_push_token_helper(lexer, PP_TT_UNSIGNED_INTEGER_LITERAL, len)) return 0; }
-                    else { if (!pp_lexer_push_token_helper(lexer, PP_TT_INTEGER_LITERAL, len)) return 0; }
+                    if (is_float) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_FLOAT_LITERAL, len)) return 0;
+                    } else if (is_unsigned) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_UNSIGNED_INTEGER_LITERAL, len)) return 0;
+                    } else {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_INTEGER_LITERAL, len)) return 0;
+                    }
                     advance_pp(lexer, len);
                 } else if (c == '"') {
                     // simple string literal: skip until closing quote
                     size_t len = 1;
-                    while (!is_at_end(lexer) && lexer->code[lexer->idx+len] != '"') {
-                        if (lexer->code[lexer->idx+len] == '\\') len += 2; else len++;
+                    while (!is_at_end(lexer) && lexer->code[lexer->idx + len] != '"') {
+                        if (lexer->code[lexer->idx + len] == '\\')
+                            len += 2;
+                        else
+                            len++;
                     }
-                    if (!is_at_end(lexer)) len++; // closing quote
+                    if (!is_at_end(lexer)) len++;  // closing quote
                     if (!pp_lexer_push_token_helper(lexer, PP_TT_STRING_LITERAL, len)) return 0;
                     advance_pp(lexer, len);
                 } else {
                     // unknown
                     if (!pp_lexer_push_token_helper(lexer, PP_TT_UNKNOWN, 1)) return 0;
-                    pp_error_list_push_error(lexer->error_list, lexer->filename, lexer->row, lexer->col, "Unknown token");
+                    pp_error_list_push_error(lexer->error_list, lexer->filename, lexer->row, lexer->col,
+                                             "Unknown token");
                     advance_pp(lexer, 1);
                 }
                 break;
         }
     }
     // Push EOF
-    PP_Token eof = { .token_type = PP_TT_EOF, .lexeme = NULL, .line = lexer->row, .column = lexer->col };
+    PP_Token eof = {.token_type = PP_TT_EOF, .lexeme = NULL, .line = lexer->row, .column = lexer->col};
     if (!pp_lexer_push_token(lexer, eof)) return 0;
     return 1;
 }

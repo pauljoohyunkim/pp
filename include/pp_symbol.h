@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+
 #include "pp_type.h"
 
 typedef struct PPSymbol {

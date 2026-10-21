@@ -6,9 +6,10 @@ extern "C" {
 #endif
 
 #include <stddef.h>
-#include "pp_tokens.h"
-#include "pp_string_pool.h"
+
 #include "pp_error.h"
+#include "pp_string_pool.h"
+#include "pp_tokens.h"
 
 typedef struct {
     const char* filename;

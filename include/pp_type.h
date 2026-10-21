@@ -5,8 +5,8 @@
 extern "C" {
 #endif
 
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 // Forward declare PP_AST_Node for PPStructField
 struct PP_AST_Node;
@@ -97,8 +97,7 @@ PP_StructLayout* pp_struct_layout_create(void);
 void pp_struct_layout_free(PP_StructLayout* layout);
 /** @brief Append a field to a struct layout. Reallocates the fields array.
  * Returns 1 on success, 0 on failure. */
-int pp_struct_layout_push_field(PP_StructLayout* layout, const char* field_name,
-                                const PPType* field_type,
+int pp_struct_layout_push_field(PP_StructLayout* layout, const char* field_name, const PPType* field_type,
                                 const struct PP_AST_Node* default_initializer);
 
 /** @brief Append a parameter type to a function or lambda type. Reallocates the

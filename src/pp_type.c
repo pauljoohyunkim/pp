@@ -30,8 +30,7 @@ void pp_type_free(PPType* type) {
                 /* Layout is owned by the type in this context; free it if
                  * present */
                 if (type->type.pp_type_struct.layout != NULL) {
-                    pp_struct_layout_free(
-                        (PP_StructLayout*)type->type.pp_type_struct.layout);
+                    pp_struct_layout_free((PP_StructLayout*)type->type.pp_type_struct.layout);
                 }
                 break;
             case PP_TK_Function:
@@ -69,20 +68,17 @@ void pp_struct_layout_free(PP_StructLayout* layout) {
 
 /** @brief Append a field to a struct layout. Reallocates the fields array.
  * Returns 1 on success, 0 on failure. */
-int pp_struct_layout_push_field(PP_StructLayout* layout, const char* field_name,
-                                const PPType* field_type,
+int pp_struct_layout_push_field(PP_StructLayout* layout, const char* field_name, const PPType* field_type,
                                 const struct PP_AST_Node* default_initializer) {
     if (layout == NULL) return 0;
     PPStructField* new_fields = NULL;
     size_t new_count = layout->field_count + 1;
-    new_fields = (PPStructField*)realloc(layout->fields,
-                                         new_count * sizeof(PPStructField));
+    new_fields = (PPStructField*)realloc(layout->fields, new_count * sizeof(PPStructField));
     if (new_fields == NULL) return 0;
     layout->fields = new_fields;
     layout->fields[layout->field_count].field_name = field_name;
     layout->fields[layout->field_count].field_type = field_type;
-    layout->fields[layout->field_count].default_initializer =
-        default_initializer;
+    layout->fields[layout->field_count].default_initializer = default_initializer;
     layout->field_count = new_count;
     return 1;
 }
@@ -93,12 +89,11 @@ int pp_type_push_param(PPType* type, const PPType* param_type) {
     if (type == NULL || param_type == NULL) return 0;
     if (type->kind != PP_TK_Function && type->kind != PP_TK_Lambda) return 0;
     size_t new_count = type->type.pp_type_function.param_count + 1;
-    const PPType** new_params = (const PPType**)realloc(
-        type->type.pp_type_function.param_types, new_count * sizeof(PPType*));
+    const PPType** new_params =
+        (const PPType**)realloc(type->type.pp_type_function.param_types, new_count * sizeof(PPType*));
     if (new_params == NULL) return 0;
     type->type.pp_type_function.param_types = new_params;
-    type->type.pp_type_function
-        .param_types[type->type.pp_type_function.param_count] = param_type;
+    type->type.pp_type_function.param_types[type->type.pp_type_function.param_count] = param_type;
     type->type.pp_type_function.param_count = new_count;
     return 1;
 }

@@ -1,14 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
+
+#include "pp_ast.h"
 #include "pp_lexer.h"
 #include "pp_parser.h"
 #include "pp_semantic_analyzer.h"
-#include "pp_ast.h"
 
-static long get_file_size(const char *filename) {
-    FILE *fp = fopen(filename, "rb");
+static long get_file_size(const char* filename) {
+    FILE* fp = fopen(filename, "rb");
     if (!fp) return -1;
-    if (fseek(fp, 0L, SEEK_END) != 0) { fclose(fp); return -1; }
+    if (fseek(fp, 0L, SEEK_END) != 0) {
+        fclose(fp);
+        return -1;
+    }
     long size = ftell(fp);
     fclose(fp);
     return size;
@@ -63,7 +67,8 @@ int main(int argc, char** argv) {
     if (lexer->error_list && lexer->error_list->n_errors > 0) {
         for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
             PP_Error* e = &lexer->error_list->errors[i];
-            printf("Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+            printf("Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column,
+                   e->message);
         }
     }
 
@@ -80,14 +85,13 @@ int main(int argc, char** argv) {
     }
 
     int ret = pp_parser_parse(parser);
-    if (ret != 1) {
-        printf("Parser failed\n");
-    }
+    if (ret != 1) { printf("Parser failed\n"); }
 
     if (parser->error_list && parser->error_list->n_errors > 0) {
         for (size_t i = 0; i < parser->error_list->n_errors; i++) {
             PP_Error* e = &parser->error_list->errors[i];
-            printf("Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+            printf("Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column,
+                   e->message);
         }
     } else {
         printf("Parse succeeded. AST:\n");
@@ -108,14 +112,13 @@ int main(int argc, char** argv) {
     }
 
     ret = pp_semantic_analyzer_analyze(sa);
-    if (ret != 1) {
-        printf("Semantic analysis failed\n");
-    }
+    if (ret != 1) { printf("Semantic analysis failed\n"); }
 
     if (sa->error_list && sa->error_list->n_errors > 0) {
         for (size_t i = 0; i < sa->error_list->n_errors; i++) {
             PP_Error* e = &sa->error_list->errors[i];
-            printf("Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+            printf("Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
+                   e->column, e->message);
         }
     } else {
         printf("Semantic analysis succeeded.\n");

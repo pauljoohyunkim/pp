@@ -1,7 +1,8 @@
 #include "pp_error.h"
-#include <stdlib.h>
-#include <stdio.h>
+
 #include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 PP_ErrorList* pp_error_list_create(void) {
@@ -17,7 +18,8 @@ PP_ErrorList* pp_error_list_create(void) {
     return error_list;
 }
 
-int pp_error_list_push_error(PP_ErrorList* error_list, const char* filename, int line, int column, const char* format, ...) {
+int pp_error_list_push_error(PP_ErrorList* error_list, const char* filename, int line, int column, const char* format,
+                             ...) {
     if (!error_list) return 0;
     if (error_list->n_errors > error_list->error_capacity) return 0;
 
@@ -38,7 +40,8 @@ int pp_error_list_push_error(PP_ErrorList* error_list, const char* filename, int
     memcpy(msg, buffer, msg_len + 1);
 
     if (error_list->n_errors == error_list->error_capacity) {
-        PP_Error* new_errors = (PP_Error*)realloc(error_list->errors, sizeof(PP_Error) * error_list->error_capacity * 2);
+        PP_Error* new_errors =
+            (PP_Error*)realloc(error_list->errors, sizeof(PP_Error) * error_list->error_capacity * 2);
         if (!new_errors) {
             free(msg);
             return 0;
@@ -47,12 +50,7 @@ int pp_error_list_push_error(PP_ErrorList* error_list, const char* filename, int
         error_list->error_capacity *= 2;
     }
 
-    PP_Error err = {
-        .column = column,
-        .line = line,
-        .filename = filename,
-        .message = msg
-    };
+    PP_Error err = {.column = column, .line = line, .filename = filename, .message = msg};
     error_list->errors[error_list->n_errors] = err;
     error_list->n_errors++;
     return 1;
@@ -60,9 +58,7 @@ int pp_error_list_push_error(PP_ErrorList* error_list, const char* filename, int
 
 void pp_error_list_free(PP_ErrorList* error_list) {
     if (!error_list) return;
-    for (size_t i = 0; i < error_list->n_errors; i++) {
-        free(error_list->errors[i].message);
-    }
+    for (size_t i = 0; i < error_list->n_errors; i++) { free(error_list->errors[i].message); }
     free(error_list->errors);
     free(error_list);
 }

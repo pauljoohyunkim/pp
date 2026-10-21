@@ -5,12 +5,12 @@
 extern "C" {
 #endif
 
-#include "pp_parser.h"
-#include "pp_error.h"
 #include "pp_ast.h"
+#include "pp_error.h"
+#include "pp_parser.h"
+#include "pp_symbol_table.h"
 #include "pp_type.h"
 #include "pp_type_table.h"
-#include "pp_symbol_table.h"
 
 typedef struct {
     const char* filename;

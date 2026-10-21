@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+
 #include "pp_symbol.h"
 
 typedef struct PPSymbolTable {

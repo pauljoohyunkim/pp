@@ -32,7 +32,5 @@ error_cleanup:
  * @brief Free a PPSymbol
  */
 void pp_symbol_free(PPSymbol* symbol) {
-    if (symbol != NULL) {
-        free(symbol);
-    }
+    if (symbol != NULL) { free(symbol); }
 }
