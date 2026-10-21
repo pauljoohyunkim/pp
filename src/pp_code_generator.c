@@ -46,13 +46,11 @@ static int pp_environment_backend_push_type_map(PP_Environment_Backend* env_b, c
                                                 LLVMTypeRef llvmtype) {
     PP_Type_To_LLVMTypeRef* new_map = NULL;
     if (env_b == NULL || type == NULL) return 0;
-    const PPType* t = type;
-    while (t && t->kind == PP_TK_Const) { t = t->type.pp_type_const.const_of; }
     new_map =
         (PP_Type_To_LLVMTypeRef*)realloc(env_b->type_map, sizeof(PP_Type_To_LLVMTypeRef) * (env_b->type_count + 1));
     if (new_map == NULL) return 0;
     env_b->type_map = new_map;
-    env_b->type_map[env_b->type_count].type = t;
+    env_b->type_map[env_b->type_count].type = type;
     env_b->type_map[env_b->type_count].ref = llvmtype;
     env_b->type_count++;
     return 1;
@@ -71,17 +69,68 @@ static const LLVMValueRef pp_environment_backend_lookup_val(const PP_Environment
 static const LLVMTypeRef pp_environment_backend_lookup_type(const PP_CodeGenerator* cg, const PPType* type) {
     if (cg == NULL || type == NULL) return NULL;
 
-    const PPType* t = type;
-    while (t && t->kind == PP_TK_Const) { t = t->type.pp_type_const.const_of; }
-
     PP_Environment_Backend* env_b = cg->global_env_b;
     if (env_b == NULL) return NULL;
 
     for (size_t i = 0; i < env_b->type_count; ++i) {
-        if (env_b->type_map[i].type == t) { return env_b->type_map[i].ref; }
+        if (env_b->type_map[i].type == type) { return env_b->type_map[i].ref; }
     }
 
     return NULL;
+}
+
+void pp_environment_backend_print_type_map(PP_Environment_Backend* env_b) {
+    if (env_b == NULL) return;
+
+    printf("Backend Type Map:\n");
+    for (size_t i = 0; i < env_b->type_count; i++) {
+        const PPType* t = env_b->type_map[i].type;
+        LLVMTypeRef ref = env_b->type_map[i].ref;
+
+        const char* kind_str = "Unknown";
+        switch (t->kind) {
+            case PP_TK_Void:
+                kind_str = "Void";
+                break;
+            case PP_TK_Int32:
+                kind_str = "Int32";
+                break;
+            case PP_TK_UInt32:
+                kind_str = "UInt32";
+                break;
+            case PP_TK_Float:
+                kind_str = "Float";
+                break;
+            case PP_TK_Bool:
+                kind_str = "Bool";
+                break;
+            case PP_TK_Struct:
+                printf("  [%p] (Struct: %s) -> LLVM Type: %p\n", (void*)t, t->type.pp_type_struct.name, (void*)ref);
+                continue;
+            case PP_TK_Reference:
+                kind_str = "Reference";
+                break;
+            case PP_TK_Const:
+                kind_str = "Const";
+                break;
+            case PP_TK_Newtype:
+                kind_str = "Newtype";
+                break;
+            case PP_TK_Array:
+                kind_str = "Array";
+                break;
+            case PP_TK_List:
+                kind_str = "List";
+                break;
+            case PP_TK_Function:
+                kind_str = "Function";
+                break;
+            case PP_TK_Lambda:
+                kind_str = "Lambda";
+                break;
+        }
+        printf("  [%p] (%s) -> LLVM Type: %p\n", (void*)t, kind_str, (void*)ref);
+    }
 }
 
 static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* type) {
@@ -250,7 +299,9 @@ static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenera
         LLVMTypeRef llvm_type = pp_backend_lower_type(cg, type);
         assert(llvm_type);
 
-        if (!pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_type)) { assert(0 && "Type push error"); }
+        if (!pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_type)) {
+            assert(0 && "Type push error");
+        }
     }
 
     return 1;
@@ -266,67 +317,66 @@ static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg) {
         assert(type);
 
         switch (type->kind) {
-            case PP_TK_Struct:
-                {
-                    LLVMTypeRef llvm_struct_type = pp_environment_backend_lookup_type(cg, type);
-                    assert(llvm_struct_type);
+            case PP_TK_Struct: {
+                LLVMTypeRef llvm_struct_type = pp_environment_backend_lookup_type(cg, type);
+                assert(llvm_struct_type);
 
-                    size_t field_count = type->type.pp_type_struct.layout->field_count;
-                    if (field_count > 0) {
-                        llvm_types = (LLVMTypeRef*) calloc(field_count, sizeof(LLVMTypeRef));
-                        NULL_POINTER_ERROR_HANDLE(llvm_types);
+                size_t field_count = type->type.pp_type_struct.layout->field_count;
+                if (field_count > 0) {
+                    llvm_types = (LLVMTypeRef*)calloc(field_count, sizeof(LLVMTypeRef));
+                    NULL_POINTER_ERROR_HANDLE(llvm_types);
 
-                        for (size_t j = 0; j < field_count; j++) {
-                            const PPType* member_type = type->type.pp_type_struct.layout->fields[j].field_type;
-                            assert(member_type);
+                    for (size_t j = 0; j < field_count; j++) {
+                        const PPType* member_type = type->type.pp_type_struct.layout->fields[j].field_type;
+                        assert(member_type);
 
-                            LLVMTypeRef llvm_member_type = pp_environment_backend_lookup_type(cg, member_type);
-                            assert(llvm_member_type);
-                            llvm_types[j] = llvm_member_type;
-                        }
+                        LLVMTypeRef llvm_member_type = pp_environment_backend_lookup_type(cg, member_type);
+                        assert(llvm_member_type);
+                        llvm_types[j] = llvm_member_type;
                     }
-
-                    // 0 is for "packed" or not
-                    LLVMStructSetBody(llvm_struct_type, llvm_types, field_count, 0);
-                    free(llvm_types);
-                    llvm_types = NULL;
                 }
-                break;
+
+                // 0 is for "packed" or not
+                LLVMStructSetBody(llvm_struct_type, llvm_types, field_count, 0);
+                free(llvm_types);
+                llvm_types = NULL;
+            } break;
             case PP_TK_Function:
-            case PP_TK_Lambda:
-                {
-                    bool is_lambda = type->kind == PP_TK_Lambda;
-                    const PPType* return_type = is_lambda ? type->type.pp_type_lambda.return_type : type->type.pp_type_function.return_type;
-                    assert(return_type);
-                    LLVMTypeRef llvm_return_type = pp_environment_backend_lookup_type(cg, return_type);
+            case PP_TK_Lambda: {
+                bool is_lambda = type->kind == PP_TK_Lambda;
+                const PPType* return_type =
+                    is_lambda ? type->type.pp_type_lambda.return_type : type->type.pp_type_function.return_type;
+                assert(return_type);
+                LLVMTypeRef llvm_return_type = pp_environment_backend_lookup_type(cg, return_type);
 
-                    size_t param_count = is_lambda ? type->type.pp_type_lambda.param_count : type->type.pp_type_function.param_count;
-                    if (param_count > 0) {
-                        llvm_types = (LLVMTypeRef*) calloc(param_count, sizeof(LLVMTypeRef));
-                        NULL_POINTER_ERROR_HANDLE(llvm_types);
+                size_t param_count =
+                    is_lambda ? type->type.pp_type_lambda.param_count : type->type.pp_type_function.param_count;
+                if (param_count > 0) {
+                    llvm_types = (LLVMTypeRef*)calloc(param_count, sizeof(LLVMTypeRef));
+                    NULL_POINTER_ERROR_HANDLE(llvm_types);
 
-                        for (size_t j = 0; j < param_count; j++) {
-                            const PPType* param_type = is_lambda ? type->type.pp_type_lambda.param_types[j] : type->type.pp_type_function.param_types[j];
-                            assert(param_type);
+                    for (size_t j = 0; j < param_count; j++) {
+                        const PPType* param_type = is_lambda ? type->type.pp_type_lambda.param_types[j]
+                                                             : type->type.pp_type_function.param_types[j];
+                        assert(param_type);
 
-                            LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
-                            NULL_POINTER_ERROR_HANDLE(llvm_param_type);
+                        LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
+                        NULL_POINTER_ERROR_HANDLE(llvm_param_type);
 
-                            llvm_types[j] = llvm_param_type;
-                        }
+                        llvm_types[j] = llvm_param_type;
                     }
-                    
-                    LLVMTypeRef llvm_func_type = LLVMFunctionType(llvm_return_type, llvm_types, param_count, 0);
-                    assert(llvm_func_type);
-
-                    if (!pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_func_type)) {
-                        goto error_cleanup;
-                    }
-
-                    free(llvm_types);
-                    llvm_types = NULL;
                 }
-                break;
+
+                LLVMTypeRef llvm_func_type = LLVMFunctionType(llvm_return_type, llvm_types, param_count, 0);
+                assert(llvm_func_type);
+
+                if (!pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_func_type)) {
+                    goto error_cleanup;
+                }
+
+                free(llvm_types);
+                llvm_types = NULL;
+            } break;
             default:
                 break;
         }

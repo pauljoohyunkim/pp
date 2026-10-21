@@ -2,10 +2,10 @@
 #include <stdlib.h>
 
 #include "pp_ast.h"
+#include "pp_code_generator.h"
 #include "pp_lexer.h"
 #include "pp_parser.h"
 #include "pp_semantic_analyzer.h"
-#include "pp_code_generator.h"
 
 static long get_file_size(const char* filename) {
     FILE* fp = fopen(filename, "rb");
@@ -74,8 +74,8 @@ int main(int argc, char** argv) {
         generate_code = false;
         for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
             PP_Error* e = &lexer->error_list->errors[i];
-            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column,
-                   e->message);
+            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
+                    e->column, e->message);
         }
     }
 
@@ -99,8 +99,8 @@ int main(int argc, char** argv) {
         generate_code = false;
         for (size_t i = 0; i < parser->error_list->n_errors; i++) {
             PP_Error* e = &parser->error_list->errors[i];
-            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column,
-                   e->message);
+            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
+                    e->column, e->message);
         }
     } else {
         printf("Parse succeeded. AST:\n");
@@ -127,8 +127,8 @@ int main(int argc, char** argv) {
         generate_code = false;
         for (size_t i = 0; i < sa->error_list->n_errors; i++) {
             PP_Error* e = &sa->error_list->errors[i];
-            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
-                   e->column, e->message);
+            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>",
+                    e->line, e->column, e->message);
         }
     } else {
         printf("Semantic analysis succeeded.\n");
@@ -160,6 +160,9 @@ int main(int argc, char** argv) {
     if (!ret) {
         fprintf(stderr, "Code generation failure\n");
         exit_code = 1;
+    } else {
+        printf("Code generation succeeded.\n");
+        pp_environment_backend_print_type_map(cg->global_env_b);
     }
 
 error_cleanup_exit:
