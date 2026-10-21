@@ -20,27 +20,28 @@ static long get_file_size(const char* filename) {
 }
 
 int main(int argc, char** argv) {
+    int exit_code = 0;
     if (argc != 2) {
-        printf("Usage: pplang src.pp\n");
+        fprintf(stderr, "Usage: pplang src.pp\n");
         return 1;
     }
 
     const char* source_filename = argv[1];
     long filesize = get_file_size(source_filename);
     if (filesize < 0) {
-        printf("Could not open %s\n", source_filename);
+        fprintf(stderr, "Could not open %s\n", source_filename);
         return 1;
     }
 
     FILE* fp = fopen(source_filename, "r");
     if (!fp) {
-        printf("Could not open %s\n", source_filename);
+        fprintf(stderr, "Could not open %s\n", source_filename);
         return 1;
     }
 
     char* code = (char*)calloc(filesize + 1, sizeof(char));
     if (!code) {
-        printf("Could not allocate memory for code.\n");
+        fprintf(stderr, "Could not allocate memory for code.\n");
         fclose(fp);
         return 1;
     }
@@ -58,12 +59,12 @@ int main(int argc, char** argv) {
     lexer = pp_lexer_create(code, source_filename);
     free(code);
     if (!lexer) {
-        printf("Lexer creation failure\n");
+        fprintf(stderr, "Lexer creation failure\n");
         return 1;
     }
 
     if (!pp_lexer_analyze(lexer)) {
-        printf("Lexer analyze failure\n");
+        fprintf(stderr, "Lexer analyze failure\n");
         pp_lexer_free(lexer);
         return 1;
     }
@@ -73,7 +74,7 @@ int main(int argc, char** argv) {
         generate_code = false;
         for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
             PP_Error* e = &lexer->error_list->errors[i];
-            printf("Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column,
+            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column,
                    e->message);
         }
     }
@@ -85,20 +86,20 @@ int main(int argc, char** argv) {
 
     parser = pp_parser_create(lexer);
     if (!parser) {
-        printf("Parser creation failure\n");
-        pp_lexer_free(lexer);
-        return 1;
+        fprintf(stderr, "Parser creation failure\n");
+        exit_code = 1;
+        goto error_cleanup_exit;
     }
 
     int ret = pp_parser_parse(parser);
-    if (ret != 1) { printf("Parser failed\n"); }
+    if (ret != 1) { fprintf(stderr, "Parser failed\n"); }
 
     if (parser->error_list && parser->error_list->n_errors > 0) {
         total_errors += parser->error_list->n_errors;
         generate_code = false;
         for (size_t i = 0; i < parser->error_list->n_errors; i++) {
             PP_Error* e = &parser->error_list->errors[i];
-            printf("Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column,
+            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column,
                    e->message);
         }
     } else {
@@ -113,21 +114,20 @@ int main(int argc, char** argv) {
 
     sa = pp_semantic_analyzer_create(parser);
     if (!sa) {
-        printf("Semantic analyzer creation failure\n");
-        pp_parser_free(parser);
-        pp_lexer_free(lexer);
-        return 1;
+        fprintf(stderr, "Semantic analyzer creation failure\n");
+        exit_code = 1;
+        goto error_cleanup_exit;
     }
 
     ret = pp_semantic_analyzer_analyze(sa);
-    if (ret != 1) { printf("Semantic analysis failed\n"); }
+    if (ret != 1) { fprintf(stderr, "Semantic analysis failed\n"); }
 
     if (sa->error_list && sa->error_list->n_errors > 0) {
         total_errors += sa->error_list->n_errors;
         generate_code = false;
         for (size_t i = 0; i < sa->error_list->n_errors; i++) {
             PP_Error* e = &sa->error_list->errors[i];
-            printf("Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
+            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
                    e->column, e->message);
         }
     } else {
@@ -142,15 +142,24 @@ int main(int argc, char** argv) {
 #endif
 
     if (!generate_code) {
-        printf("Skipping code generation due to %zu errors\n", total_errors);
+        fprintf(stderr, "Skipping code generation due to %zu errors\n", total_errors);
+        exit_code = (total_errors > 0) ? 1 : 0;
         goto error_cleanup_exit;
     }
 
     cg = pp_code_generator_create(sa);
     if (!cg) {
-        printf("Code generator creation failure\n");
+        fprintf(stderr, "Code generator creation failure\n");
+        exit_code = 1;
+        goto error_cleanup_exit;
     } else {
         printf("Code generator created successfully.\n");
+    }
+
+    ret = pp_code_generator_generate(cg);
+    if (!ret) {
+        fprintf(stderr, "Code generation failure\n");
+        exit_code = 1;
     }
 
 error_cleanup_exit:
@@ -158,5 +167,5 @@ error_cleanup_exit:
     if (sa) pp_semantic_analyzer_free(sa);
     if (parser) pp_parser_free(parser);
     if (lexer) pp_lexer_free(lexer);
-    return 0;
+    return exit_code;
 }
