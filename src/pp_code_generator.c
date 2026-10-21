@@ -149,3 +149,16 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
     free(cg);
     LLVMShutdown();
 }
+
+int pp_code_generator_generate(PP_CodeGenerator* cg) {
+    /* Stub: full code generation not yet implemented */
+    (void)cg;
+    return 1;
+}
+
+int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename) {
+    /* Stub: object emission not yet implemented */
+    (void)module;
+    (void)output_filename;
+    return 0;
+}

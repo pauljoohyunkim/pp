@@ -29,6 +29,9 @@ typedef struct {
     LLVMTypeRef ref;
 } PP_Type_To_LLVMTypeRef;
 
+/**
+ * @brief Backend environment for mapping semantic entities to LLVM IR values/types.
+ */
 struct PP_Environment_Backend {
     PP_Environment_Backend* parent;
     PP_Symbol_To_LLVMValueRef* value_map;
@@ -57,11 +60,45 @@ typedef struct {
     PP_ErrorList* error_list;
 } PP_CodeGenerator;
 
+/**
+ * @brief Create a new PP_Environment_Backend.
+ * @return Pointer to allocated backend or NULL on failure.
+ */
 PP_Environment_Backend* pp_environment_backend_create(void);
+
+/**
+ * @brief Free a PP_Environment_Backend.
+ * @param env_b Backend to free.
+ */
 void pp_environment_backend_free(PP_Environment_Backend* env_b);
 
+/**
+ * @brief Create a PP_CodeGenerator from a semantic analyzer.
+ * @param sa Semantic analyzer whose ownership of program/gtt/etc. is transferred.
+ * @return New code generator or NULL on failure.
+ */
 PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa);
+
+/**
+ * @brief Free a PP_CodeGenerator and all owned resources.
+ * @param cg Code generator to free.
+ */
 void pp_code_generator_free(PP_CodeGenerator* cg);
+
+/**
+ * @brief Generate LLVM IR from the code generator.
+ * @param cg Code generator.
+ * @return 1 on success, 0 on failure.
+ */
+int pp_code_generator_generate(PP_CodeGenerator* cg);
+
+/**
+ * @brief Emit LLVM module to an object file.
+ * @param module LLVM module.
+ * @param output_filename Output file name.
+ * @return 1 on success, 0 otherwise.
+ */
+int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename);
 
 #ifdef __cplusplus
 }
