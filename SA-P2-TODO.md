@@ -62,14 +62,14 @@ Order is recommended execution order. Each major area gets its own heading.
 - [x] Ensure all Pass 2 checklists are marked complete in comments (including struct‑cycle detection marked N/A)
 
 ## 8. Test Coverage
-- [ ] Add semantic tests for member access, array access, cast
-- [ ] Add negative tests for reference ban, type mismatches
-- [ ] Keep full suite green: `make bin/unittest && bin/unittest --gtest_filter="*Parser*:*Semantic*"`
+- [x] Add semantic tests for member access, array access, cast
+- [x] Add negative tests for reference ban, type mismatches
+- [x] Keep full suite green: `make bin/unittest && bin/unittest --gtest_filter="*Parser*:*Semantic*"`
 
 ## 9. Clean-up
-- [ ] Remove remaining `#warning` directives
-- [ ] Remove unused labels and TODO dead code
-- [ ] Run clang-format on modified files
+- [x] Remove remaining `#warning` directives
+- [x] Remove unused labels and TODO dead code
+- [x] Run clang-format on modified files
 
 Notes:
 - Keep collection initializer work as-is; oversize check is now enforced, undersize allowed.
