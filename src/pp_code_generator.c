@@ -1,16 +1,20 @@
+#include "pp_code_generator.h"
+
 #include <llvm-c/Core.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdbool.h>
 #include <string.h>
-#include "pp_code_generator.h"
 
-#define NULL_POINTER_ERROR_HANDLE(ptr) do { if ((ptr) == NULL) goto error_cleanup; } while (0)
+#define NULL_POINTER_ERROR_HANDLE(ptr)         \
+    do {                                       \
+        if ((ptr) == NULL) goto error_cleanup; \
+    } while (0)
 
 PP_Environment_Backend* pp_environment_backend_create(void) {
-    PP_Environment_Backend* env_b = (PP_Environment_Backend*) calloc(1, sizeof(PP_Environment_Backend));
+    PP_Environment_Backend* env_b = (PP_Environment_Backend*)calloc(1, sizeof(PP_Environment_Backend));
     return env_b;
 }
 
@@ -22,10 +26,12 @@ void pp_environment_backend_free(PP_Environment_Backend* env_b) {
     free(env_b);
 }
 
-static int pp_environment_backend_push_val_map(PP_Environment_Backend *env_b, const PPSymbol* symbol, LLVMValueRef llvmval) {
+static int pp_environment_backend_push_val_map(PP_Environment_Backend* env_b, const PPSymbol* symbol,
+                                               LLVMValueRef llvmval) {
     PP_Symbol_To_LLVMValueRef* new_map = NULL;
     if (env_b == NULL || symbol == NULL) return 0;
-    new_map = (PP_Symbol_To_LLVMValueRef *)realloc(env_b->value_map, sizeof(PP_Symbol_To_LLVMValueRef) * (env_b->value_count + 1));
+    new_map = (PP_Symbol_To_LLVMValueRef*)realloc(env_b->value_map,
+                                                  sizeof(PP_Symbol_To_LLVMValueRef) * (env_b->value_count + 1));
     if (new_map == NULL) return 0;
     env_b->value_map = new_map;
     env_b->value_map[env_b->value_count].symbol = symbol;
@@ -34,14 +40,14 @@ static int pp_environment_backend_push_val_map(PP_Environment_Backend *env_b, co
     return 1;
 }
 
-static int pp_environment_backend_push_type_map(PP_Environment_Backend *env_b, const PPType* type, LLVMTypeRef llvmtype) {
+static int pp_environment_backend_push_type_map(PP_Environment_Backend* env_b, const PPType* type,
+                                                LLVMTypeRef llvmtype) {
     PP_Type_To_LLVMTypeRef* new_map = NULL;
     if (env_b == NULL || type == NULL) return 0;
     const PPType* t = type;
-    while (t && t->kind == PP_TK_Const) {
-        t = t->type.pp_type_const.const_of;
-    }
-    new_map = (PP_Type_To_LLVMTypeRef *)realloc(env_b->type_map, sizeof(PP_Type_To_LLVMTypeRef) * (env_b->type_count + 1));
+    while (t && t->kind == PP_TK_Const) { t = t->type.pp_type_const.const_of; }
+    new_map =
+        (PP_Type_To_LLVMTypeRef*)realloc(env_b->type_map, sizeof(PP_Type_To_LLVMTypeRef) * (env_b->type_count + 1));
     if (new_map == NULL) return 0;
     env_b->type_map = new_map;
     env_b->type_map[env_b->type_count].type = t;
@@ -50,16 +56,63 @@ static int pp_environment_backend_push_type_map(PP_Environment_Backend *env_b, c
     return 1;
 }
 
-static const LLVMValueRef pp_environment_backend_lookup_val(const PP_Environment_Backend *env_b, const PPSymbol* symbol, bool cascade) {
+static const LLVMValueRef pp_environment_backend_lookup_val(const PP_Environment_Backend* env_b, const PPSymbol* symbol,
+                                                            bool cascade) {
     if (env_b == NULL || symbol == NULL) return NULL;
     for (size_t i = 0; i < env_b->value_count; ++i) {
-        if (env_b->value_map[i].symbol == symbol) {
-            return env_b->value_map[i].ref;
-        }
+        if (env_b->value_map[i].symbol == symbol) { return env_b->value_map[i].ref; }
     }
-    if (env_b->parent != NULL && cascade) {
-        return pp_environment_backend_lookup_val(env_b->parent, symbol, cascade);
+    if (env_b->parent != NULL && cascade) { return pp_environment_backend_lookup_val(env_b->parent, symbol, cascade); }
+    return NULL;
+}
+
+static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* type) {
+    NULL_POINTER_ERROR_HANDLE(cg);
+    NULL_POINTER_ERROR_HANDLE(type);
+
+    switch (type->kind) {
+        case PP_TK_Void:
+            return LLVMVoidTypeInContext(cg->ctx);
+        case PP_TK_Bool:
+            return LLVMInt1TypeInContext(cg->ctx);
+        case PP_TK_Int32:
+            return LLVMInt32TypeInContext(cg->ctx);
+        case PP_TK_UInt32:
+            return LLVMInt32TypeInContext(cg->ctx);
+        case PP_TK_Float:
+            return LLVMFloatTypeInContext(cg->ctx);
+
+        case PP_TK_Newtype:
+            return pp_backend_lower_type(cg, type->type.pp_type_newtype.underlying);
+
+        case PP_TK_Const:
+            return pp_backend_lower_type(cg, type->type.pp_type_const.const_of);
+
+        case PP_TK_Reference:
+            return LLVMPointerTypeInContext(cg->ctx, 0);
+
+        case PP_TK_Struct:
+            /* Create opaque named struct. Actual body will be filled in a second pass. */
+            {
+                const char* name = type->type.pp_type_struct.name;
+                if (name) { return LLVMStructCreateNamed(cg->ctx, name); }
+            }
+            break;
+
+        case PP_TK_Array:
+        case PP_TK_List:
+        case PP_TK_Function:
+        case PP_TK_Lambda:
+            /* Stubbed for now – full lowering not implemented yet */
+            assert(0 && "TODO: pp_backend_lower_type does not yet support lowering, array, list, function, or lambda");
+            break;
+
+        default:
+            break;
     }
+
+    return NULL;
+error_cleanup:
     return NULL;
 }
 
@@ -73,7 +126,7 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
 
     if (sa == NULL) goto error_cleanup;
 
-    cg = (PP_CodeGenerator*) calloc(1, sizeof(PP_CodeGenerator));
+    cg = (PP_CodeGenerator*)calloc(1, sizeof(PP_CodeGenerator));
     if (cg == NULL) goto error_cleanup;
 
     ctx = LLVMContextCreate();

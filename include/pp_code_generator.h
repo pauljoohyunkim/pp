@@ -9,6 +9,7 @@ extern "C" {
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
 #include <stdbool.h>
+
 #include "pp_ast.h"
 #include "pp_error.h"
 #include "pp_semantic_analyzer.h"
