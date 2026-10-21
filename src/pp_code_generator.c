@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
@@ -238,6 +239,18 @@ static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenera
     for (size_t i = 0; i < cg->gtt->type_count; i++) {
         const PPType* type = cg->gtt->types[i];
         assert(type);
+
+        // Skip function and lambda here.
+        if (type->kind == PP_TK_Function || type->kind == PP_TK_Lambda) { continue; }
+
+        // Look up environment backend.
+        if (pp_environment_backend_lookup_type(cg, type)) continue;
+
+        // Lower and insert
+        LLVMTypeRef llvm_type = pp_backend_lower_type(cg, type);
+        assert(llvm_type);
+
+        if (pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_type)) { assert(0 && "Type push error"); }
     }
 
     return 1;
