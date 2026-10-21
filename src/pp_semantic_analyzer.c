@@ -2323,8 +2323,10 @@ error_cleanup:
 
 /* Function Call Expression Checklist (based on cz_semantic_analyzer_check_function_call_expression):
  * [x] Early exit if decoration already set
+ * [x] Disallow function calls at global scope
  * [x] Check callee expression validity
  * [x] Verify callee resolved type is function
+ * [x] Enforce lambda purity: lambda body may only call lambdas
  * [x] Validate parameter count matches argument count
  * [x] For each argument, check expression validity
  * [x] For each argument, decay types and compare to parameter types
@@ -2344,6 +2346,13 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
 
     if (expr->function_call.decoration) return 1;
 
+    // Function calls are not allowed at global scope
+    if (!sa->current_function_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        "Function calls are not allowed at global scope");
+        goto error_cleanup;
+    }
+
     // Check callee (to support expressions like (f(2))(3), that is, higher-order functions)
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->function_call.callee)) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
@@ -2362,6 +2371,15 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
 
     // Keep track of whether or not the function is lambda.
     bool function_is_lambda = callee_decoration->resolved_type->kind == PP_TK_Lambda;
+
+    // Lambda purity: lambda body may only call other lambdas
+    if (sa->current_function_type && sa->current_function_type->kind == PP_TK_Lambda) {
+        if (callee_decoration->resolved_type->kind != PP_TK_Lambda) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            "Lambda function cannot call non-lambda function");
+            goto error_cleanup;
+        }
+    }
 
     // Param count validation
     if (function_is_lambda) {
@@ -2801,7 +2819,7 @@ error_cleanup:
  * [x] Verify symbol exists and push error if not found
  * [-] Propagate symbol scope level into decoration, CZ uses symbol->scope_level -> PP does not track scope level per symbol
  * [x] Use symbol->is_escapable_ref when creating decoration
- * [x] Lambda capture rules: ban reference to global, require const for globals used inside lambda
+ * [x] Lambda capture rules: allow lambda globals, reject function globals, require const for variable globals
  */
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
@@ -2826,15 +2844,24 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     }
 
     if (function_is_lambda && identifier_symbol->is_global) {
-        if (pp_type_is_reference(identifier_symbol->type)) {
+        const PPType* sym_type = identifier_symbol->type;
+        if (sym_type->kind == PP_TK_Lambda) {
+            /* lambda names are immutable pure code – allowed */
+        } else if (sym_type->kind == PP_TK_Function) {
             pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-            "\"%s\" is a reference to a symbol declared outside of lambda", expr->identifier.identifier);
+            "\"%s\" is a regular function used inside lambda", expr->identifier.identifier);
             goto error_cleanup;
-        }
-        if (!pp_type_is_const(identifier_symbol->type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-            "\"%s\" is a mutable symbol declared outside of lambda", expr->identifier.identifier);
-            goto error_cleanup;
+        } else {
+            if (pp_type_is_reference(sym_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "\"%s\" is a reference to a symbol declared outside of lambda", expr->identifier.identifier);
+                goto error_cleanup;
+            }
+            if (!pp_type_is_const(sym_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                "\"%s\" is a mutable symbol declared outside of lambda", expr->identifier.identifier);
+                goto error_cleanup;
+            }
         }
     }
 
