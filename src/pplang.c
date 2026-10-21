@@ -5,6 +5,7 @@
 #include "pp_lexer.h"
 #include "pp_parser.h"
 #include "pp_semantic_analyzer.h"
+#include "pp_code_generator.h"
 
 static long get_file_size(const char* filename) {
     FILE* fp = fopen(filename, "rb");
@@ -50,6 +51,9 @@ int main(int argc, char** argv) {
     PP_Lexer* lexer = NULL;
     PP_Parser* parser = NULL;
     PP_SemanticAnalyzer* sa = NULL;
+    PP_CodeGenerator* cg = NULL;
+    bool generate_code = true;
+    size_t total_errors = 0;
 
     lexer = pp_lexer_create(code, source_filename);
     free(code);
@@ -65,6 +69,8 @@ int main(int argc, char** argv) {
     }
 
     if (lexer->error_list && lexer->error_list->n_errors > 0) {
+        total_errors += lexer->error_list->n_errors;
+        generate_code = false;
         for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
             PP_Error* e = &lexer->error_list->errors[i];
             printf("Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column,
@@ -88,6 +94,8 @@ int main(int argc, char** argv) {
     if (ret != 1) { printf("Parser failed\n"); }
 
     if (parser->error_list && parser->error_list->n_errors > 0) {
+        total_errors += parser->error_list->n_errors;
+        generate_code = false;
         for (size_t i = 0; i < parser->error_list->n_errors; i++) {
             PP_Error* e = &parser->error_list->errors[i];
             printf("Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column,
@@ -115,6 +123,8 @@ int main(int argc, char** argv) {
     if (ret != 1) { printf("Semantic analysis failed\n"); }
 
     if (sa->error_list && sa->error_list->n_errors > 0) {
+        total_errors += sa->error_list->n_errors;
+        generate_code = false;
         for (size_t i = 0; i < sa->error_list->n_errors; i++) {
             PP_Error* e = &sa->error_list->errors[i];
             printf("Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
@@ -126,7 +136,25 @@ int main(int argc, char** argv) {
         pp_global_type_table_print(sa->gtt);
     }
 
+#ifdef STOP_AT_SEMANTIC_ANALYZER
+    printf("STOP_AT_SEMANTIC_ANALYZER: skipping code generator\n");
+    generate_code = false;
+#endif
+
+    if (!generate_code) {
+        printf("Skipping code generation due to %zu errors\n", total_errors);
+        goto error_cleanup_exit;
+    }
+
+    cg = pp_code_generator_create(sa);
+    if (!cg) {
+        printf("Code generator creation failure\n");
+    } else {
+        printf("Code generator created successfully.\n");
+    }
+
 error_cleanup_exit:
+    if (cg) pp_code_generator_free(cg);
     if (sa) pp_semantic_analyzer_free(sa);
     if (parser) pp_parser_free(parser);
     if (lexer) pp_lexer_free(lexer);
