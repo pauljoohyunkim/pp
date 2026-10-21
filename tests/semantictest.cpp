@@ -876,4 +876,37 @@ TEST(SemanticTest, NewtypeChainThreeLevels) {
     EXPECT_EQ(semantic_errors, 0);
 }
 
+TEST(SemanticTest, LambdaCallPurityError) {
+    const char* source =
+        "func foo :: () -> int32 { return 1; }\n"
+        "lambda bar :: () -> int32 { return foo(); }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Lambda body may only call other lambdas
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, LambdaCaptureMutableGlobalError) {
+    const char* source =
+        "let g :: int32 = 42;\n"
+        "lambda bar :: () -> int32 { return g; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Lambda cannot capture mutable global
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, GlobalScopeCallError) {
+    const char* source =
+        "func foo :: () -> int32 { return 1; }\n"
+        "let x :: int32 = foo();\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    // Function calls are not allowed at global scope
+    EXPECT_GT(semantic_errors, 0);
+}
+
 
