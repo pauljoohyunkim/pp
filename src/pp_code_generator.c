@@ -257,9 +257,49 @@ static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenera
 }
 
 static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg) {
-    /* Stub: complex type mapping not yet implemented */
-    (void)cg;
+    LLVMTypeRef* llvm_types = NULL;
+    assert(cg);
+    assert(cg->gtt);
+
+    for (size_t i = 0; i < cg->gtt->type_count; i++) {
+        const PPType* type = cg->gtt->types[i];
+        assert(type);
+
+        switch (type->kind) {
+            case PP_TK_Struct:
+                {
+                    LLVMTypeRef llvm_struct_type = pp_environment_backend_lookup_type(cg, type);
+                    assert(llvm_struct_type);
+
+                    size_t field_count = type->type.pp_type_struct.layout->field_count;
+                    if (field_count > 0) {
+                        llvm_types = (LLVMTypeRef*) calloc(field_count, sizeof(LLVMTypeRef));
+                        NULL_POINTER_ERROR_HANDLE(llvm_types);
+
+                        for (size_t j = 0; j < field_count; j++) {
+                            const PPType* member_type = type->type.pp_type_struct.layout->fields[j].field_type;
+                            assert(member_type);
+
+                            LLVMTypeRef llvm_member_type = pp_environment_backend_lookup_type(cg, member_type);
+                            assert(llvm_member_type);
+                            llvm_types[j] = llvm_member_type;
+                        }
+                    }
+
+                    // 0 is for "packed" or not
+                    LLVMStructSetBody(llvm_struct_type, llvm_types, field_count, 0);
+                    free(llvm_types);
+                    llvm_types = NULL;
+                }
+                break;
+        }
+    }
+
     return 1;
+
+error_cleanup:
+    free(llvm_types);
+    return 0;
 }
 
 int pp_code_generator_generate(PP_CodeGenerator* cg) {
