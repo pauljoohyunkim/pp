@@ -614,6 +614,7 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
     // Skip all the basic block (if block, while block, for block) in the function until the end.
     // Then return nothing if it is a void function,
     // Or write "unreachable" for nonvoid flow fall.
+    #warning "Semantic analysis may need to check all the exit points"
     for (LLVMBasicBlockRef bb = LLVMGetFirstBasicBlock(llvm_func); bb != NULL; bb = LLVMGetNextBasicBlock(bb)) {
         // Check if this basic block lacks a terminator instruction
         if (LLVMGetBasicBlockTerminator(bb) == NULL) {
@@ -644,11 +645,27 @@ static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTa
     assert(symbol_table);
     assert(env_b);
     assert(node);
-    /* Stubbed for now. */
-    (void)cg;
-    (void)symbol_table;
-    (void)env_b;
-    (void)node;
+
+    switch (node->node_type) {
+        case PP_AST_VariableDeclarationNode:
+            break;    
+        case PP_AST_AssignmentNode:
+            break;
+        case PP_AST_ReturnStatementNode:
+            break;
+        case PP_AST_IfStatementNode:
+            break;
+        case PP_AST_ForStatementNode:
+            break;
+        case PP_AST_WhileStatementNode:
+            break;
+        case PP_AST_StatementListNode:
+            break;
+        #warning "Expression must be checked"
+        default:
+            abort();
+    }
+    
     return 1;
 }
 
