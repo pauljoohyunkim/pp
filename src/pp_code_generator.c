@@ -2,7 +2,7 @@
 #include <errno.h>
 static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, PP_Environment_Backend* env_b, const PPType* type, LLVMValueRef lvalue);
+static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type, LLVMValueRef lvalue);
 static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node, bool is_compile_time);
 static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node, bool is_compile_time);
@@ -594,13 +594,25 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
 }
 
 
-static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, PP_Environment_Backend* env_b, const PPType* type, LLVMValueRef lvalue) {
+static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type, LLVMValueRef lvalue) {
+    LLVMValueRef llvm_val = NULL;
     assert(cg);
-    assert(env_b);
     assert(type);
     assert(lvalue);
-    // Stubbed for now.
-    return NULL;
+    
+    const PPType* underlying_type = type;
+    if (pp_type_is_reference(type)) {  // Reference is always the outermost wrapper (per type_system.md).
+        underlying_type = type->type.pp_type_reference.reference_to;
+    }
+    assert(underlying_type);
+
+    LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, underlying_type);
+    assert(llvm_type);
+
+    llvm_val = LLVMBuildLoad2(cg->builder, llvm_type, lvalue, "lval_to_rval");
+    assert(llvm_val);
+
+    return llvm_val;
 }
 
 
@@ -662,7 +674,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_StructMemberAccessNode:
             {
                 LLVMValueRef llvm_struct_access_ref = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node);
-                llvm_val = pp_code_generator_l_value_to_r_value(cg, env_b, node->decoration->resolved_type, llvm_struct_access_ref);
+                llvm_val = pp_code_generator_l_value_to_r_value(cg, node->decoration->resolved_type, llvm_struct_access_ref);
             }
             break;
         case PP_AST_FunctionCallNode:
@@ -671,7 +683,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
                 const PPType* ret_type = node->decoration->resolved_type;
 
                 if (ret_type->kind == PP_TYPE_KIND_REFERENCE) {
-                    llvm_val = pp_code_generator_l_value_to_r_value(cg, env_b, node->decoration->resolved_type, llvm_function_call);
+                    llvm_val = pp_code_generator_l_value_to_r_value(cg, node->decoration->resolved_type, llvm_function_call);
                 } else {
                     llvm_val = llvm_function_call;
                 }
@@ -685,7 +697,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
                     llvm_val = llvm_identifier_ref;
                 } else {
                     // L-to-R value conversion for addressable nodes (Similarly for member access, array indexing, etc.)
-                    llvm_val = pp_code_generator_l_value_to_r_value(cg, env_b, node->decoration->resolved_type, llvm_identifier_ref);
+                    llvm_val = pp_code_generator_l_value_to_r_value(cg, node->decoration->resolved_type, llvm_identifier_ref);
                 }
             }
             break;
