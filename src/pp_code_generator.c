@@ -53,6 +53,21 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                 PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                     PP_Environment_Backend* env_b,
+                                                                     const PP_AST_Node* stmt);
+static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                           PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
+static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                       PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
+static int pp_code_generator_generate_if_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                   PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
+static int pp_code_generator_generate_for_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                    PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
+static int pp_code_generator_generate_while_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                      PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
+static int pp_code_generator_generate_block_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                      PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                            PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -588,7 +603,7 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
         const char* param_name = stmt->function_declaration.params[i]->param_declaration.identifier;
         assert(param_name);
         const PPSymbol* param_symbol =
-            pp_symbol_table_lookup(stmt->function_declaration.body->statement_list.symbol_table, param_name, false);
+            pp_symbol_table_lookup(stmt->function_declaration.param_symbol_table, param_name, false);
         assert(param_symbol);
         const PPType* param_type = param_symbol->type;
         assert(param_type);
@@ -648,24 +663,153 @@ static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTa
 
     switch (node->node_type) {
         case PP_AST_VariableDeclarationNode:
+            if (!pp_code_generator_generate_variable_declaration_statement(cg, symbol_table, env_b, node)) return 0;
             break;
         case PP_AST_AssignmentNode:
+            if (!pp_code_generator_generate_assignment_statement(cg, symbol_table, env_b, node)) return 0;
             break;
         case PP_AST_ReturnStatementNode:
+            if (!pp_code_generator_generate_return_statement(cg, symbol_table, env_b, node)) return 0;
             break;
         case PP_AST_IfStatementNode:
+            if (!pp_code_generator_generate_if_statement(cg, symbol_table, env_b, node)) return 0;
             break;
         case PP_AST_ForStatementNode:
+            if (!pp_code_generator_generate_for_statement(cg, symbol_table, env_b, node)) return 0;
             break;
         case PP_AST_WhileStatementNode:
+            if (!pp_code_generator_generate_while_statement(cg, symbol_table, env_b, node)) return 0;
             break;
         case PP_AST_StatementListNode:
+            if (!pp_code_generator_generate_block_statement(cg, symbol_table, env_b, node)) return 0;
             break;
 #warning "Expression must be checked"
         default:
             abort();
     }
 
+    return 1;
+}
+
+static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                     PP_Environment_Backend* env_b,
+                                                                     const PP_AST_Node* stmt) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(stmt);
+    /* Stubbed for now. */
+    (void)cg;
+    (void)symbol_table;
+    (void)env_b;
+    (void)stmt;
+    return 1;
+}
+
+static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                           PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(stmt);
+    /* Stubbed for now. */
+    (void)cg;
+    (void)symbol_table;
+    (void)env_b;
+    (void)stmt;
+    return 1;
+}
+
+static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                       PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(stmt);
+    assert(stmt->node_type == PP_AST_ReturnStatementNode);
+    assert(cg->current_function_type);
+    assert(cg->current_function_type->kind == PP_TK_Function || cg->current_function_type->kind == PP_TK_Lambda);
+
+    bool is_lambda = cg->current_function_type->kind == PP_TK_Lambda;
+    const PPType* current_function_return_type = is_lambda
+                                                     ? cg->current_function_type->type.pp_type_lambda.return_type
+                                                     : cg->current_function_type->type.pp_type_function.return_type;
+    assert(current_function_return_type);
+
+#warning "Deal with void returns"
+    if (current_function_return_type->kind == PP_TK_Void) {
+        if (stmt->return_statement.expr == NULL) {
+            LLVMBuildRetVoid(cg->builder);
+        } else {
+            // Not possible
+            abort();
+        }
+    } else if (pp_type_is_reference(current_function_return_type)) {
+        LLVMValueRef llvm_return_val_ref =
+            pp_code_generator_generate_lvalue(cg, symbol_table, env_b, stmt->return_statement.expr);
+        LLVMBuildRet(cg->builder, llvm_return_val_ref);
+    } else {
+        LLVMValueRef llvm_return_val_ref =
+            pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->return_statement.expr);
+        LLVMBuildRet(cg->builder, llvm_return_val_ref);
+    }
+
+    return 1;
+}
+
+static int pp_code_generator_generate_if_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                   PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(stmt);
+    /* Stubbed for now. */
+    (void)cg;
+    (void)symbol_table;
+    (void)env_b;
+    (void)stmt;
+    return 1;
+}
+
+static int pp_code_generator_generate_for_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                    PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(stmt);
+    /* Stubbed for now. */
+    (void)cg;
+    (void)symbol_table;
+    (void)env_b;
+    (void)stmt;
+    return 1;
+}
+
+static int pp_code_generator_generate_while_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                      PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(stmt);
+    /* Stubbed for now. */
+    (void)cg;
+    (void)symbol_table;
+    (void)env_b;
+    (void)stmt;
+    return 1;
+}
+
+static int pp_code_generator_generate_block_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                      PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(stmt);
+    /* Stubbed for now. */
+    (void)cg;
+    (void)symbol_table;
+    (void)env_b;
+    (void)stmt;
     return 1;
 }
 
