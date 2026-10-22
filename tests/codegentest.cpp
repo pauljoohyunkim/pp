@@ -185,3 +185,88 @@ TEST(CodeGenTest, GlobalInt32NoInitializer) {
     // Zero-initialized (LLVM prints "i32 0")
     assert_ir_contains(cg.get(), "global i32");
 }
+
+TEST(CodeGenTest, GlobalInt32BinaryAdd) {
+    const char* source = "let add_res :: int32 = 1 + 2;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "add_res");
+    assert_ir_contains(cg.get(), "i32 3");
+}
+
+TEST(CodeGenTest, GlobalInt32BinaryMul) {
+    const char* source = "let mul_res :: int32 = 3 * 4;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "mul_res");
+    assert_ir_contains(cg.get(), "i32 12");
+}
+
+TEST(CodeGenTest, GlobalInt32UnaryNeg) {
+    const char* source = "let neg_res :: int32 = -5;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "neg_res");
+    assert_ir_contains(cg.get(), "i32 -5");
+}
+
+TEST(CodeGenTest, GlobalBoolBinaryAnd) {
+    const char* source = "let cmp_res :: bool = 1 == 0;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "cmp_res");
+    assert_ir_contains(cg.get(), "i1 false");
+}
+
