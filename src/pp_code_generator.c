@@ -539,7 +539,30 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
     assert(env_b);
     assert(stmt);
     assert(stmt->node_type == PP_AST_VariableDeclarationNode);
-    // Stubbed for now.
+    
+    const char* var_name = stmt->variable_declaration.var_decl->param_declaration.identifier;
+    assert(var_name);
+    const PPSymbol* var_symbol = pp_symbol_table_lookup(symbol_table, var_name, false);
+    assert(var_symbol);
+    const PPType* var_type = var_symbol->type;
+    assert(var_type);
+
+    LLVMTypeRef llvm_var_type = pp_environment_backend_lookup_type(cg, var_type);
+    assert(llvm_var_type);
+
+    LLVMValueRef llvm_global_var = LLVMAddGlobal(cg->mod, llvm_var_type, var_name);
+
+    if (pp_environment_backend_push_val_map(env_b, var_symbol, llvm_global_var) != 1) { return 0; }
+
+    if (stmt->variable_declaration.initializer) {
+        // Note that variable cannot be reference.
+        LLVMValueRef llvm_initializer = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->variable_declaration.initializer);
+        assert(llvm_initializer);
+        LLVMSetInitializer(llvm_global_var, llvm_initializer);
+    } else {
+        LLVMSetInitializer(llvm_global_var, LLVMConstNull(llvm_var_type));
+    }
+    
     return 1;
 }
 
