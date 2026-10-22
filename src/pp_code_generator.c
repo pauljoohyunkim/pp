@@ -648,11 +648,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
     LLVMValueRef llvm_val = NULL;
 
     switch (node->node_type) {
-    /*
         case PP_AST_BinaryExpressionNode:
             llvm_val = pp_code_generator_generate_rvalue_binary(cg, symbol_table, env_b, node, false);
             break;
-    */
         case PP_AST_UnaryExpressionNode:
             llvm_val = pp_code_generator_generate_rvalue_unary(cg, symbol_table, env_b, node, false);
             break;
@@ -701,9 +699,169 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node, bool is_compile_time) {
-    assert(cg); assert(symbol_table); assert(env_b); assert(node);
-    // Stubbed for now.
-    return NULL;
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(node);
+    assert(node->node_type == PP_AST_BinaryExpressionNode);
+
+    LLVMValueRef llvm_val = NULL;
+
+    LLVMValueRef llvm_lhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->binary_expression.left);
+    assert(llvm_lhs);
+    LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->binary_expression.right);
+    assert(llvm_rhs);
+    const PP_AST_Decoration* lhs_decoration = pp_ast_get_decoration(node->binary_expression.left);
+    assert(lhs_decoration);
+    const PP_AST_Decoration* rhs_decoration = pp_ast_get_decoration(node->binary_expression.right);
+    assert(rhs_decoration);
+    LLVMTypeRef llvm_lhs_type = pp_environment_backend_lookup_type(cg, lhs_decoration->resolved_type);
+    assert(llvm_lhs_type);
+    LLVMTypeRef llvm_rhs_type = pp_environment_backend_lookup_type(cg, rhs_decoration->resolved_type);
+    assert(llvm_rhs_type);
+    LLVMTypeKind llvm_lhs_type_kind = LLVMGetTypeKind(llvm_lhs_type);
+    assert(llvm_lhs_type_kind);
+    LLVMTypeKind llvm_rhs_type_kind = LLVMGetTypeKind(llvm_rhs_type);
+    assert(llvm_rhs_type_kind);
+
+    switch (node->binary_expression.op) {
+        case PP_TT_PLUS:
+            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFAdd(cg->builder, llvm_lhs, llvm_rhs, "faddtmp");
+            } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildAdd(cg->builder, llvm_lhs, llvm_rhs, "addtmp");
+            }
+            break;
+        case PP_TT_MINUS:
+            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFSub(cg->builder, llvm_lhs, llvm_rhs, "fsubtmp");
+            } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildSub(cg->builder, llvm_lhs, llvm_rhs, "subtmp");
+            }
+            break;
+        case PP_TT_STAR:
+            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFMul(cg->builder, llvm_lhs, llvm_rhs, "fmultmp");
+            } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildMul(cg->builder, llvm_lhs, llvm_rhs, "multmp");
+            }
+            break;
+        case PP_TT_PERCENT:
+            if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                const PPType* lhs_decayed_type = pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
+                assert(lhs_decayed_type);
+                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                    llvm_val = LLVMBuildURem(cg->builder, llvm_lhs, llvm_rhs, "uremtmp");
+                } else {
+                    llvm_val = LLVMBuildSRem(cg->builder, llvm_lhs, llvm_rhs, "sremtmp");
+                }
+            }
+            break;
+        case PP_TT_SLASH:
+            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFDiv(cg->builder, llvm_lhs, llvm_rhs, "fdivtmp");
+            } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                const PPType* lhs_decayed_type = pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
+                assert(lhs_decayed_type);
+                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                    llvm_val = LLVMBuildUDiv(cg->builder, llvm_lhs, llvm_rhs, "udivtmp");
+                } else {
+                    llvm_val = LLVMBuildSDiv(cg->builder, llvm_lhs, llvm_rhs, "sdivtmp");
+                }
+            }
+            break;
+
+        case PP_TT_AMPERSAND:
+            if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildAnd(cg->builder, llvm_lhs, llvm_rhs, "andtmp");
+            }
+            break;
+        case PP_TT_BAR:
+            if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildOr(cg->builder, llvm_lhs, llvm_rhs, "ortmp");
+            }
+            break;
+        case PP_TT_CARET:
+            if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildXor(cg->builder, llvm_lhs, llvm_rhs, "xortmp");
+            }
+            break;
+        case PP_TT_GREATER:
+            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFCmp(cg->builder, LLVMRealOGT, llvm_lhs, llvm_rhs, "fgttmp");
+            } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                const PPType* lhs_decayed_type = pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
+                assert(lhs_decayed_type);
+                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                    llvm_val = LLVMBuildICmp(cg->builder, LLVMIntUGT, llvm_lhs, llvm_rhs, "gttmp");
+                } else {
+                    llvm_val = LLVMBuildICmp(cg->builder, LLVMIntSGT, llvm_lhs, llvm_rhs, "gttmp");
+                }
+            }
+            break;
+        case PP_TT_LESS:
+            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFCmp(cg->builder, LLVMRealOLT, llvm_lhs, llvm_rhs, "flttmp");
+            } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                const PPType* lhs_decayed_type = pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
+                assert(lhs_decayed_type);
+                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                    llvm_val = LLVMBuildICmp(cg->builder, LLVMIntULT, llvm_lhs, llvm_rhs, "lttmp");
+                } else {
+                    llvm_val = LLVMBuildICmp(cg->builder, LLVMIntSLT, llvm_lhs, llvm_rhs, "lttmp");
+                }
+            }
+            break;
+        case PP_TT_GREATER_EQUAL:
+            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFCmp(cg->builder, LLVMRealOGE, llvm_lhs, llvm_rhs, "fgetmp");
+            } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                const PPType* lhs_decayed_type = pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
+                assert(lhs_decayed_type);
+                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                    llvm_val = LLVMBuildICmp(cg->builder, LLVMIntUGE, llvm_lhs, llvm_rhs, "getmp");
+                } else {
+                    llvm_val = LLVMBuildICmp(cg->builder, LLVMIntSGE, llvm_lhs, llvm_rhs, "getmp");
+                }
+            }
+            break;
+        case PP_TT_LESS_EQUAL:
+            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFCmp(cg->builder, LLVMRealOLE, llvm_lhs, llvm_rhs, "fletmp");
+            } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                const PPType* lhs_decayed_type = pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
+                assert(lhs_decayed_type);
+                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                    llvm_val = LLVMBuildICmp(cg->builder, LLVMIntULE, llvm_lhs, llvm_rhs, "letmp");
+                } else {
+                    llvm_val = LLVMBuildICmp(cg->builder, LLVMIntSLE, llvm_lhs, llvm_rhs, "letmp");
+                }
+            }
+            break;
+        case PP_TT_EQUAL_EQUAL:
+            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFCmp(cg->builder, LLVMRealOEQ, llvm_lhs, llvm_rhs, "feqtmp");
+            } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildICmp(cg->builder, LLVMIntEQ, llvm_lhs, llvm_rhs, "eqtmp");
+            }
+            break;
+        case PP_TT_EXCLAMATION_EQUAL:
+            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFCmp(cg->builder, LLVMRealONE, llvm_lhs, llvm_rhs, "fneqtmp");
+            } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildICmp(cg->builder, LLVMIntNE, llvm_lhs, llvm_rhs, "neqtmp");
+            }
+            break;
+        default:
+            #warning "&& and !! require control-flow branch generation, hence not handled yet."
+            assert(0 && "Unhandled binary operator");
+            return NULL;
+    }
+
+    if (llvm_val == NULL) {
+        return NULL;
+    }
+    return llvm_val;
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node, bool is_compile_time) {

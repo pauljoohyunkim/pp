@@ -3,4 +3,4 @@ struct Vector {
     y :: int32;
 }
 
-let x :: int32 = -1;
+let x :: int32 = 1 + 1;
