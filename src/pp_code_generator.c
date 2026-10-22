@@ -640,9 +640,11 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_BinaryExpressionNode:
             llvm_val = pp_code_generator_generate_rvalue_binary(cg, symbol_table, env_b, node, false);
             break;
+    */
         case PP_AST_UnaryExpressionNode:
             llvm_val = pp_code_generator_generate_rvalue_unary(cg, symbol_table, env_b, node, false);
             break;
+    /*
         case PP_AST_CastExpressionNode:
             llvm_val = pp_code_generator_generate_rvalue_cast(cg, symbol_table, env_b, node, false);
             break;
@@ -702,9 +704,52 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node, bool is_compile_time) {
-    assert(cg); assert(symbol_table); assert(env_b); assert(node);
-    // Stubbed for now.
-    return NULL;
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(node);
+    assert(node->node_type == PP_AST_UnaryExpressionNode);
+
+    LLVMValueRef llvm_val = NULL;
+
+    LLVMValueRef llvm_operand = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->unary_expression.operand);
+    LLVMTypeRef llvm_operand_type = LLVMTypeOf(llvm_operand);
+    LLVMTypeKind llvm_operand_type_kind = LLVMGetTypeKind(llvm_operand_type);
+
+    switch (node->unary_expression.op) {
+        case PP_TT_MINUS:
+            switch (llvm_operand_type_kind) {
+                case LLVMFloatTypeKind:
+                    {
+                        const LLVMValueRef zero_const = LLVMConstReal(LLVMFloatTypeInContext(cg->ctx), 0);
+                        llvm_val = LLVMBuildFSub(cg->builder, zero_const, llvm_operand, "fnegtmp");
+                    }
+                    break;
+                case LLVMIntegerTypeKind:
+                    {
+                        const LLVMValueRef zero_const = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, true);
+                        llvm_val = LLVMBuildSub(cg->builder, zero_const, llvm_operand, "negtmp");
+                    }
+                    break;
+                default:
+                    assert(0 && "Unary minus type failure");
+                    break;
+            }
+            break;
+        case PP_TT_EXCLAMATION:
+            {
+                if (llvm_operand_type_kind == LLVMIntegerTypeKind) {
+                    const LLVMValueRef one_const = LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 1, true);
+                    llvm_val = LLVMBuildXor(cg->builder, one_const, llvm_operand, "nottmp");
+                }
+            }
+            break;
+        default:
+            assert(0 && "Unary expression failure");
+            return NULL;
+    }
+
+    return llvm_val;
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node, bool is_compile_time) {
