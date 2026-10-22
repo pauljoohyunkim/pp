@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static PP_Environment_Backend* pp_environment_backend_enter_scope(const PP_Environment_Backend* current_env_b);
 static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -49,6 +51,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerato
 
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
+static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                            PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -58,6 +62,22 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
     do {                                       \
         if ((ptr) == NULL) goto error_cleanup; \
     } while (0)
+
+static PP_Environment_Backend* pp_environment_backend_enter_scope(const PP_Environment_Backend* current_env_b) {
+    PP_Environment_Backend* child_scope = NULL;
+    NULL_POINTER_ERROR_HANDLE(current_env_b);
+
+    child_scope = pp_environment_backend_create();
+    NULL_POINTER_ERROR_HANDLE(child_scope);
+
+    child_scope->parent = current_env_b;
+
+    return child_scope;
+
+error_cleanup:
+    pp_environment_backend_free(child_scope);
+    return NULL;
+}
 
 PP_Environment_Backend* pp_environment_backend_create(void) {
     PP_Environment_Backend* env_b = (PP_Environment_Backend*)calloc(1, sizeof(PP_Environment_Backend));
@@ -495,23 +515,19 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
         }
     }
 
-    /*
-    for (unsigned int i = 0; i < cg->program->program.decl_count; i++) {
-        const PP_AST_Node* statement = cg->program->program.decls[i];
-        NULL_POINTER_ERROR_HANDLE(statement);
+    for (size_t i = 0; i < cg->program->program.decl_count; i++) {
+        const PP_AST_Node* stmt = cg->program->program.decls[i];
+        assert(stmt);
 
-        if (statement->node_type != PP_AST_FunctionDeclarationNode) {
-            continue;
-        }
+        if (stmt->node_type != PP_AST_FunctionCallNode && stmt->node_type != PP_AST_LambdaDeclarationNode) continue;
 
-        const char* func_name = statement->function_declaration.name;
+        const char* func_name = stmt->function_declaration.name;
+        assert(func_name);
 
-        if (pp_code_generator_generate_function_body(cg, cg->global_symbol_table, cg->global_env_b, statement, false) !=
-    1) { pp_error_list_push_error(cg->error_list, cg->filename, statement->line, statement->col, "Function \"%s\" has a
-    problem in body generation.", func_name);
+        if (!pp_code_generator_generate_function_body(cg, cg->gst, cg->global_env_b, stmt)) {
+            assert(0 && "Function body generation failure.");
         }
     }
-    */
 
     return 1;
 error_cleanup:
@@ -525,12 +541,15 @@ int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_
     return 0;
 }
 
+
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    PP_Environment_Backend* body_env_b = NULL;
     assert(cg);
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
+    assert(stmt->node_type == PP_AST_FunctionDeclarationNode || stmt->node_type == PP_AST_LambdaDeclarationNode);
 
     /* Stubbed for now.
        Implementation will follow CZ:
@@ -539,6 +558,97 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
        3. Generate statements in the body.
        4. Ensure terminator exists for all blocks. */
 
+    const char* func_name = stmt->function_declaration.name;
+    assert(func_name);
+    const PPSymbol* func_symbol = pp_symbol_table_lookup(symbol_table, func_name, false);
+    assert(func_symbol);
+
+    assert(func_symbol->type);
+    cg->current_function_type = func_symbol->type;
+    bool is_lambda = func_symbol->type->kind == PP_TK_Lambda;
+
+    // LLVM lookup
+    LLVMValueRef llvm_func = pp_environment_backend_lookup_val(env_b, func_symbol, false);
+    assert(llvm_func);
+
+    // Create block
+    LLVMBasicBlockRef llvm_entry_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_func, "entry");
+    assert(llvm_entry_block);
+    LLVMPositionBuilderAtEnd(cg->builder, llvm_entry_block);
+
+    // Enter backend scope
+    body_env_b = pp_environment_backend_enter_scope(env_b);
+    NULL_POINTER_ERROR_HANDLE(body_env_b);
+
+    // Fill environment with parameters by getting parameter's value ref and registering to backend.
+    size_t param_count = is_lambda ? func_symbol->type->type.pp_type_lambda.param_count
+                                   : func_symbol->type->type.pp_type_function.param_count;
+    for (size_t i = 0; i < param_count; i++) {
+        LLVMValueRef llvm_param_val = LLVMGetParam(llvm_func, i);
+        assert(llvm_param_val);
+        const char* param_name = stmt->function_declaration.params[i]->param_declaration.identifier;
+        assert(param_name);
+        const PPSymbol* param_symbol =
+            pp_symbol_table_lookup(stmt->function_declaration.body->statement_list.symbol_table, param_name, false);
+        assert(param_symbol);
+        const PPType* param_type = param_symbol->type;
+        assert(param_type);
+        LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
+        assert(llvm_param_type);
+
+        // TODO: Deal with references
+        LLVMValueRef llvm_alloca_slot = LLVMBuildAlloca(cg->builder, llvm_param_type, param_name);
+        LLVMBuildStore(cg->builder, llvm_param_val, llvm_alloca_slot);
+
+        if (!pp_environment_backend_push_val_map(body_env_b, param_symbol, llvm_alloca_slot)) { goto error_cleanup; }
+    }
+
+    size_t stmt_count = stmt->function_declaration.body->statement_list.stmt_count;
+    const PP_AST_Node** stmt_list = stmt->function_declaration.body->statement_list.stmts;
+    for (size_t i = 0; i < stmt_count; i++) {
+        if (!pp_code_generator_generate_statement(cg, stmt->function_declaration.body->statement_list.symbol_table, body_env_b, stmt_list[i])) {
+            goto error_cleanup;
+        }
+    }
+
+    // Skip all the basic block (if block, while block, for block) in the function until the end.
+    // Then return nothing if it is a void function,
+    // Or write "unreachable" for nonvoid flow fall.
+    for (LLVMBasicBlockRef bb = LLVMGetFirstBasicBlock(llvm_func); bb != NULL; bb = LLVMGetNextBasicBlock(bb)) {
+        // Check if this basic block lacks a terminator instruction
+        if (LLVMGetBasicBlockTerminator(bb) == NULL) {
+            LLVMPositionBuilderAtEnd(cg->builder, bb);
+
+            LLVMTypeRef ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(llvm_func));
+
+            if (LLVMGetTypeKind(ret_type) == LLVMVoidTypeKind) {
+                LLVMBuildRetVoid(cg->builder);
+            } else {
+                // Emits LLVM unreachable for non-void control flow fallthrough
+                LLVMBuildUnreachable(cg->builder);
+            }
+        }
+    }
+
+    pp_environment_backend_free(body_env_b);
+    return 1;
+
+error_cleanup:
+    pp_environment_backend_free(body_env_b);
+    return 0;
+}
+
+static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                PP_Environment_Backend* env_b, const PP_AST_Node* node) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(node);
+    /* Stubbed for now. */
+    (void)cg;
+    (void)symbol_table;
+    (void)env_b;
+    (void)node;
     return 1;
 }
 
