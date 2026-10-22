@@ -541,7 +541,6 @@ int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_
     return 0;
 }
 
-
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
     PP_Environment_Backend* body_env_b = NULL;
@@ -606,15 +605,16 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
     size_t stmt_count = stmt->function_declaration.body->statement_list.stmt_count;
     const PP_AST_Node** stmt_list = stmt->function_declaration.body->statement_list.stmts;
     for (size_t i = 0; i < stmt_count; i++) {
-        if (!pp_code_generator_generate_statement(cg, stmt->function_declaration.body->statement_list.symbol_table, body_env_b, stmt_list[i])) {
+        if (!pp_code_generator_generate_statement(cg, stmt->function_declaration.body->statement_list.symbol_table,
+                                                  body_env_b, stmt_list[i])) {
             goto error_cleanup;
         }
     }
 
-    // Skip all the basic block (if block, while block, for block) in the function until the end.
-    // Then return nothing if it is a void function,
-    // Or write "unreachable" for nonvoid flow fall.
-    #warning "Semantic analysis may need to check all the exit points"
+// Skip all the basic block (if block, while block, for block) in the function until the end.
+// Then return nothing if it is a void function,
+// Or write "unreachable" for nonvoid flow fall.
+#warning "Semantic analysis may need to check all the exit points"
     for (LLVMBasicBlockRef bb = LLVMGetFirstBasicBlock(llvm_func); bb != NULL; bb = LLVMGetNextBasicBlock(bb)) {
         // Check if this basic block lacks a terminator instruction
         if (LLVMGetBasicBlockTerminator(bb) == NULL) {
@@ -648,7 +648,7 @@ static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTa
 
     switch (node->node_type) {
         case PP_AST_VariableDeclarationNode:
-            break;    
+            break;
         case PP_AST_AssignmentNode:
             break;
         case PP_AST_ReturnStatementNode:
@@ -661,11 +661,11 @@ static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTa
             break;
         case PP_AST_StatementListNode:
             break;
-        #warning "Expression must be checked"
+#warning "Expression must be checked"
         default:
             abort();
     }
-    
+
     return 1;
 }
 
