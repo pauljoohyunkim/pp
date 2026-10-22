@@ -910,15 +910,76 @@ static int pp_code_generator_generate_if_statement(PP_CodeGenerator* cg, PPSymbo
 
 static int pp_code_generator_generate_for_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    PP_Environment_Backend* inner_env_b = NULL;
     assert(cg);
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
-    /* Stubbed for now. */
-    (void)cg;
-    (void)symbol_table;
-    (void)env_b;
-    (void)stmt;
+    assert(stmt->node_type == PP_AST_ForStatementNode);
+
+    LLVMValueRef llvm_cur_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder));
+    assert(llvm_cur_func);
+
+    // Create a sub-scope for for-loop (for initializer)
+    inner_env_b = pp_environment_backend_enter_scope(env_b);
+    assert(inner_env_b);
+
+    if (stmt->for_statement.init != NULL) {
+        if (pp_code_generator_generate_statement(cg, stmt->for_statement.for_init_symbol_table, inner_env_b, stmt->for_statement.init) != 1) {
+            abort();
+        }
+    }
+
+    // Create cond, body, step, end blocks
+    LLVMBasicBlockRef llvm_cond_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "for.cond");
+    assert(llvm_cond_block);
+    LLVMBasicBlockRef llvm_body_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "for.body");
+    assert(llvm_body_block);
+    LLVMBasicBlockRef llvm_step_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "for.step");
+    assert(llvm_step_block);
+    LLVMBasicBlockRef llvm_end_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "for.end");
+    assert(llvm_end_block);
+
+    // Branch: initializer -> cond_block
+    LLVMBuildBr(cg->builder, llvm_cond_block);
+
+    // Condition block
+    LLVMValueRef llvm_cond_val = NULL;
+    LLVMPositionBuilderAtEnd(cg->builder, llvm_cond_block);
+    if (stmt->for_statement.cond != NULL) {
+        llvm_cond_val = pp_code_generator_generate_rvalue(cg, stmt->for_statement.for_init_symbol_table, inner_env_b, stmt->for_statement.cond);
+        assert(llvm_cond_val);
+    } else {
+        llvm_cond_val = LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 1, false);
+    }
+
+    // Branching: if (cond) (llvm_body_block) else (llvm_end_block)
+    LLVMBuildCondBr(cg->builder, llvm_cond_val, llvm_body_block, llvm_end_block);
+
+    // Body
+    LLVMPositionBuilderAtEnd(cg->builder, llvm_body_block);
+    if (pp_code_generator_generate_statement(cg, stmt->for_statement.for_init_symbol_table, inner_env_b, stmt->for_statement.body) != 1) {
+        abort();
+    }
+    // Check return in body
+    if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cg->builder)) == NULL) {
+        LLVMBuildBr(cg->builder, llvm_step_block);
+    }
+
+    // Step
+    LLVMPositionBuilderAtEnd(cg->builder, llvm_step_block);
+    if (stmt->for_statement.update != NULL) {
+        if (pp_code_generator_generate_statement(cg, stmt->for_statement.for_init_symbol_table, inner_env_b, stmt->for_statement.update) != 1) {
+            abort();
+        }
+    }
+
+    // Step -> condition
+    LLVMBuildBr(cg->builder, llvm_cond_block);
+
+    LLVMPositionBuilderAtEnd(cg->builder, llvm_end_block);
+
+    pp_environment_backend_free(inner_env_b);
     return 1;
 }
 
