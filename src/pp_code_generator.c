@@ -18,6 +18,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerato
                                                                  PP_Environment_Backend* env_b,
                                                                  const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type, LLVMValueRef lvalue);
+static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -1198,6 +1199,60 @@ static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerato
 
     return llvm_val;
 }
+
+static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(node);
+    assert(node->node_type == PP_AST_FunctionCallNode);
+
+    LLVMValueRef llvm_val = NULL;
+    LLVMValueRef* llvm_args = NULL;
+
+    const PP_AST_Decoration* callee_decoration = pp_ast_get_decoration(node->function_call.callee);
+    assert(callee_decoration);
+    assert(callee_decoration->resolved_type);
+    assert(callee_decoration->resolved_type->kind == PP_TK_Function || callee_decoration->resolved_type->kind == PP_TK_Lambda);
+
+    bool is_lambda = callee_decoration->resolved_type->kind == PP_TK_Lambda;
+
+    LLVMValueRef llvm_callee_func = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.callee);
+    assert(llvm_callee_func);
+
+    LLVMTypeRef llvm_callee_func_type = pp_environment_backend_lookup_type(cg, callee_decoration->resolved_type);
+    assert(llvm_callee_func_type);
+
+    size_t param_count = is_lambda ? callee_decoration->resolved_type->type.pp_type_lambda.param_count : callee_decoration->resolved_type->type.pp_type_function.param_count;
+    if (param_count > 0) {
+        llvm_args = (LLVMValueRef*)calloc(param_count, sizeof(LLVMValueRef));
+        NULL_POINTER_ERROR_HANDLE(llvm_args);
+
+        for (unsigned int i = 0; i < param_count; i++) {
+            const PPType* param_type = is_lambda
+                ? callee_decoration->resolved_type->type.pp_type_lambda.param_types[i]
+                : callee_decoration->resolved_type->type.pp_type_function.param_types[i];
+            assert(param_type);
+
+            if (pp_type_is_reference(param_type)) {
+                llvm_args[i] = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+            } else {
+                llvm_args[i] = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+            }
+            assert(llvm_args[i]);
+        }
+    }
+
+    llvm_val = LLVMBuildCall2(cg->builder, llvm_callee_func_type, llvm_callee_func, llvm_args, param_count, "func_call");
+
+    free(llvm_args);
+    return llvm_val;
+
+error_cleanup:
+    free(llvm_args);
+    return NULL;
+}
+
 
 static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node) {
