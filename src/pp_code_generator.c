@@ -425,6 +425,7 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
 
         switch (statement->node_type) {
             case PP_AST_FunctionDeclarationNode:
+            case PP_AST_LambdaDeclarationNode:
                 pp_code_generator_emit_function(cg, cg->gst, cg->global_env_b, statement);
                 break;
             case PP_AST_StructDeclarationNode:
@@ -476,9 +477,29 @@ static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* 
     assert(env);
     assert(env_b);
     assert(stmt);
-    assert(stmt->node_type == PP_AST_FunctionDeclarationNode);
-    // Stubbed for now.
+    assert(stmt->node_type == PP_AST_FunctionDeclarationNode || stmt->node_type == PP_AST_LambdaDeclarationNode);
+
+    // Retrieve function/lambda
+    const char* func_name = stmt->function_declaration.name;
+    assert(func_name);
+    const PPSymbol* func_symbol = pp_symbol_table_lookup(cg->gst, func_name, false);
+    assert(func_symbol);
+    const PPType* func_type = func_symbol->type;
+    assert(func_type);
+
+    // Look up backend type
+    LLVMTypeRef llvm_func_type = pp_environment_backend_lookup_type(cg, func_type);
+    assert(llvm_func_type);
+
+    LLVMValueRef llvm_func_val = LLVMAddFunction(cg->mod, func_name, llvm_func_type);
+    NULL_POINTER_ERROR_HANDLE(llvm_func_val);
+
+    if (!pp_environment_backend_push_val_map(env_b, func_symbol, llvm_func_val)) goto error_cleanup;
+
     return 1;
+
+error_cleanup:
+    return 0;
 }
 
 static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbolTable* env,
