@@ -748,14 +748,72 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
     LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
     assert(llvm_rhs);
 
-    #warning "Assignment needs work"
-    // For now, only support basic assignment (=)
+    LLVMTypeRef llvm_rhs_type = LLVMTypeOf(llvm_rhs);
+    assert(llvm_rhs_type);
+    LLVMTypeKind llvm_rhs_type_kind = LLVMGetTypeKind(llvm_rhs_type);
+    assert(llvm_rhs_type_kind);
+
+    LLVMValueRef llvm_val = llvm_rhs;
+
     if (stmt->assignment.op != PP_TT_EQUAL) {
-        // Other operators would need to load LHS, operate, then store.
-        return 0; 
+        const PP_AST_Decoration* lhs_decor = pp_ast_get_decoration(stmt->assignment.lhs);
+        assert(lhs_decor);
+        const PPType* lhs_type = lhs_decor->resolved_type;
+        assert(lhs_type);
+        LLVMValueRef llvm_lhs_val = pp_code_generator_l_value_to_r_value(cg, lhs_type, llvm_lhs);
+        assert(llvm_lhs_val);
+
+        switch (stmt->assignment.op) {
+            case PP_TT_PLUS_EQUAL:
+                if (llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                    llvm_val = LLVMBuildFAdd(cg->builder, llvm_lhs_val, llvm_rhs, "faddtmp");
+                } else {
+                    llvm_val = LLVMBuildAdd(cg->builder, llvm_lhs_val, llvm_rhs, "addtmp");
+                }
+                break;
+            case PP_TT_MINUS_EQUAL:
+                if (llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                    llvm_val = LLVMBuildFSub(cg->builder, llvm_lhs_val, llvm_rhs, "fsubtmp");
+                } else {
+                    llvm_val = LLVMBuildSub(cg->builder, llvm_lhs_val, llvm_rhs, "subtmp");
+                }
+                break;
+            case PP_TT_STAR_EQUAL:
+                if (llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                    llvm_val = LLVMBuildFMul(cg->builder, llvm_lhs_val, llvm_rhs, "fmultmp");
+                } else {
+                    llvm_val = LLVMBuildMul(cg->builder, llvm_lhs_val, llvm_rhs, "multmp");
+                }
+                break;
+            case PP_TT_SLASH_EQUAL:
+                if (llvm_rhs_type_kind == LLVMFloatTypeKind) {
+                    llvm_val = LLVMBuildFDiv(cg->builder, llvm_lhs_val, llvm_rhs, "fdivtmp");
+                } else {
+                    bool is_unsigned = (lhs_type->kind == PP_TK_UInt32);
+                    llvm_val = is_unsigned ? LLVMBuildUDiv(cg->builder, llvm_lhs_val, llvm_rhs, "udivtmp") : LLVMBuildSDiv(cg->builder, llvm_lhs_val, llvm_rhs, "sdivtmp");
+                }
+                break;
+            case PP_TT_PERCENT_EQUAL:
+                {
+                    bool is_unsigned = (lhs_type->kind == PP_TK_UInt32);
+                    llvm_val = is_unsigned ? LLVMBuildURem(cg->builder, llvm_lhs_val, llvm_rhs, "uremtmp") : LLVMBuildSRem(cg->builder, llvm_lhs_val, llvm_rhs, "sremtmp");
+                }
+                break;
+            case PP_TT_AMPERSAND_EQUAL:
+                llvm_val = LLVMBuildAnd(cg->builder, llvm_lhs_val, llvm_rhs, "andtmp");
+                break;
+            case PP_TT_BAR_EQUAL:
+                llvm_val = LLVMBuildOr(cg->builder, llvm_lhs_val, llvm_rhs, "ortmp");
+                break;
+            case PP_TT_CARET_EQUAL:
+                llvm_val = LLVMBuildXor(cg->builder, llvm_lhs_val, llvm_rhs, "xortmp");
+                break;
+            default:
+                abort();
+        }
     }
 
-    LLVMBuildStore(cg->builder, llvm_rhs, llvm_lhs);
+    LLVMBuildStore(cg->builder, llvm_val, llvm_lhs);
     return 1;
 }
 
