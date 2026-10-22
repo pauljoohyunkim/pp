@@ -737,7 +737,14 @@ static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPS
     assert(current_function_return_type);
 
 #warning "Deal with void returns"
-    if (pp_type_is_reference(current_function_return_type)) {
+    if (current_function_return_type->kind == PP_TK_Void) {
+        if (stmt->return_statement.expr == NULL) {
+            LLVMBuildRetVoid(cg->builder);
+        } else {
+            // Not possible
+            abort();
+        }
+    } else if (pp_type_is_reference(current_function_return_type)) {
         LLVMValueRef llvm_return_val_ref =
             pp_code_generator_generate_lvalue(cg, symbol_table, env_b, stmt->return_statement.expr);
         LLVMBuildRet(cg->builder, llvm_return_val_ref);
