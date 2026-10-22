@@ -1622,12 +1622,32 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_Co
 static LLVMValueRef pp_code_generator_generate_rvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                     PP_Environment_Backend* env_b,
                                                                     const PP_AST_Node* node) {
+    LLVMValueRef llvm_val = NULL;
     assert(cg);
     assert(symbol_table);
     assert(env_b);
     assert(node);
-    // Stubbed for now.
-    return NULL;
+    assert(node->node_type == PP_AST_FunctionCallNode);
+
+
+    const PP_AST_Decoration* func_decor = pp_ast_get_decoration(node);
+    assert(func_decor);
+    assert(func_decor->resolved_type->kind == PP_TK_Function || func_decor->resolved_type->kind == PP_TK_Lambda);
+    bool is_lambda = func_decor->resolved_type->kind == PP_TK_Lambda;
+
+    LLVMValueRef llvm_func_call = pp_code_generator_generate_lvalue_function_call(cg, symbol_table, env_b, node);
+    assert(llvm_func_call);
+
+    const PPType* return_type = is_lambda ? func_decor->resolved_type->type.pp_type_lambda.return_type : func_decor->resolved_type->type.pp_type_function.return_type;
+    assert(return_type);
+
+    if (pp_type_is_reference(return_type)) {
+        llvm_val = pp_code_generator_l_value_to_r_value(cg, func_decor->resolved_type, llvm_func_call);
+    } else {
+        llvm_val = llvm_func_call;
+    }
+    
+    return llvm_val;
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
