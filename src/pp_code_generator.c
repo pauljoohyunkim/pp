@@ -860,11 +860,51 @@ static int pp_code_generator_generate_if_statement(PP_CodeGenerator* cg, PPSymbo
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
-    /* Stubbed for now. */
-    (void)cg;
-    (void)symbol_table;
-    (void)env_b;
-    (void)stmt;
+    assert(stmt->node_type == PP_AST_IfStatementNode);
+
+    LLVMValueRef llvm_cur_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder));
+    assert(llvm_cur_func);
+
+    // Condition
+    LLVMValueRef llvm_cond_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->if_statement.cond);
+    assert(llvm_cond_val);
+
+    // Then, Else, Merge blocks
+    LLVMBasicBlockRef llvm_then_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "if.then");
+    assert(llvm_then_block);
+    LLVMBasicBlockRef llvm_else_block = stmt->if_statement.else_branch != NULL ? LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "if.else") : NULL;
+    LLVMBasicBlockRef llvm_merge_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "if.end");
+    assert(llvm_merge_block);
+
+    // Branch based on condition
+    LLVMBasicBlockRef else_target = llvm_else_block != NULL ? llvm_else_block : llvm_merge_block;
+    LLVMBuildCondBr(cg->builder, llvm_cond_val, llvm_then_block, else_target);
+
+    // Then block
+    LLVMPositionBuilderAtEnd(cg->builder, llvm_then_block);
+    if (pp_code_generator_generate_statement(cg, symbol_table, env_b, stmt->if_statement.then_branch) != 1) {
+        abort();
+    }
+    // If not terminated, branch to merge
+    if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cg->builder)) == NULL) {
+        LLVMBuildBr(cg->builder, llvm_merge_block);
+    }
+
+    // Else block (if exists)
+    if (stmt->if_statement.else_branch != NULL) {
+        LLVMPositionBuilderAtEnd(cg->builder, llvm_else_block);
+        if (pp_code_generator_generate_statement(cg, symbol_table, env_b, stmt->if_statement.else_branch) != 1) {
+            abort();
+        }
+        // If not terminated, branch to merge
+        if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cg->builder)) == NULL) {
+            LLVMBuildBr(cg->builder, llvm_merge_block);
+        }
+    }
+
+    // Merge block
+    LLVMPositionBuilderAtEnd(cg->builder, llvm_merge_block);
+
     return 1;
 }
 

@@ -1,21 +1,24 @@
-func test_assignment :: (n :: int32) -> int32 {
-    let i :: int32 = 10;
-    i += 5;
-    i -= 2;
-    i *= 2;
-    i /= 4;
-    i %= 3;
-    i &= 1;
-    i |= 2;
-    i ^= 4;
-    return i;
+func test_if :: (n :: int32) -> int32 {
+    let result :: int32 = 0;
+    if (n > 10) {
+        result = 1;
+    } else {
+        result = -1;
+    }
+    return result;
 }
 
-func test_float_assignment :: (n :: float) -> float {
-    let f :: float = 10.0;
-    f += 5.5;
-    f -= 2.2;
-    f *= 2.0;
-    f /= 4.0;
-    return f;
+func test_if_no_else :: (n :: int32) -> int32 {
+    let result :: int32 = 0;
+    if (n > 10) {
+        result = 1;
+    }
+    return result;
+}
+
+func test_if_return :: (n :: int32) -> int32 {
+    if (n > 10) {
+        return 1;
+    }
+    return 0;
 }
