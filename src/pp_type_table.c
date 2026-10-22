@@ -285,6 +285,69 @@ error_cleanup:
     return NULL;
 }
 
+const PPType* pp_type_decay_cg(const PP_GlobalTypeTable* gtt, const PPType* type) {
+    PPType* tmp_type = NULL;
+    const PPType* result = NULL;
+
+    if (!gtt || !type) goto error_cleanup;
+
+    switch (type->kind) {
+        case PP_TK_Reference:
+            return pp_type_decay_cg(gtt, type->type.pp_type_reference.reference_to);
+        case PP_TK_Const:
+            return pp_type_decay_cg(gtt, type->type.pp_type_const.const_of);
+        case PP_TK_Array: {
+            const PPType* decayed_internal_type = pp_type_decay_cg(gtt, type->type.pp_type_array.element_type);
+            if (!decayed_internal_type) goto error_cleanup;
+
+            tmp_type = pp_type_create(PP_TK_Array);
+            NULL_POINTER_ERROR_HANDLE(tmp_type);
+
+            tmp_type->type.pp_type_array.size = type->type.pp_type_array.size;
+            tmp_type->type.pp_type_array.element_type = decayed_internal_type;
+
+            result = pp_global_type_table_find_type((PP_GlobalTypeTable*)gtt, tmp_type);
+
+            free(tmp_type);
+            tmp_type = NULL;
+
+            NULL_POINTER_ERROR_HANDLE(result);
+            return result;
+        }
+        case PP_TK_List: {
+            const PPType* decayed_internal_type = pp_type_decay_cg(gtt, type->type.pp_type_list.element_type);
+            if (!decayed_internal_type) goto error_cleanup;
+
+            tmp_type = pp_type_create(PP_TK_List);
+            NULL_POINTER_ERROR_HANDLE(tmp_type);
+
+            tmp_type->type.pp_type_list.element_type = decayed_internal_type;
+
+            result = pp_global_type_table_find_type((PP_GlobalTypeTable*)gtt, tmp_type);
+
+            free(tmp_type);
+            tmp_type = NULL;
+
+            NULL_POINTER_ERROR_HANDLE(result);
+            return result;
+        }
+        case PP_TK_Bool:
+        case PP_TK_Float:
+        case PP_TK_Int32:
+        case PP_TK_UInt32:
+        case PP_TK_Void:
+        case PP_TK_Struct:
+        case PP_TK_Newtype:
+            return type;
+        default:
+            goto error_cleanup;
+    }
+
+error_cleanup:
+    free(tmp_type);
+    return NULL;
+}
+
 const PPType* pp_type_resolve_machine_type(const PPType* t) {
     if (!t) return NULL;
     while (t && t->kind == PP_TK_Newtype) { t = t->type.pp_type_newtype.underlying; }

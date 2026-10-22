@@ -163,6 +163,8 @@ int main(int argc, char** argv) {
     } else {
         printf("Code generation succeeded.\n");
         pp_environment_backend_print_type_map(cg->global_env_b);
+        pp_environment_backend_print_value_map(cg->global_env_b);
+        LLVMDumpModule(cg->mod);
     }
 
 error_cleanup_exit:

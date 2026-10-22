@@ -91,6 +91,13 @@ bool pp_type_equal(const PPType* a, const PPType* b);
 const PPType* pp_type_decay(PP_GlobalTypeTable* gtt, const PPType* type);
 
 /**
+ * @brief Read-only counterpart to pp_type_decay that never interns.
+ *
+ * @return decayed interned type if it already exists, else NULL.
+ */
+const PPType* pp_type_decay_cg(const PP_GlobalTypeTable* gtt, const PPType* type);
+
+/**
  * @brief Resolve the underlying machine type for a possibly chained newtype.
  * Walks through PP_TK_Newtype nodes until a non-newtype type is reached.
  */

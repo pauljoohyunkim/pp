@@ -3,16 +3,4 @@ struct Vector {
     y :: int32;
 }
 
-func function :: (x :: float) -> float {
-    let v :: Vector = Vector {
-        .x = 0,
-        .y = 1
-    };
-    let v2 :: const Vector = Vector {
-        .x = 0,
-        .y = 1
-    };
-    let y :: int32 = 1;
-    let z :: int32& = y;
-    let z2 :: const int32& = y;
-}
+let x :: int32 = 1 + 1;
