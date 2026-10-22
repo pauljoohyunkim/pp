@@ -689,19 +689,10 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
                 }
             }
             break;
-        case PP_AST_IdentifierNode:
-            {
-                LLVMValueRef llvm_identifier_ref = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node);
-
-                if (node->decoration->resolved_type->kind == PP_TYPE_KIND_FUNCTION) {
-                    llvm_val = llvm_identifier_ref;
-                } else {
-                    // L-to-R value conversion for addressable nodes (Similarly for member access, array indexing, etc.)
-                    llvm_val = pp_code_generator_l_value_to_r_value(cg, node->decoration->resolved_type, llvm_identifier_ref);
-                }
-            }
-            break;
     */
+        case PP_AST_IdentifierNode:
+            llvm_val = pp_code_generator_generate_rvalue_identifier(cg, symbol_table, env_b, node);
+            break;
         default:
             assert(0 && "Cannot get r-value");
     }
@@ -849,7 +840,25 @@ static LLVMValueRef pp_code_generator_generate_rvalue_function_call(PP_CodeGener
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node) {
-    assert(cg); assert(symbol_table); assert(env_b); assert(node);
-    // Stubbed for now.
-    return NULL;
+    LLVMValueRef llvm_val = NULL;
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(node);
+    assert(node->node_type == PP_AST_IdentifierNode);
+    
+    LLVMValueRef llvm_identifier_ref = pp_code_generator_generate_lvalue_identifier(cg, symbol_table, env_b, node);
+    assert(llvm_identifier_ref);
+
+    const PP_AST_Decoration* identifier_decoration = pp_ast_get_decoration(node);
+    assert(identifier_decoration);
+    assert(identifier_decoration->resolved_type);
+
+    if (identifier_decoration->resolved_type->kind == PP_TK_Function || identifier_decoration->resolved_type->kind == PP_TK_Lambda) {
+        llvm_val = llvm_identifier_ref;
+    } else {
+        llvm_val = pp_code_generator_l_value_to_r_value(cg, identifier_decoration->resolved_type, llvm_identifier_ref);
+    }
+    
+    return llvm_val;
 }
