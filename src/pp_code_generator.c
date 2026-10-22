@@ -1,4 +1,7 @@
 #include "pp_code_generator.h"
+static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, PP_Environment_Backend* env_b, const PPType* type, LLVMValueRef lvalue);
+static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b,
                                            const PP_AST_Node* stmt);
 static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbolTable* env,
@@ -526,4 +529,31 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
     assert(stmt->node_type == PP_AST_VariableDeclarationNode);
     // Stubbed for now.
     return 1;
+}
+
+static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b, const PP_AST_Node* node) {
+    assert(cg);
+    assert(env);
+    assert(env_b);
+    assert(node);
+    // Stubbed for now.
+    return NULL;
+}
+
+static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, PP_Environment_Backend* env_b, const PPType* type, LLVMValueRef lvalue) {
+    assert(cg);
+    assert(env_b);
+    assert(type);
+    assert(lvalue);
+    // Stubbed for now.
+    return NULL;
+}
+
+static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b, const PP_AST_Node* node) {
+    assert(cg);
+    assert(env);
+    assert(env_b);
+    assert(node);
+    // Stubbed for now.
+    return NULL;
 }
