@@ -1,4 +1,5 @@
 #include "pp_code_generator.h"
+#include <errno.h>
 static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, PP_Environment_Backend* env_b, const PPType* type, LLVMValueRef lvalue);
 static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b, const PP_AST_Node* node);
@@ -651,9 +652,57 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b, const PP_AST_Node* node, bool is_compile_time) {
-    assert(cg); assert(env); assert(env_b); assert(node);
-    // Stubbed for now.
-    return NULL;
+    LLVMValueRef llvm_val = NULL;
+    assert(cg);
+    assert(env);
+    assert(env_b);
+    assert(node);
+    
+    switch (node->literal.literal_type) {
+        case PP_TT_INTEGER_LITERAL:
+            {
+                char* endptr = NULL;
+                errno = 0;
+                long long val = strtoll(node->literal.lexeme, &endptr, 10);
+                if (errno != 0 || node->literal.lexeme == endptr) {
+                    return NULL;
+                }
+                llvm_val = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), (unsigned long long)val, 1);
+            }
+            break;
+        case PP_TT_UNSIGNED_INTEGER_LITERAL:
+            {
+                char* endptr = NULL;
+                errno = 0;
+                unsigned long long val = strtoull(node->literal.lexeme, &endptr, 10);
+                if (errno != 0 || node->literal.lexeme == endptr) {
+                    return NULL;
+                }
+                llvm_val = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), val, 0);
+            }
+            break;
+        case PP_TT_FLOAT_LITERAL:
+            {
+                char* endptr = NULL;
+                errno = 0;
+                double val = strtod(node->literal.lexeme, &endptr);
+                if (errno != 0 || node->literal.lexeme == endptr) {
+                    return NULL;
+                }
+                llvm_val = LLVMConstReal(LLVMFloatTypeInContext(cg->ctx), val);
+            }
+            break;
+        case PP_TT_TRUE:
+            llvm_val = LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 1, false);
+            break;
+        case PP_TT_FALSE:
+            llvm_val = LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 0, false);
+            break;
+        default:
+            assert(0 && "Invalid literal");
+    }
+    
+    return llvm_val;
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerator* cg, PPSymbolTable* env, PP_Environment_Backend* env_b, const PP_AST_Node* node, bool is_compile_time) {
