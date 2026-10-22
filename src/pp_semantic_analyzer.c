@@ -1786,6 +1786,8 @@ static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, 
             break;
     }
 
+    return 1;
+
 error_cleanup:
     pp_symbol_table_free(inner_symbol_table);
     return 0;

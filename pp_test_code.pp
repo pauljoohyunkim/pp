@@ -1,5 +1,7 @@
-func relu :: (x :: float) -> float { return 1.0; }
-// func test_void :: () -> void { return; }
-let global_x :: float = 1.0;
-func test_ref :: () -> float& { return global_x; }
-func test_void :: () -> void { return; }
+func test_while :: (n :: int32) -> int32 {
+    let i :: int32 = 0;
+    while (i < n) {
+        i = i + 1;
+    }
+    return i;
+}

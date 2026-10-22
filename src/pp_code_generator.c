@@ -698,11 +698,40 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
-    /* Stubbed for now. */
-    (void)cg;
-    (void)symbol_table;
-    (void)env_b;
-    (void)stmt;
+    assert(stmt->node_type == PP_AST_VariableDeclarationNode);
+
+    const char* var_name = stmt->variable_declaration.var_decl->param_declaration.identifier;
+    assert(var_name);
+    const PPSymbol* var_symbol = pp_symbol_table_lookup(symbol_table, var_name, false);
+    assert(var_symbol);
+    const PPType* var_type = var_symbol->type;
+    LLVMTypeRef llvm_var_type = pp_environment_backend_lookup_type(cg, var_type);
+    assert(llvm_var_type);
+
+    LLVMValueRef llvm_var_alloca = LLVMBuildAlloca(cg->builder, llvm_var_type, var_name);
+    assert(llvm_var_alloca);
+
+    const PP_AST_Node* initializer_node = stmt->variable_declaration.initializer;
+    if (pp_type_is_reference(var_type)) {
+        // Initializer must exist.
+        assert(initializer_node);
+        LLVMValueRef var_initializer = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, initializer_node);
+        assert(var_initializer);
+        LLVMBuildStore(cg->builder, var_initializer, llvm_var_alloca);
+    } else {
+        if (initializer_node == NULL) {
+            LLVMBuildStore(cg->builder, LLVMConstNull(llvm_var_type), llvm_var_alloca);
+        } else {
+            LLVMValueRef var_initializer = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, initializer_node);
+            assert(var_initializer);
+            LLVMBuildStore(cg->builder, var_initializer, llvm_var_alloca);
+        }
+    }
+
+    if (pp_environment_backend_push_val_map(env_b, var_symbol, llvm_var_alloca) != 1) {
+        return 0;
+    }
+
     return 1;
 }
 
@@ -712,11 +741,21 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
-    /* Stubbed for now. */
-    (void)cg;
-    (void)symbol_table;
-    (void)env_b;
-    (void)stmt;
+    assert(stmt->node_type == PP_AST_AssignmentNode);
+
+    LLVMValueRef llvm_lhs = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, stmt->assignment.lhs);
+    assert(llvm_lhs);
+    LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
+    assert(llvm_rhs);
+
+    #warning "Assignment needs work"
+    // For now, only support basic assignment (=)
+    if (stmt->assignment.op != PP_TT_EQUAL) {
+        // Other operators would need to load LHS, operate, then store.
+        return 0; 
+    }
+
+    LLVMBuildStore(cg->builder, llvm_rhs, llvm_lhs);
     return 1;
 }
 
@@ -791,26 +830,70 @@ static int pp_code_generator_generate_while_statement(PP_CodeGenerator* cg, PPSy
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
-    /* Stubbed for now. */
-    (void)cg;
-    (void)symbol_table;
-    (void)env_b;
-    (void)stmt;
+    assert(stmt->node_type == PP_AST_WhileStatementNode);
+
+    LLVMValueRef llvm_cur_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder));
+
+    // Condition, body, end block
+    LLVMBasicBlockRef llvm_cond_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "while.cond");
+    LLVMBasicBlockRef llvm_body_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "while.body");
+    LLVMBasicBlockRef llvm_end_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "while.end");
+
+    // Current position branches to condition block
+    LLVMBuildBr(cg->builder, llvm_cond_block);
+
+    // Set builder to write to condition block.
+    LLVMPositionBuilderAtEnd(cg->builder, llvm_cond_block);
+    LLVMValueRef llvm_cond_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->while_statement.cond);
+    assert(llvm_cond_val);
+
+    // If condition is true, go to body again.
+    LLVMBuildCondBr(cg->builder, llvm_cond_val, llvm_body_block, llvm_end_block);
+
+    // Go to body and write instructions
+    LLVMPositionBuilderAtEnd(cg->builder, llvm_body_block);
+    if (pp_code_generator_generate_statement(cg, symbol_table, env_b, stmt->while_statement.body) != 1) {
+        return 0;
+    }
+
+    // If there was no return, go back to condition block.
+    if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cg->builder)) == NULL) {
+        LLVMBuildBr(cg->builder, llvm_cond_block);
+    }
+
+    LLVMPositionBuilderAtEnd(cg->builder, llvm_end_block);
+
     return 1;
 }
 
 static int pp_code_generator_generate_block_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    PP_Environment_Backend* inner_env_b = NULL;
     assert(cg);
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
-    /* Stubbed for now. */
-    (void)cg;
-    (void)symbol_table;
-    (void)env_b;
-    (void)stmt;
+    assert(stmt->node_type == PP_AST_StatementListNode);
+
+    inner_env_b = pp_environment_backend_enter_scope(env_b);
+    assert(inner_env_b);
+
+    unsigned int inner_stmt_count = stmt->statement_list.stmt_count;
+    const PP_AST_Node** inner_stmts = stmt->statement_list.stmts;
+    PPSymbolTable* inner_symbol_table = stmt->statement_list.symbol_table;
+    assert(inner_symbol_table);
+
+    for (unsigned int i = 0; i < inner_stmt_count; i++) {
+        if (pp_code_generator_generate_statement(cg, inner_symbol_table, inner_env_b, inner_stmts[i]) != 1) {
+            goto error_cleanup;
+        }
+    }
+    pp_environment_backend_free(inner_env_b);
     return 1;
+
+error_cleanup:
+    pp_environment_backend_free(inner_env_b);
+    return 0;
 }
 
 static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
