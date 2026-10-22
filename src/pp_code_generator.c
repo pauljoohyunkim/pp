@@ -139,6 +139,21 @@ static void pp_debug_print_type_inner(const PPType* t) {
     }
 }
 
+
+void pp_environment_backend_print_value_map(PP_Environment_Backend* env_b) {
+    if (env_b == NULL) return;
+
+    printf("Backend Value Map:\n");
+    for (size_t i = 0; i < env_b->value_count; i++) {
+        const PPSymbol* sym = env_b->value_map[i].symbol;
+        LLVMValueRef ref = env_b->value_map[i].ref;
+
+        printf("  [%p] (Symbol: %p, Type: ", (void*)sym, (void*)sym);
+        if (sym && sym->type) pp_debug_print_type_inner(sym->type);
+        printf(") -> LLVM Value: %p\n", (void*)ref);
+    }
+}
+
 void pp_environment_backend_print_type_map(PP_Environment_Backend* env_b) {
     if (env_b == NULL) return;
 

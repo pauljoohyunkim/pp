@@ -80,6 +80,12 @@ void pp_environment_backend_free(PP_Environment_Backend* env_b);
 void pp_environment_backend_print_type_map(PP_Environment_Backend* env_b);
 
 /**
+ * @brief Print the value mapping in the backend environment for debugging.
+ * @param env_b Backend to print.
+ */
+void pp_environment_backend_print_value_map(PP_Environment_Backend* env_b);
+
+/**
  * @brief Create a PP_CodeGenerator from a semantic analyzer.
  * @param sa Semantic analyzer whose ownership of program/gtt/etc. is transferred.
  * @return New code generator or NULL on failure.
