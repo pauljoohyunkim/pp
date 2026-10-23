@@ -518,3 +518,79 @@ TEST(CodeGenTest, CastNewtypeToUnderlying) {
     assert_ir_not_contains(cg.get(), "fptosi");
 }
 
+TEST(CodeGenTest, StructMemberRead) {
+    const char* source =
+        "struct Point { x :: int32; y :: int32; }\n"
+        "func test_struct_member_read :: (p :: Point) -> int32 { let v :: int32 = p.x; return v; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_struct_member_read");
+    assert_ir_contains(cg.get(), "getelementptr");
+    assert_ir_contains(cg.get(), "field_gep");
+}
+
+TEST(CodeGenTest, StructMemberWrite) {
+    const char* source =
+        "struct Point { x :: int32; y :: int32; }\n"
+        "func test_struct_member_write :: () -> int32 { let p :: Point; p.x = 42; return p.x; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_struct_member_write");
+    assert_ir_contains(cg.get(), "getelementptr");
+    assert_ir_contains(cg.get(), "store i32 42");
+    assert_ir_contains(cg.get(), "field_gep");
+}
+
+TEST(CodeGenTest, StructMemberMixedTypes) {
+    const char* source =
+        "struct Vec { x :: int32; y :: float; }\n"
+        "func test_mixed :: (v :: Vec) -> float { let f :: float = v.y; return f; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_mixed");
+    assert_ir_contains(cg.get(), "getelementptr");
+    // Index 1 corresponds to y field
+    assert_ir_contains(cg.get(), "field_gep");
+}
+
+TEST(CodeGenTest, StructMemberMultiFieldAccess) {
+    const char* source =
+        "struct Data { a :: int32; b :: int32; c :: int32; }\n"
+        "func test_multi :: (d :: Data) -> int32 { let sum :: int32 = d.a + d.b + d.c; return sum; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_multi");
+    assert_ir_contains(cg.get(), "getelementptr");
+    // Should have multiple field accesses
+    assert_ir_contains(cg.get(), "field_gep");
+}
+
+
