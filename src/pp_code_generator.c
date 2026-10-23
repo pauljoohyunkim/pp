@@ -1137,14 +1137,9 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_IdentifierNode:
             llvm_val = pp_code_generator_generate_lvalue_identifier(cg, symbol_table, env_b, node);
             break;
-            /*
-                case PP_AST_StructMemberAccessNode:
-                    llvm_val = pp_code_generator_generate_lvalue_struct_member_access(cg, symbol_table, env_b, node);
-                    break;
-                case PP_AST_FunctionCallNode:
-                    llvm_val = pp_code_generator_generate_lvalue_function_call(cg, symbol_table, env_b, node);
-                    break;
-            */
+        case PP_AST_FunctionCallNode:
+            llvm_val = pp_code_generator_generate_lvalue_function_call(cg, symbol_table, env_b, node);
+            break;
         default:
             assert(0 && "Cannot get l-value");
     }
@@ -1277,31 +1272,11 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_LiteralNode:
             llvm_val = pp_code_generator_generate_rvalue_literal(cg, symbol_table, env_b, node, false);
             break;
-            /*
-                case PP_AST_StructInitNode:
-                    llvm_val = pp_code_generator_generate_rvalue_struct_init(cg, symbol_table, env_b, node, false);
-                    break;
-                case PP_AST_CollectionInitializerNode:
-                    //llvm_val = pp_code_generator_generate_rvalue_collection_init(cg, symbol_table, env_b, node,
-               false); break; case PP_AST_StructMemberAccessNode:
-                    {
-                        LLVMValueRef llvm_struct_access_ref = pp_code_generator_generate_lvalue(cg, symbol_table, env_b,
-               node); llvm_val = pp_code_generator_l_value_to_r_value(cg, node->decoration->resolved_type,
-               llvm_struct_access_ref);
-                    }
-                    break;
-                case PP_AST_FunctionCallNode:
-                    {
-                        LLVMValueRef llvm_function_call = pp_code_generator_generate_lvalue(cg, symbol_table, env_b,
-               node); const PPType* ret_type = node->decoration->resolved_type;
 
-                        if (ret_type->kind == PP_TYPE_KIND_REFERENCE) {
-                            llvm_val = pp_code_generator_l_value_to_r_value(cg, node->decoration->resolved_type,
-               llvm_function_call); } else { llvm_val = llvm_function_call;
-                        }
-                    }
-                    break;
-            */
+        case PP_AST_FunctionCallNode:
+            llvm_val = pp_code_generator_generate_rvalue_function_call(cg, symbol_table, env_b, node);
+            break;
+
         case PP_AST_IdentifierNode:
             llvm_val = pp_code_generator_generate_rvalue_identifier(cg, symbol_table, env_b, node);
             break;
@@ -1629,20 +1604,16 @@ static LLVMValueRef pp_code_generator_generate_rvalue_function_call(PP_CodeGener
     assert(node);
     assert(node->node_type == PP_AST_FunctionCallNode);
 
-
-    const PP_AST_Decoration* func_decor = pp_ast_get_decoration(node);
-    assert(func_decor);
-    assert(func_decor->resolved_type->kind == PP_TK_Function || func_decor->resolved_type->kind == PP_TK_Lambda);
-    bool is_lambda = func_decor->resolved_type->kind == PP_TK_Lambda;
+    const PP_AST_Decoration* call_decor = pp_ast_get_decoration(node);
+    assert(call_decor);
+    assert(call_decor->resolved_type);
 
     LLVMValueRef llvm_func_call = pp_code_generator_generate_lvalue_function_call(cg, symbol_table, env_b, node);
     assert(llvm_func_call);
 
-    const PPType* return_type = is_lambda ? func_decor->resolved_type->type.pp_type_lambda.return_type : func_decor->resolved_type->type.pp_type_function.return_type;
-    assert(return_type);
-
+    const PPType* return_type = call_decor->resolved_type;
     if (pp_type_is_reference(return_type)) {
-        llvm_val = pp_code_generator_l_value_to_r_value(cg, func_decor->resolved_type, llvm_func_call);
+        llvm_val = pp_code_generator_l_value_to_r_value(cg, return_type, llvm_func_call);
     } else {
         llvm_val = llvm_func_call;
     }

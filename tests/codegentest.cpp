@@ -270,3 +270,101 @@ TEST(CodeGenTest, GlobalBoolBinaryAnd) {
     assert_ir_contains(cg.get(), "i1 false");
 }
 
+
+
+TEST(CodeGenTest, FunctionReturnLiteral) {
+    const char* source = "func foo :: () -> int32 { return 42; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@foo");
+    assert_ir_contains(cg.get(), "ret i32 42");
+}
+
+TEST(CodeGenTest, FunctionReturnVariable) {
+    const char* source = "func foo :: () -> int32 { let x :: int32 = 10; return x; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@foo");
+    assert_ir_contains(cg.get(), "alloca i32");
+    assert_ir_contains(cg.get(), "store i32 10");
+    assert_ir_contains(cg.get(), "ret i32");
+}
+
+TEST(CodeGenTest, FunctionCall) {
+    const char* source = "func add :: (a :: int32, b :: int32) -> int32 { return a + b; } func main :: () -> int32 { return add(1, 2); }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@add");
+    assert_ir_contains(cg.get(), "@main");
+    assert_ir_contains(cg.get(), "call i32 @add(i32 1, i32 2)");
+    assert_ir_contains(cg.get(), "ret i32");
+}
+
+TEST(CodeGenTest, FunctionCallWithLocalArg) {
+    const char* source = "func add :: (a :: int32, b :: int32) -> int32 { return a + b; } func main :: () -> int32 { let t :: int32 = 3; return add(t, 4); }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@main");
+    assert_ir_contains(cg.get(), "call i32 @add");
+    assert_ir_contains(cg.get(), "alloca i32");
+}
+TEST(CodeGenTest, FunctionReturnReference) {
+    const char* source = "let g :: int32 = 10;\nfunc get_ref :: () -> int32& { return g; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@get_ref");
+    assert_ir_contains(cg.get(), "define ptr @get_ref");
+    assert_ir_contains(cg.get(), "ret ptr @g");
+}
+
+TEST(CodeGenTest, FunctionReturnReferenceCall) {
+    const char* source = "let g :: int32 = 10;\nfunc get_ref :: () -> int32& { return g; }\nfunc main :: () -> int32 { let r :: int32& = get_ref(); return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@get_ref");
+    assert_ir_contains(cg.get(), "define ptr @get_ref");
+    assert_ir_contains(cg.get(), "call ptr @get_ref()");
+    assert_ir_contains(cg.get(), "alloca ptr");
+}
