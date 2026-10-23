@@ -290,7 +290,7 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                 decl = pp_parser_create_global_variable_declaration(parser);
                 break;
             default:
-                #warning "Parser error not recorded here."
+                pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser), pp_parser_get_col(parser), "Unexpected token at global scope.");
                 pp_parser_sync(parser);
                 continue;
         }
