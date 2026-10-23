@@ -21,6 +21,14 @@ static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, c
 static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
+
+static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block) {
+    LLVMBasicBlockRef cur = LLVMGetInsertBlock(cg->builder);
+    if (cur && LLVMGetBasicBlockTerminator(cur) == NULL) {
+        LLVMBuildBr(cg->builder, merge_block);
+    }
+}
+
 static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node,
                                                              bool is_compile_time);
@@ -1298,18 +1306,68 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
 
     LLVMValueRef llvm_val = NULL;
 
+    /* Short-circuit logical operators need control flow, handle them before eager RHS generation */
+    if (node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND || node->binary_expression.op == PP_TT_BAR_BAR) {
+        LLVMValueRef llvm_lhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->binary_expression.left);
+        assert(llvm_lhs);
+        const PP_AST_Decoration* lhs_decoration = pp_ast_get_decoration(node->binary_expression.left);
+        assert(lhs_decoration);
+        LLVMTypeRef llvm_lhs_type = pp_environment_backend_lookup_type(cg, lhs_decoration->resolved_type);
+        assert(llvm_lhs_type);
+        /* Expect i1 */
+        LLVMValueRef cur_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder));
+        assert(cur_func);
+        LLVMBasicBlockRef rhs_block = LLVMAppendBasicBlockInContext(cg->ctx, cur_func, node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND ? "and.rhs" : "or.rhs");
+        LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(cg->ctx, cur_func, node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND ? "and.end" : "or.end");
+        LLVMBasicBlockRef lhs_end = LLVMGetInsertBlock(cg->builder);
+        if (node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND) {
+            /* a && b : if a true go to rhs else merge false */
+            LLVMBuildCondBr(cg->builder, llvm_lhs, rhs_block, merge_block);
+        } else {
+            /* a || b : if a true go to merge else rhs */
+            LLVMBuildCondBr(cg->builder, llvm_lhs, merge_block, rhs_block);
+        }
+        LLVMPositionBuilderAtEnd(cg->builder, rhs_block);
+        LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->binary_expression.right);
+        assert(llvm_rhs);
+        LLVMBasicBlockRef rhs_end = LLVMGetInsertBlock(cg->builder);
+        pp_cg_ensure_terminated(cg, merge_block);
+        LLVMPositionBuilderAtEnd(cg->builder, merge_block);
+        LLVMValueRef phi = LLVMBuildPhi(cg->builder, LLVMInt1TypeInContext(cg->ctx), node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND ? "and.phi" : "or.phi");
+        LLVMValueRef incoming_vals[2];
+        LLVMBasicBlockRef incoming_blocks[2] = { lhs_end, rhs_end };
+        if (node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND) {
+            incoming_vals[0] = LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 0, 0);
+            incoming_vals[1] = llvm_rhs;
+        } else {
+            incoming_vals[0] = LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 1, 0);
+            incoming_vals[1] = llvm_rhs;
+        }
+        LLVMAddIncoming(phi, incoming_vals, incoming_blocks, 2);
+        llvm_val = phi;
+        return llvm_val;
+    }
+
+    /* ---- Eager evaluation for non-short-circuit operators ---- */
+
     LLVMValueRef llvm_lhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->binary_expression.left);
     assert(llvm_lhs);
+
     LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->binary_expression.right);
     assert(llvm_rhs);
+
+    /* ---- Type information ---- */
+
     const PP_AST_Decoration* lhs_decoration = pp_ast_get_decoration(node->binary_expression.left);
     assert(lhs_decoration);
     const PP_AST_Decoration* rhs_decoration = pp_ast_get_decoration(node->binary_expression.right);
     assert(rhs_decoration);
+
     LLVMTypeRef llvm_lhs_type = pp_environment_backend_lookup_type(cg, lhs_decoration->resolved_type);
     assert(llvm_lhs_type);
     LLVMTypeRef llvm_rhs_type = pp_environment_backend_lookup_type(cg, rhs_decoration->resolved_type);
     assert(llvm_rhs_type);
+
     LLVMTypeKind llvm_lhs_type_kind = LLVMGetTypeKind(llvm_lhs_type);
     assert(llvm_lhs_type_kind);
     LLVMTypeKind llvm_rhs_type_kind = LLVMGetTypeKind(llvm_rhs_type);
@@ -1450,7 +1508,6 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
             }
             break;
         default:
-#warning "&& and !! require control-flow branch generation, hence not handled yet."
             assert(0 && "Unhandled binary operator");
             return NULL;
     }
