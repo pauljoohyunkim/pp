@@ -9,6 +9,13 @@
 #include "pp_string_pool.h"
 #include "pp_tokens.h"
 
+static int pp_lexer_push_token(PP_Lexer* lexer, PP_Token token);
+static inline bool is_at_end(PP_Lexer* lexer);
+static inline void advance_pp(PP_Lexer* lexer, unsigned int n);
+static inline char peek_pp(PP_Lexer* lexer, unsigned int n);
+static int pp_lexer_push_token_helper(PP_Lexer* lexer, PP_TokenType type, size_t length);
+static bool pp_lexer_exactly_match_keyword(PP_Lexer* lexer, const char* keyword);
+
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
         if ((ptr) == NULL) goto error_cleanup; \

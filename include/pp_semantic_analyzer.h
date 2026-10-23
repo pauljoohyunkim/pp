@@ -21,8 +21,6 @@ typedef struct {
     PP_AST_Node* program;
     PP_StringPool* sp;
 
-    /* TODO: Environment not yet implemented */
-    // PP_Environment* global_env;
     PPSymbolTable* gst;
     PP_GlobalTypeTable* gtt;
 

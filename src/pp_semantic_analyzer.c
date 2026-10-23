@@ -1786,6 +1786,8 @@ static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, 
             break;
     }
 
+    return 1;
+
 error_cleanup:
     pp_symbol_table_free(inner_symbol_table);
     return 0;
@@ -2724,10 +2726,17 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
         goto error_cleanup;
     }
 
-    decoration = pp_ast_decoration_create(binary_type, PP_VALUE_CATEGORY_RVALUE,
+    const PPType* interned_binary_type = pp_global_type_table_intern(sa->gtt, binary_type);
+    if (!interned_binary_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                 "Failed to intern binary result type");
+        goto error_cleanup;
+    }
+    binary_type = NULL;
+
+    decoration = pp_ast_decoration_create(interned_binary_type, PP_VALUE_CATEGORY_RVALUE,
                                           lhs_decoration->is_constexpr && rhs_decoration->is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
-    binary_type = NULL;
 
     expr->binary_expression.decoration = decoration;
     decoration = NULL;
@@ -2817,10 +2826,17 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
         goto error_cleanup;
     }
 
-    decoration =
-        pp_ast_decoration_create(unary_type, PP_VALUE_CATEGORY_RVALUE, operand_decoration->is_constexpr, false);
-    NULL_POINTER_ERROR_HANDLE(decoration);
+    const PPType* interned_unary_type = pp_global_type_table_intern(sa->gtt, unary_type);
+    if (!interned_unary_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                 "Failed to intern unary result type");
+        goto error_cleanup;
+    }
     unary_type = NULL;
+
+    decoration = pp_ast_decoration_create(interned_unary_type, PP_VALUE_CATEGORY_RVALUE,
+                                          operand_decoration->is_constexpr, false);
+    NULL_POINTER_ERROR_HANDLE(decoration);
 
     expr->unary_expression.decoration = decoration;
     decoration = NULL;
