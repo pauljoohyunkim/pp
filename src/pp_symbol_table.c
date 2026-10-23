@@ -1,5 +1,6 @@
 #include "pp_symbol_table.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -109,4 +110,21 @@ PPSymbol* pp_symbol_table_lookup_mut(PPSymbolTable* st, const char* name, bool c
 
 const PPSymbol* pp_symbol_table_lookup(const PPSymbolTable* st, const char* name, bool cascade) {
     return pp_symbol_table_lookup_mut((PPSymbolTable*)st, name, cascade);
+}
+
+void pp_symbol_table_print(const PPSymbolTable* st, bool cascade) {
+    if (st == NULL) { return; }
+
+    printf("Symbol Table (Scope Level %u):\n", st->scope_level);
+    printf("  Symbols (%zu/%zu):\n", st->count, st->capacity);
+    for (size_t i = 0; i < st->count; i++) {
+        PPSymbol* sym = st->symbols[i];
+        printf("    [%zu] Name: %s, Type: %p, Constexpr: %s, Global: %s\n", i, st->names[i], (void*)sym->type,
+               sym->is_constexpr ? "true" : "false", sym->is_global ? "true" : "false");
+    }
+
+    if (cascade && st->parent != NULL) {
+        printf("  Parent Scope:\n");
+        pp_symbol_table_print(st->parent, true);
+    }
 }

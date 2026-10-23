@@ -65,6 +65,14 @@ PPSymbol* pp_symbol_table_lookup_mut(PPSymbolTable* st, const char* name, bool c
  */
 const PPSymbol* pp_symbol_table_lookup(const PPSymbolTable* st, const char* name, bool cascade);
 
+/**
+ * @brief Print the symbol table.
+ *
+ * @param st Pointer to the symbol table.
+ * @param cascade If true, recursively print parent symbol tables.
+ */
+void pp_symbol_table_print(const PPSymbolTable* st, bool cascade);
+
 #ifdef __cplusplus
 }
 #endif
