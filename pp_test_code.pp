@@ -1,2 +1,6 @@
-struct Data { a :: int32; b :: int32; c :: int32; }
-func test_multi :: (d :: Data) -> int32 { let sum :: int32 = d.a + d.b + d.c; return sum; }
+x :: int32 = 1;
+y :: int32 = 1;
+z :: int32 = 1;
+func test_multi :: () -> int32 { 
+    let sum :: int32 = x + y + z;
+return sum; }
