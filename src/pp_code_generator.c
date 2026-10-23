@@ -1334,6 +1334,10 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_CastExpressionNode:
             llvm_val = pp_code_generator_generate_rvalue_cast(cg, symbol_table, env_b, node, false);
             break;
+        case PP_AST_StructInitializerNode:
+            #warning "is_compile_time is currently hardcoded to false; dispatcher should propagate it"
+            llvm_val = pp_code_generator_generate_rvalue_struct_init(cg, symbol_table, env_b, node, false);
+            break;
         case PP_AST_LiteralNode:
             llvm_val = pp_code_generator_generate_rvalue_literal(cg, symbol_table, env_b, node, false);
             break;
@@ -1726,11 +1730,91 @@ static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* 
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                   PP_Environment_Backend* env_b,
                                                                   const PP_AST_Node* node, bool is_compile_time) {
+    LLVMValueRef* field_vals = NULL;
     assert(cg);
     assert(symbol_table);
     assert(env_b);
     assert(node);
-    // Stubbed for now.
+    assert(node->node_type == PP_AST_StructInitializerNode);
+
+    const PP_AST_Decoration* decor = pp_ast_get_decoration(node);
+    assert(decor);
+    const PPType* struct_type = decor->resolved_type;
+    assert(struct_type);
+    assert(struct_type->kind == PP_TK_Struct);
+
+    const PP_StructLayout* layout = struct_type->type.pp_type_struct.layout;
+    assert(layout);
+
+    LLVMTypeRef llvm_struct_type = pp_environment_backend_lookup_type(cg, struct_type);
+    assert(llvm_struct_type);
+
+    size_t field_count = layout->field_count;
+    if (field_count > 0) {
+        field_vals = (LLVMValueRef*)calloc(field_count, sizeof(LLVMValueRef));
+        NULL_POINTER_ERROR_HANDLE(field_vals);
+    }
+
+    for (unsigned int j = 0; j < node->struct_initializer.entry_count; j++) {
+        const PP_AST_StructInitEntry* entry = &node->struct_initializer.entries[j];
+        const char* member_name = entry->member_identifier->identifier.identifier;
+
+        int field_idx = -1;
+        for (size_t i = 0; i < field_count; i++) {
+            if (layout->fields[i].field_name == member_name) {
+                field_idx = (int)i;
+                break;
+            }
+        }
+
+        if (field_idx < 0) {
+            abort();
+        }
+
+        const PPStructField* field = &layout->fields[field_idx];
+        LLVMValueRef val = NULL;
+        if (pp_type_is_reference(field->field_type)) {
+            val = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, entry->member_value);
+        } else {
+            val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, entry->member_value);
+        }
+        assert(val);
+        field_vals[field_idx] = val;
+    }
+
+    for (size_t i = 0; i < field_count; i++) {
+        if (field_vals[i] != NULL) continue;
+
+        const PPStructField* field = &layout->fields[i];
+        LLVMTypeRef llvm_field_type = pp_environment_backend_lookup_type(cg, field->field_type);
+        assert(llvm_field_type);
+
+        LLVMValueRef val = NULL;
+        if (field->default_initializer != NULL) {
+            val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, field->default_initializer);
+        } else {
+            val = LLVMConstNull(llvm_field_type);
+        }
+        assert(val);
+        field_vals[i] = val;
+    }
+
+    LLVMValueRef result = NULL;
+    if (is_compile_time) {
+        result = LLVMConstStructInContext(cg->ctx, field_vals, (unsigned)field_count, 0);
+    } else {
+        result = LLVMGetUndef(llvm_struct_type);
+        for (size_t i = 0; i < field_count; i++) {
+            result = LLVMBuildInsertValue(cg->builder, result, field_vals[i], i, "struct_init_field");
+        }
+    }
+    NULL_POINTER_ERROR_HANDLE(result);
+
+    free(field_vals);
+    return result;
+
+error_cleanup:
+    if (field_vals) free(field_vals);
     return NULL;
 }
 
