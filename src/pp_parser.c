@@ -290,6 +290,7 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                 decl = pp_parser_create_global_variable_declaration(parser);
                 break;
             default:
+                #warning "Parser error not recorded here."
                 pp_parser_sync(parser);
                 continue;
         }
