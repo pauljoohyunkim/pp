@@ -560,10 +560,41 @@ error_cleanup:
 }
 
 int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename) {
-#warning "Object file generation stubbed"
-    assert(module);
-    assert(output_filename);
-    return 0;
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+
+    char* target_triple = LLVMGetDefaultTargetTriple();
+    LLVMSetTarget(module, target_triple);
+
+    LLVMTargetRef target;
+    char* error = NULL;
+    if (LLVMGetTargetFromTriple(target_triple, &target, &error)) {
+        fprintf(stderr, "LLVM Target Error: %s\\n", error);
+        LLVMDisposeMessage(error);
+        LLVMDisposeMessage(target_triple);
+        return 0;
+    }
+
+    LLVMTargetMachineRef target_machine =
+        LLVMCreateTargetMachine(target, target_triple, "generic", "", LLVMCodeGenLevelDefault, LLVMRelocPIC,
+                                LLVMCodeModelDefault);
+
+    LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(target_machine);
+    LLVMSetModuleDataLayout(module, data_layout);
+
+    if (LLVMTargetMachineEmitToFile(target_machine, module, (char*)output_filename, LLVMObjectFile, &error)) {
+        fprintf(stderr, "Failed to emit object file: %s\\n", error);
+        LLVMDisposeMessage(error);
+        LLVMDisposeTargetData(data_layout);
+        LLVMDisposeTargetMachine(target_machine);
+        LLVMDisposeMessage(target_triple);
+        return 0;
+    }
+
+    LLVMDisposeTargetData(data_layout);
+    LLVMDisposeTargetMachine(target_machine);
+    LLVMDisposeMessage(target_triple);
+    return 1;
 }
 
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -620,7 +651,6 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
         LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
         assert(llvm_param_type);
 
-        // TODO: Deal with references
         LLVMValueRef llvm_alloca_slot = LLVMBuildAlloca(cg->builder, llvm_param_type, param_name);
         LLVMBuildStore(cg->builder, llvm_param_val, llvm_alloca_slot);
 
