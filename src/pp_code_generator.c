@@ -18,16 +18,12 @@ static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerato
                                                                  PP_Environment_Backend* env_b,
                                                                  const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type, LLVMValueRef lvalue);
-static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                    PP_Environment_Backend* env_b,
+                                                                    const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
-
-static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block) {
-    LLVMBasicBlockRef cur = LLVMGetInsertBlock(cg->builder);
-    if (cur && LLVMGetBasicBlockTerminator(cur) == NULL) {
-        LLVMBuildBr(cg->builder, merge_block);
-    }
-}
+static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block);
 
 static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node,
@@ -101,6 +97,11 @@ static PP_Environment_Backend* pp_environment_backend_enter_scope(const PP_Envir
 error_cleanup:
     pp_environment_backend_free(child_scope);
     return NULL;
+}
+
+static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block) {
+    LLVMBasicBlockRef cur = LLVMGetInsertBlock(cg->builder);
+    if (cur && LLVMGetBasicBlockTerminator(cur) == NULL) { LLVMBuildBr(cg->builder, merge_block); }
 }
 
 PP_Environment_Backend* pp_environment_backend_create(void) {
@@ -737,9 +738,7 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
         }
     }
 
-    if (pp_environment_backend_push_val_map(env_b, var_symbol, llvm_var_alloca) != 1) {
-        return 0;
-    }
+    if (pp_environment_backend_push_val_map(env_b, var_symbol, llvm_var_alloca) != 1) { return 0; }
 
     return 1;
 }
@@ -799,15 +798,15 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
                     llvm_val = LLVMBuildFDiv(cg->builder, llvm_lhs_val, llvm_rhs, "fdivtmp");
                 } else {
                     bool is_unsigned = (lhs_type->kind == PP_TK_UInt32);
-                    llvm_val = is_unsigned ? LLVMBuildUDiv(cg->builder, llvm_lhs_val, llvm_rhs, "udivtmp") : LLVMBuildSDiv(cg->builder, llvm_lhs_val, llvm_rhs, "sdivtmp");
+                    llvm_val = is_unsigned ? LLVMBuildUDiv(cg->builder, llvm_lhs_val, llvm_rhs, "udivtmp")
+                                           : LLVMBuildSDiv(cg->builder, llvm_lhs_val, llvm_rhs, "sdivtmp");
                 }
                 break;
-            case PP_TT_PERCENT_EQUAL:
-                {
-                    bool is_unsigned = (lhs_type->kind == PP_TK_UInt32);
-                    llvm_val = is_unsigned ? LLVMBuildURem(cg->builder, llvm_lhs_val, llvm_rhs, "uremtmp") : LLVMBuildSRem(cg->builder, llvm_lhs_val, llvm_rhs, "sremtmp");
-                }
-                break;
+            case PP_TT_PERCENT_EQUAL: {
+                bool is_unsigned = (lhs_type->kind == PP_TK_UInt32);
+                llvm_val = is_unsigned ? LLVMBuildURem(cg->builder, llvm_lhs_val, llvm_rhs, "uremtmp")
+                                       : LLVMBuildSRem(cg->builder, llvm_lhs_val, llvm_rhs, "sremtmp");
+            } break;
             case PP_TT_AMPERSAND_EQUAL:
                 llvm_val = LLVMBuildAnd(cg->builder, llvm_lhs_val, llvm_rhs, "andtmp");
                 break;
@@ -881,7 +880,9 @@ static int pp_code_generator_generate_if_statement(PP_CodeGenerator* cg, PPSymbo
     // Then, Else, Merge blocks
     LLVMBasicBlockRef llvm_then_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "if.then");
     assert(llvm_then_block);
-    LLVMBasicBlockRef llvm_else_block = stmt->if_statement.else_branch != NULL ? LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "if.else") : NULL;
+    LLVMBasicBlockRef llvm_else_block = stmt->if_statement.else_branch != NULL
+                                            ? LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "if.else")
+                                            : NULL;
     LLVMBasicBlockRef llvm_merge_block = LLVMAppendBasicBlockInContext(cg->ctx, llvm_cur_func, "if.end");
     assert(llvm_merge_block);
 
@@ -891,9 +892,7 @@ static int pp_code_generator_generate_if_statement(PP_CodeGenerator* cg, PPSymbo
 
     // Then block
     LLVMPositionBuilderAtEnd(cg->builder, llvm_then_block);
-    if (pp_code_generator_generate_statement(cg, symbol_table, env_b, stmt->if_statement.then_branch) != 1) {
-        abort();
-    }
+    if (pp_code_generator_generate_statement(cg, symbol_table, env_b, stmt->if_statement.then_branch) != 1) { abort(); }
     // If not terminated, branch to merge
     if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cg->builder)) == NULL) {
         LLVMBuildBr(cg->builder, llvm_merge_block);
@@ -934,7 +933,8 @@ static int pp_code_generator_generate_for_statement(PP_CodeGenerator* cg, PPSymb
     assert(inner_env_b);
 
     if (stmt->for_statement.init != NULL) {
-        if (pp_code_generator_generate_statement(cg, stmt->for_statement.for_init_symbol_table, inner_env_b, stmt->for_statement.init) != 1) {
+        if (pp_code_generator_generate_statement(cg, stmt->for_statement.for_init_symbol_table, inner_env_b,
+                                                 stmt->for_statement.init) != 1) {
             abort();
         }
     }
@@ -956,7 +956,8 @@ static int pp_code_generator_generate_for_statement(PP_CodeGenerator* cg, PPSymb
     LLVMValueRef llvm_cond_val = NULL;
     LLVMPositionBuilderAtEnd(cg->builder, llvm_cond_block);
     if (stmt->for_statement.cond != NULL) {
-        llvm_cond_val = pp_code_generator_generate_rvalue(cg, stmt->for_statement.for_init_symbol_table, inner_env_b, stmt->for_statement.cond);
+        llvm_cond_val = pp_code_generator_generate_rvalue(cg, stmt->for_statement.for_init_symbol_table, inner_env_b,
+                                                          stmt->for_statement.cond);
         assert(llvm_cond_val);
     } else {
         llvm_cond_val = LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 1, false);
@@ -967,7 +968,8 @@ static int pp_code_generator_generate_for_statement(PP_CodeGenerator* cg, PPSymb
 
     // Body
     LLVMPositionBuilderAtEnd(cg->builder, llvm_body_block);
-    if (pp_code_generator_generate_statement(cg, stmt->for_statement.for_init_symbol_table, inner_env_b, stmt->for_statement.body) != 1) {
+    if (pp_code_generator_generate_statement(cg, stmt->for_statement.for_init_symbol_table, inner_env_b,
+                                             stmt->for_statement.body) != 1) {
         abort();
     }
     // Check return in body
@@ -978,7 +980,8 @@ static int pp_code_generator_generate_for_statement(PP_CodeGenerator* cg, PPSymb
     // Step
     LLVMPositionBuilderAtEnd(cg->builder, llvm_step_block);
     if (stmt->for_statement.update != NULL) {
-        if (pp_code_generator_generate_statement(cg, stmt->for_statement.for_init_symbol_table, inner_env_b, stmt->for_statement.update) != 1) {
+        if (pp_code_generator_generate_statement(cg, stmt->for_statement.for_init_symbol_table, inner_env_b,
+                                                 stmt->for_statement.update) != 1) {
             abort();
         }
     }
@@ -1020,9 +1023,7 @@ static int pp_code_generator_generate_while_statement(PP_CodeGenerator* cg, PPSy
 
     // Go to body and write instructions
     LLVMPositionBuilderAtEnd(cg->builder, llvm_body_block);
-    if (pp_code_generator_generate_statement(cg, symbol_table, env_b, stmt->while_statement.body) != 1) {
-        return 0;
-    }
+    if (pp_code_generator_generate_statement(cg, symbol_table, env_b, stmt->while_statement.body) != 1) { return 0; }
 
     // If there was no return, go back to condition block.
     if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cg->builder)) == NULL) {
@@ -1203,7 +1204,9 @@ static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerato
     return llvm_val;
 }
 
-static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table, PP_Environment_Backend* env_b, const PP_AST_Node* node) {
+static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                    PP_Environment_Backend* env_b,
+                                                                    const PP_AST_Node* node) {
     assert(cg);
     assert(symbol_table);
     assert(env_b);
@@ -1216,37 +1219,43 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
     const PP_AST_Decoration* callee_decoration = pp_ast_get_decoration(node->function_call.callee);
     assert(callee_decoration);
     assert(callee_decoration->resolved_type);
-    assert(callee_decoration->resolved_type->kind == PP_TK_Function || callee_decoration->resolved_type->kind == PP_TK_Lambda);
+    assert(callee_decoration->resolved_type->kind == PP_TK_Function ||
+           callee_decoration->resolved_type->kind == PP_TK_Lambda);
 
     bool is_lambda = callee_decoration->resolved_type->kind == PP_TK_Lambda;
 
-    LLVMValueRef llvm_callee_func = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.callee);
+    LLVMValueRef llvm_callee_func =
+        pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.callee);
     assert(llvm_callee_func);
 
     LLVMTypeRef llvm_callee_func_type = pp_environment_backend_lookup_type(cg, callee_decoration->resolved_type);
     assert(llvm_callee_func_type);
 
-    size_t param_count = is_lambda ? callee_decoration->resolved_type->type.pp_type_lambda.param_count : callee_decoration->resolved_type->type.pp_type_function.param_count;
+    size_t param_count = is_lambda ? callee_decoration->resolved_type->type.pp_type_lambda.param_count
+                                   : callee_decoration->resolved_type->type.pp_type_function.param_count;
     if (param_count > 0) {
         llvm_args = (LLVMValueRef*)calloc(param_count, sizeof(LLVMValueRef));
         NULL_POINTER_ERROR_HANDLE(llvm_args);
 
         for (unsigned int i = 0; i < param_count; i++) {
             const PPType* param_type = is_lambda
-                ? callee_decoration->resolved_type->type.pp_type_lambda.param_types[i]
-                : callee_decoration->resolved_type->type.pp_type_function.param_types[i];
+                                           ? callee_decoration->resolved_type->type.pp_type_lambda.param_types[i]
+                                           : callee_decoration->resolved_type->type.pp_type_function.param_types[i];
             assert(param_type);
 
             if (pp_type_is_reference(param_type)) {
-                llvm_args[i] = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                llvm_args[i] =
+                    pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
             } else {
-                llvm_args[i] = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                llvm_args[i] =
+                    pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
             }
             assert(llvm_args[i]);
         }
     }
 
-    llvm_val = LLVMBuildCall2(cg->builder, llvm_callee_func_type, llvm_callee_func, llvm_args, param_count, "func_call");
+    llvm_val =
+        LLVMBuildCall2(cg->builder, llvm_callee_func_type, llvm_callee_func, llvm_args, param_count, "func_call");
 
     free(llvm_args);
     return llvm_val;
@@ -1255,7 +1264,6 @@ error_cleanup:
     free(llvm_args);
     return NULL;
 }
-
 
 static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node) {
@@ -1309,7 +1317,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
     /* Short-circuit logical operators need control flow, handle them before eager RHS generation */
     if (cg->current_function_type) {
         if (node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND || node->binary_expression.op == PP_TT_BAR_BAR) {
-            LLVMValueRef llvm_lhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->binary_expression.left);
+            LLVMValueRef llvm_lhs =
+                pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->binary_expression.left);
             assert(llvm_lhs);
             const PP_AST_Decoration* lhs_decoration = pp_ast_get_decoration(node->binary_expression.left);
             assert(lhs_decoration);
@@ -1318,8 +1327,14 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
             /* Expect i1 */
             LLVMValueRef cur_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder));
             assert(cur_func);
-            LLVMBasicBlockRef rhs_block = LLVMAppendBasicBlockInContext(cg->ctx, cur_func, node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND ? "and.rhs" : "or.rhs");
-            LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(cg->ctx, cur_func, node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND ? "and.end" : "or.end");
+            LLVMBasicBlockRef rhs_block =
+                LLVMAppendBasicBlockInContext(cg->ctx, cur_func,
+                                              node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND ? "and.rhs"
+                                                                                                      : "or.rhs");
+            LLVMBasicBlockRef merge_block =
+                LLVMAppendBasicBlockInContext(cg->ctx, cur_func,
+                                              node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND ? "and.end"
+                                                                                                      : "or.end");
             LLVMBasicBlockRef lhs_end = LLVMGetInsertBlock(cg->builder);
             if (node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND) {
                 /* a && b : if a true go to rhs else merge false */
@@ -1329,14 +1344,17 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 LLVMBuildCondBr(cg->builder, llvm_lhs, merge_block, rhs_block);
             }
             LLVMPositionBuilderAtEnd(cg->builder, rhs_block);
-            LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->binary_expression.right);
+            LLVMValueRef llvm_rhs =
+                pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->binary_expression.right);
             assert(llvm_rhs);
             LLVMBasicBlockRef rhs_end = LLVMGetInsertBlock(cg->builder);
             pp_cg_ensure_terminated(cg, merge_block);
             LLVMPositionBuilderAtEnd(cg->builder, merge_block);
-            LLVMValueRef phi = LLVMBuildPhi(cg->builder, LLVMInt1TypeInContext(cg->ctx), node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND ? "and.phi" : "or.phi");
+            LLVMValueRef phi =
+                LLVMBuildPhi(cg->builder, LLVMInt1TypeInContext(cg->ctx),
+                             node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND ? "and.phi" : "or.phi");
             LLVMValueRef incoming_vals[2];
-            LLVMBasicBlockRef incoming_blocks[2] = { lhs_end, rhs_end };
+            LLVMBasicBlockRef incoming_blocks[2] = {lhs_end, rhs_end};
             if (node->binary_expression.op == PP_TT_AMPERSAND_AMPERSAND) {
                 incoming_vals[0] = LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 0, 0);
                 incoming_vals[1] = llvm_rhs;
@@ -1678,7 +1696,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_function_call(PP_CodeGener
     } else {
         llvm_val = llvm_func_call;
     }
-    
+
     return llvm_val;
 }
 
