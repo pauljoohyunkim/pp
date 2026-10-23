@@ -1213,48 +1213,45 @@ static LLVMValueRef pp_code_generator_generate_lvalue_struct_member_access(PP_Co
                                                                            PPSymbolTable* symbol_table,
                                                                            PP_Environment_Backend* env_b,
                                                                            const PP_AST_Node* node) {
-    NULL_POINTER_ERROR_HANDLE(cg);
-    NULL_POINTER_ERROR_HANDLE(symbol_table);
-    NULL_POINTER_ERROR_HANDLE(env_b);
-    NULL_POINTER_ERROR_HANDLE(node);
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(node);
     assert(node->node_type == PP_AST_MemberAccessNode);
 
     const PP_AST_Decoration* object_decoration = pp_ast_get_decoration(node->member_access.object);
-    NULL_POINTER_ERROR_HANDLE(object_decoration);
+    assert(object_decoration);
 
     const PPType* base_type = pp_type_decay_cg(cg->gtt, object_decoration->resolved_type);
-    NULL_POINTER_ERROR_HANDLE(base_type);
+    assert(base_type);
     assert(base_type->kind == PP_TK_Struct);
 
     const char* member_name = node->member_access.member;
-    NULL_POINTER_ERROR_HANDLE(member_name);
+    assert(member_name);
 
     int field_idx = -1;
     const PP_StructLayout* layout = base_type->type.pp_type_struct.layout;
-    NULL_POINTER_ERROR_HANDLE(layout);
+    assert(layout);
     for (size_t i = 0; i < layout->field_count; i++) {
         if (layout->fields[i].field_name == member_name) {
             field_idx = (int)i;
             break;
         }
     }
-    if (field_idx < 0) goto error_cleanup;
+    if (field_idx < 0) { abort(); }
 
     LLVMValueRef llvm_struct_ptr =
         pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->member_access.object);
-    NULL_POINTER_ERROR_HANDLE(llvm_struct_ptr);
+    assert(llvm_struct_ptr);
 
     LLVMTypeRef llvm_struct_type = pp_environment_backend_lookup_type(cg, base_type);
-    NULL_POINTER_ERROR_HANDLE(llvm_struct_type);
+    assert(llvm_struct_type);
 
     LLVMValueRef llvm_gep =
         LLVMBuildStructGEP2(cg->builder, llvm_struct_type, llvm_struct_ptr, (unsigned)field_idx, "field_gep");
-    NULL_POINTER_ERROR_HANDLE(llvm_gep);
+    assert(llvm_gep);
 
     return llvm_gep;
-
-error_cleanup:
-    return NULL;
 }
 
 static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -1828,20 +1825,20 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_Co
                                                                            PPSymbolTable* symbol_table,
                                                                            PP_Environment_Backend* env_b,
                                                                            const PP_AST_Node* node) {
-    NULL_POINTER_ERROR_HANDLE(cg);
-    NULL_POINTER_ERROR_HANDLE(symbol_table);
-    NULL_POINTER_ERROR_HANDLE(env_b);
-    NULL_POINTER_ERROR_HANDLE(node);
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(node);
     assert(node->node_type == PP_AST_MemberAccessNode);
 
     const PP_AST_Decoration* dec = pp_ast_get_decoration(node);
-    NULL_POINTER_ERROR_HANDLE(dec);
+    assert(dec);
 
     LLVMValueRef llvm_lval = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node);
-    NULL_POINTER_ERROR_HANDLE(llvm_lval);
+    assert(llvm_lval);
 
     LLVMValueRef llvm_val = pp_code_generator_l_value_to_r_value(cg, dec->resolved_type, llvm_lval);
-    NULL_POINTER_ERROR_HANDLE(llvm_val);
+    assert(llvm_val);
 
     return llvm_val;
 
