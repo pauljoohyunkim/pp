@@ -451,3 +451,70 @@ TEST(CodeGenTest, LogicalShortCircuitWithCalls) {
     /* Ensure b() is only called in or.rhs block, not unconditionally */
     assert_ir_contains(cg.get(), "call i1 @b()");
 }
+
+TEST(CodeGenTest, CastIntToFloat) {
+    const char* source = "func test_cast :: () -> float { let x :: int32 = 42; return x as float; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_cast");
+    assert_ir_contains(cg.get(), "sitofp");
+}
+
+TEST(CodeGenTest, CastNewtype) {
+    const char* source =
+        "newtype int32 Meters;\n"
+        "func test_newtype_cast :: () -> float { let x :: Meters = 10 as Meters; return x as float; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_newtype_cast");
+    assert_ir_contains(cg.get(), "sitofp");
+}
+
+TEST(CodeGenTest, CastFloatToInt) {
+    const char* source = "func test_cast :: () -> int32 { let x :: float = 3.14; return x as int32; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_cast");
+    assert_ir_contains(cg.get(), "fptosi");
+}
+
+TEST(CodeGenTest, CastNewtypeToUnderlying) {
+    const char* source =
+        "newtype int32 Meters;\n"
+        "func test_newtype_to_underlying :: () -> int32 { let x :: Meters = 5 as Meters; return x as int32; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_newtype_to_underlying");
+    // Casting newtype to underlying should be a no-op at LLVM level
+    assert_ir_not_contains(cg.get(), "sitofp");
+    assert_ir_not_contains(cg.get(), "fptosi");
+}
+

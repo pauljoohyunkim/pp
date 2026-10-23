@@ -1280,11 +1280,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_UnaryExpressionNode:
             llvm_val = pp_code_generator_generate_rvalue_unary(cg, symbol_table, env_b, node, false);
             break;
-            /*
-                case PP_AST_CastExpressionNode:
-                    llvm_val = pp_code_generator_generate_rvalue_cast(cg, symbol_table, env_b, node, false);
-                    break;
-            */
+        case PP_AST_CastExpressionNode:
+            llvm_val = pp_code_generator_generate_rvalue_cast(cg, symbol_table, env_b, node, false);
+            break;
         case PP_AST_LiteralNode:
             llvm_val = pp_code_generator_generate_rvalue_literal(cg, symbol_table, env_b, node, false);
             break;
@@ -1591,8 +1589,42 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
     assert(symbol_table);
     assert(env_b);
     assert(node);
-    // Stubbed for now.
-    return NULL;
+    assert(node->node_type == PP_AST_CastExpressionNode);
+
+    LLVMValueRef llvm_val = NULL;
+
+    const PP_AST_Node* expr_node = node->cast_expression.expression;
+    assert(expr_node);
+
+    LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
+    assert(llvm_val_to_cast);
+
+    const PP_AST_Decoration* expr_decoration = pp_ast_get_decoration(expr_node);
+    assert(expr_decoration);
+    const PP_AST_Decoration* cast_decoration = pp_ast_get_decoration(node);
+    assert(cast_decoration);
+
+    LLVMTypeRef llvm_src_type = pp_environment_backend_lookup_type(cg, expr_decoration->resolved_type);
+    assert(llvm_src_type);
+    LLVMTypeRef llvm_dest_type = pp_environment_backend_lookup_type(cg, cast_decoration->resolved_type);
+    assert(llvm_dest_type);
+
+    if (llvm_src_type == llvm_dest_type) {
+        llvm_val = llvm_val_to_cast;
+    } else {
+        LLVMTypeKind src_kind = LLVMGetTypeKind(llvm_src_type);
+        LLVMTypeKind dest_kind = LLVMGetTypeKind(llvm_dest_type);
+
+        if (src_kind == LLVMIntegerTypeKind && dest_kind == LLVMFloatTypeKind) {
+            llvm_val = LLVMBuildSIToFP(cg->builder, llvm_val_to_cast, llvm_dest_type, "sitofp_tmp");
+        } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMIntegerTypeKind) {
+            llvm_val = LLVMBuildFPToSI(cg->builder, llvm_val_to_cast, llvm_dest_type, "fptosi_tmp");
+        } else {
+            abort();
+        }
+    }
+
+    return llvm_val;
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
