@@ -2834,8 +2834,8 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
     }
     unary_type = NULL;
 
-    decoration =
-        pp_ast_decoration_create(interned_unary_type, PP_VALUE_CATEGORY_RVALUE, operand_decoration->is_constexpr, false);
+    decoration = pp_ast_decoration_create(interned_unary_type, PP_VALUE_CATEGORY_RVALUE,
+                                          operand_decoration->is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
 
     expr->unary_expression.decoration = decoration;

@@ -17,7 +17,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
 static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                  PP_Environment_Backend* env_b,
                                                                  const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_lvalue_struct_member_access(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+static LLVMValueRef pp_code_generator_generate_lvalue_struct_member_access(PP_CodeGenerator* cg,
+                                                                           PPSymbolTable* symbol_table,
                                                                            PP_Environment_Backend* env_b,
                                                                            const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type, LLVMValueRef lvalue);
@@ -29,23 +30,19 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
 static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block);
 
 static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                             PP_Environment_Backend* env_b, const PP_AST_Node* node,
-                                                             bool is_compile_time);
+                                                             PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                            PP_Environment_Backend* env_b, const PP_AST_Node* node,
-                                                            bool is_compile_time);
+                                                            PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                           PP_Environment_Backend* env_b, const PP_AST_Node* node,
-                                                           bool is_compile_time);
+                                                           PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node,
-                                                              bool is_compile_time);
+                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                   PP_Environment_Backend* env_b,
-                                                                  const PP_AST_Node* node, bool is_compile_time);
+                                                                  const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                       PP_Environment_Backend* env_b,
-                                                                      const PP_AST_Node* node, bool is_compile_time);
+                                                                      const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_CodeGenerator* cg,
                                                                            PPSymbolTable* symbol_table,
                                                                            PP_Environment_Backend* env_b,
@@ -660,10 +657,12 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
     }
 
     pp_environment_backend_free(body_env_b);
+    cg->current_function_type = NULL;
     return 1;
 
 error_cleanup:
     pp_environment_backend_free(body_env_b);
+    cg->current_function_type = NULL;
     return 0;
 }
 
@@ -1210,7 +1209,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerato
     return llvm_val;
 }
 
-static LLVMValueRef pp_code_generator_generate_lvalue_struct_member_access(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+static LLVMValueRef pp_code_generator_generate_lvalue_struct_member_access(PP_CodeGenerator* cg,
+                                                                           PPSymbolTable* symbol_table,
                                                                            PP_Environment_Backend* env_b,
                                                                            const PP_AST_Node* node) {
     NULL_POINTER_ERROR_HANDLE(cg);
@@ -1240,13 +1240,15 @@ static LLVMValueRef pp_code_generator_generate_lvalue_struct_member_access(PP_Co
     }
     if (field_idx < 0) goto error_cleanup;
 
-    LLVMValueRef llvm_struct_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->member_access.object);
+    LLVMValueRef llvm_struct_ptr =
+        pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->member_access.object);
     NULL_POINTER_ERROR_HANDLE(llvm_struct_ptr);
 
     LLVMTypeRef llvm_struct_type = pp_environment_backend_lookup_type(cg, base_type);
     NULL_POINTER_ERROR_HANDLE(llvm_struct_type);
 
-    LLVMValueRef llvm_gep = LLVMBuildStructGEP2(cg->builder, llvm_struct_type, llvm_struct_ptr, (unsigned)field_idx, "field_gep");
+    LLVMValueRef llvm_gep =
+        LLVMBuildStructGEP2(cg->builder, llvm_struct_type, llvm_struct_ptr, (unsigned)field_idx, "field_gep");
     NULL_POINTER_ERROR_HANDLE(llvm_gep);
 
     return llvm_gep;
@@ -1326,20 +1328,19 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
 
     switch (node->node_type) {
         case PP_AST_BinaryExpressionNode:
-            llvm_val = pp_code_generator_generate_rvalue_binary(cg, symbol_table, env_b, node, false);
+            llvm_val = pp_code_generator_generate_rvalue_binary(cg, symbol_table, env_b, node);
             break;
         case PP_AST_UnaryExpressionNode:
-            llvm_val = pp_code_generator_generate_rvalue_unary(cg, symbol_table, env_b, node, false);
+            llvm_val = pp_code_generator_generate_rvalue_unary(cg, symbol_table, env_b, node);
             break;
         case PP_AST_CastExpressionNode:
-            llvm_val = pp_code_generator_generate_rvalue_cast(cg, symbol_table, env_b, node, false);
+            llvm_val = pp_code_generator_generate_rvalue_cast(cg, symbol_table, env_b, node);
             break;
         case PP_AST_StructInitializerNode:
-            #warning "is_compile_time is currently hardcoded to false; dispatcher should propagate it"
-            llvm_val = pp_code_generator_generate_rvalue_struct_init(cg, symbol_table, env_b, node, false);
+            llvm_val = pp_code_generator_generate_rvalue_struct_init(cg, symbol_table, env_b, node);
             break;
         case PP_AST_LiteralNode:
-            llvm_val = pp_code_generator_generate_rvalue_literal(cg, symbol_table, env_b, node, false);
+            llvm_val = pp_code_generator_generate_rvalue_literal(cg, symbol_table, env_b, node);
             break;
         case PP_AST_FunctionCallNode:
             llvm_val = pp_code_generator_generate_rvalue_function_call(cg, symbol_table, env_b, node);
@@ -1358,8 +1359,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                             PP_Environment_Backend* env_b, const PP_AST_Node* node,
-                                                             bool is_compile_time) {
+                                                             PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     assert(cg);
     assert(symbol_table);
     assert(env_b);
@@ -1593,8 +1593,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                            PP_Environment_Backend* env_b, const PP_AST_Node* node,
-                                                            bool is_compile_time) {
+                                                            PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     assert(cg);
     assert(symbol_table);
     assert(env_b);
@@ -1639,8 +1638,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                           PP_Environment_Backend* env_b, const PP_AST_Node* node,
-                                                           bool is_compile_time) {
+                                                           PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     assert(cg);
     assert(symbol_table);
     assert(env_b);
@@ -1684,8 +1682,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node,
-                                                              bool is_compile_time) {
+                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     LLVMValueRef llvm_val = NULL;
     assert(cg);
     assert(symbol_table);
@@ -1729,7 +1726,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* 
 
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                   PP_Environment_Backend* env_b,
-                                                                  const PP_AST_Node* node, bool is_compile_time) {
+                                                                  const PP_AST_Node* node) {
     LLVMValueRef* field_vals = NULL;
     assert(cg);
     assert(symbol_table);
@@ -1767,9 +1764,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerat
             }
         }
 
-        if (field_idx < 0) {
-            abort();
-        }
+        if (field_idx < 0) { abort(); }
 
         const PPStructField* field = &layout->fields[field_idx];
         LLVMValueRef val = NULL;
@@ -1800,7 +1795,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerat
     }
 
     LLVMValueRef result = NULL;
-    if (is_compile_time) {
+    if (!cg->current_function_type) {
         result = LLVMConstStructInContext(cg->ctx, field_vals, (unsigned)field_count, 0);
     } else {
         result = LLVMGetUndef(llvm_struct_type);
@@ -1820,7 +1815,7 @@ error_cleanup:
 
 static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                       PP_Environment_Backend* env_b,
-                                                                      const PP_AST_Node* node, bool is_compile_time) {
+                                                                      const PP_AST_Node* node) {
     assert(cg);
     assert(symbol_table);
     assert(env_b);
