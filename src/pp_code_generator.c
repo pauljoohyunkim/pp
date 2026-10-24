@@ -1170,6 +1170,10 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
     assert(symbol_table);
     assert(env_b);
     assert(node);
+    const PP_AST_Decoration* dec = pp_ast_get_decoration(node);
+    if (dec) {
+        assert(dec->value_category == PP_VALUE_CATEGORY_LVALUE && "generate_lvalue called on rvalue node");
+    }
     LLVMValueRef llvm_val = NULL;
 
     switch (node->node_type) {
@@ -1862,13 +1866,38 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_Co
     const PP_AST_Decoration* dec = pp_ast_get_decoration(node);
     assert(dec);
 
-    LLVMValueRef llvm_lval = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node);
-    assert(llvm_lval);
+    const PP_AST_Node* obj_node = node->member_access.object;
+    const PP_AST_Decoration* obj_dec = pp_ast_get_decoration(obj_node);
+    assert(obj_dec);
 
-    LLVMValueRef llvm_val = pp_code_generator_l_value_to_r_value(cg, dec->resolved_type, llvm_lval);
-    assert(llvm_val);
+    if (obj_dec->value_category == PP_VALUE_CATEGORY_LVALUE) {
+        LLVMValueRef llvm_lval = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node);
+        assert(llvm_lval);
+        LLVMValueRef llvm_val = pp_code_generator_l_value_to_r_value(cg, dec->resolved_type, llvm_lval);
+        assert(llvm_val);
+        return llvm_val;
+    }
 
-    return llvm_val;
+    // Rvalue base: extract from aggregate
+    LLVMValueRef base_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, obj_node);
+    assert(base_val);
+    const PPType* base_type = pp_type_decay_cg(cg->gtt, obj_dec->resolved_type);
+    assert(base_type && base_type->kind == PP_TK_Struct);
+    const PP_StructLayout* layout = base_type->type.pp_type_struct.layout;
+    assert(layout);
+    const char* member_name = node->member_access.member;
+    assert(member_name);
+    int field_idx = -1;
+    for (size_t i = 0; i < layout->field_count; i++) {
+        if (layout->fields[i].field_name == member_name) {
+            field_idx = (int)i;
+            break;
+        }
+    }
+    assert(field_idx >= 0);
+    LLVMValueRef extracted = LLVMBuildExtractValue(cg->builder, base_val, (unsigned)field_idx, "struct_elt");
+    assert(extracted);
+    return extracted;
 
 error_cleanup:
     return NULL;

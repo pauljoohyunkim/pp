@@ -735,4 +735,106 @@ TEST(CodeGenTest, ForStatement) {
     assert_ir_contains(cg.get(), "for.end");
 }
 
+TEST(CodeGenTest, StructInitMemberAccessRvalue) {
+    const char* source =
+        "struct S { a :: int32; b :: int32; }\n"
+        "func test_struct_init_member_access :: () -> int32 { let x :: int32 = S { .a = 5, .b = 6 }.a; return x; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_struct_init_member_access");
+    assert_ir_contains(cg.get(), "i32 5");
+    // The member access on a temporary struct init should be handled via extractvalue or constant folding.
+    // We verify the constant is present and codegen succeeds.
+}
+
+TEST(CodeGenTest, StructMemberAccessViaFunctionCallRvalue) {
+    const char* source =
+        "struct S { a :: int32; b :: int32; }\n"
+        "func make :: () -> S { let s :: S = S { .a = 7, .b = 8 }; return s; }\n"
+        "func test :: () -> int32 { let x :: int32 = make().a; return x; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@make");
+    assert_ir_contains(cg.get(), "@test");
+    // Member access on rvalue returned from function should use extractvalue/GEP on temporary
+    assert_ir_contains(cg.get(), "extractvalue");
+    // Value should be propagated
+    assert_ir_contains(cg.get(), "i32 7");
+}
+
+TEST(CodeGenTest, NestedRvalueMemberAccess) {
+    const char* source =
+        "struct T { x :: int32; }\n"
+        "struct S { inner :: T; }\n"
+        "func test_nested :: () -> int32 { let v :: int32 = S { .inner = T { .x = 1 } }.inner.x; return v; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_nested");
+    // Nested rvalue member access should be correctly folded/extracted
+    // Accept either extractvalue or constant folding; ensure value is present
+    assert_ir_contains(cg.get(), "i32 1");
+}
+
+TEST(CodeGenTest, MixedLvalueRvalueMemberAccess) {
+    const char* source =
+        "struct S { a :: int32; }\n"
+        "func test_mixed :: () -> int32 { let s :: S = S { .a = 2 }; let x :: int32 = s.a; return x; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_mixed");
+    // Lvalue base member access should use GEP
+    assert_ir_contains(cg.get(), "getelementptr");
+    assert_ir_contains(cg.get(), "field_gep");
+    // Constant should be present in init
+    assert_ir_contains(cg.get(), "i32 2");
+}
+
+TEST(CodeGenTest, ConstPropagationRvalueMemberAccess) {
+    const char* source =
+        "struct S { a :: const int32; }\n"
+        "func make :: () -> S { let s :: S = S { .a = 3 }; return s; }\n"
+        "func test_const :: () -> int32 { let x :: int32 = make().a; return x; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@make");
+    assert_ir_contains(cg.get(), "@test_const");
+    assert_ir_contains(cg.get(), "extractvalue");
+    assert_ir_contains(cg.get(), "i32 3");
+}
+
 
