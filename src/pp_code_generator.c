@@ -1823,7 +1823,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerat
 
     LLVMValueRef result = NULL;
     if (!cg->current_function_type) {
-        result = LLVMConstStructInContext(cg->ctx, field_vals, (unsigned)field_count, 0);
+        result = LLVMConstNamedStruct(llvm_struct_type, field_vals, (unsigned)field_count);
     } else {
         result = LLVMGetUndef(llvm_struct_type);
         for (size_t i = 0; i < field_count; i++) {
