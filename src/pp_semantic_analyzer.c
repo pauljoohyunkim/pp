@@ -109,6 +109,7 @@ typedef enum {
 static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_Node* simple_expr_node, size_t* val);
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node);
 static bool pp_type_contains_reference(const PPType* type);
+static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node);
 static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, unsigned int line,
                                                unsigned int col);
 /* Pass I */
@@ -355,6 +356,31 @@ static bool pp_type_contains_reference(const PPType* t) {
             for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
                 if (pp_type_contains_reference(t->type.pp_type_lambda.param_types[i])) return true;
             }
+            return false;
+        default:
+            return false;
+    }
+}
+
+static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node) {
+    if (!node) return false;
+    switch (node->node_type) {
+        case PP_AST_StatementListNode:
+            for (unsigned int i = 0; i < node->statement_list.stmt_count; ++i) {
+                if (pp_ast_node_returns_on_all_paths(node->statement_list.stmts[i])) return true;
+            }
+            return false;
+        case PP_AST_ReturnStatementNode:
+            return true;
+        case PP_AST_IfStatementNode: {
+            bool then_ret = pp_ast_node_returns_on_all_paths(node->if_statement.then_branch);
+            bool else_ret = node->if_statement.else_branch
+                                ? pp_ast_node_returns_on_all_paths(node->if_statement.else_branch)
+                                : false;
+            return then_ret && else_ret;
+        }
+        case PP_AST_WhileStatementNode:
+        case PP_AST_ForStatementNode:
             return false;
         default:
             return false;
@@ -1271,7 +1297,7 @@ error_cleanup:
 /* Pass 2 - Function Declaration Checklist (based on cz_semantic_analyzer_check_function_body):
  * [x] Look up function symbol from global table and verify kind is FUNCTION.
  * [x] Set sa->current_function_type (or return type) for checking inside body.
- * [ ] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
+ * [x] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
  * [x] Create parameter scope (SCOPE_LEVEL_FUNC_PARAMS) with parent = global table.
  * [x] Verify parameter count in AST matches parameter count in function type.
  * [x] Detect duplicate parameter names within parameter scope.
@@ -1309,6 +1335,20 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
 
     // Set the current function type
     sa->current_function_type = func_symbol->type;
+
+    // 1.5 If not void function, all exit paths must return a value
+    {
+        const PPType* ret_type = sa->current_function_type->type.pp_type_function.return_type;
+        if (ret_type && ret_type->kind != PP_TK_Void) {
+            if (!pp_ast_node_returns_on_all_paths(node->function_declaration.body)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Function \"%s\" returns non-void, but there may exist a path that it exits "
+                                         "without returning something.",
+                                         func_name);
+                goto error_cleanup;
+            }
+        }
+    }
 
     // Create parameter scope.
     func_param_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_PARAMS);
@@ -1376,7 +1416,7 @@ error_cleanup:
 /* Pass 2 - Lambda Declaration Checklist (based on cz_semantic_analyzer_check_function_body):
  * [x] Look up lambda symbol from global table and verify kind is LAMBDA.
  * [x] Set sa->current_function_type to lambda type for checking inside body.
- * [ ] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
+ * [x] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
  * [x] Create parameter scope (SCOPE_LEVEL_FUNC_PARAMS) with parent = global table.
  * [x] Verify parameter count in AST matches parameter count in lambda type.
  * [x] Detect duplicate parameter names within parameter scope.
@@ -1415,6 +1455,20 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
 
     // Set the current function type
     sa->current_function_type = lambda_symbol->type;
+
+    // 1.5 If not void lambda, all exit paths must return a value
+    {
+        const PPType* ret_type = sa->current_function_type->type.pp_type_lambda.return_type;
+        if (ret_type && ret_type->kind != PP_TK_Void) {
+            if (!pp_ast_node_returns_on_all_paths(node->function_declaration.body)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Lambda \"%s\" returns non-void, but there may exist a path that it exits "
+                                         "without returning something.",
+                                         func_name);
+                goto error_cleanup;
+            }
+        }
+    }
 
     // Create parameter scope.
     lambda_param_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_PARAMS);

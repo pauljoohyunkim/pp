@@ -666,10 +666,9 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
         }
     }
 
-// Skip all the basic block (if block, while block, for block) in the function until the end.
-// Then return nothing if it is a void function,
-// Or write "unreachable" for nonvoid flow fall.
-#warning "Semantic analysis may need to check all the exit points"
+    // Skip all the basic block (if block, while block, for block) in the function until the end.
+    // Then return nothing if it is a void function,
+    // Or write "unreachable" for nonvoid flow fall.
     for (LLVMBasicBlockRef bb = LLVMGetFirstBasicBlock(llvm_func); bb != NULL; bb = LLVMGetNextBasicBlock(bb)) {
         // Check if this basic block lacks a terminator instruction
         if (LLVMGetBasicBlockTerminator(bb) == NULL) {
@@ -873,7 +872,6 @@ static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPS
                                                      : cg->current_function_type->type.pp_type_function.return_type;
     assert(current_function_return_type);
 
-#warning "Deal with void returns"
     if (current_function_return_type->kind == PP_TK_Void) {
         if (stmt->return_statement.expr == NULL) {
             LLVMBuildRetVoid(cg->builder);

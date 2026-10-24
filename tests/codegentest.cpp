@@ -645,4 +645,94 @@ TEST(CodeGenTest, StructInitPartialWithDefault) {
     assert_ir_contains(cg.get(), "{ i32 5, i32 99 }");
 }
 
+TEST(CodeGenTest, IfStatement) {
+    const char* source =
+        "func test_if :: () -> int32 { let x :: int32 = 1; if (x > 0) { return 1; } return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_if");
+    assert_ir_contains(cg.get(), "if.then");
+    assert_ir_contains(cg.get(), "if.end");
+}
+
+TEST(CodeGenTest, IfElseStatement) {
+    const char* source =
+        "func test_if_else :: () -> int32 { let x :: int32 = -1; if (x > 0) { return 1; } else { return 0; } }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_if_else");
+    assert_ir_contains(cg.get(), "if.then");
+    assert_ir_contains(cg.get(), "if.else");
+    assert_ir_contains(cg.get(), "if.end");
+}
+
+TEST(CodeGenTest, IfElseIfElseStatement) {
+    const char* source =
+        "func test_if_elseif_else :: () -> int32 { let x :: int32 = 0; if (x > 0) { return 1; } else if (x < 0) { return -1; } else { return 0; } }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_if_elseif_else");
+    assert_ir_contains(cg.get(), "if.then");
+    assert_ir_contains(cg.get(), "if.else");
+    assert_ir_contains(cg.get(), "if.end");
+}
+
+TEST(CodeGenTest, WhileStatement) {
+    const char* source =
+        "func test_while :: () -> int32 { let i :: int32 = 0; let sum :: int32 = 0; while (i < 5) { sum = sum + i; i = i + 1; } return sum; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_while");
+    assert_ir_contains(cg.get(), "while.cond");
+    assert_ir_contains(cg.get(), "while.body");
+    assert_ir_contains(cg.get(), "while.end");
+}
+
+TEST(CodeGenTest, ForStatement) {
+    const char* source =
+        "func test_for :: () -> int32 { let i :: int32 = 0; let sum :: int32 = 0; for (; i < 5; i = i + 1) { sum = sum + i; } return sum; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_for");
+    assert_ir_contains(cg.get(), "for.cond");
+    assert_ir_contains(cg.get(), "for.body");
+    assert_ir_contains(cg.get(), "for.step");
+    assert_ir_contains(cg.get(), "for.end");
+}
+
 
