@@ -318,15 +318,30 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
                 assert(element_type);
                 llvm_array_type = LLVMArrayType(element_type, (unsigned)type->type.pp_type_array.size);
                 assert(llvm_array_type);
-                pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_array_type);
                 return llvm_array_type;
             }
         case PP_TK_List:
+            {
+                /* Shared handle struct pp.list = { ptr, i64, i64 } for all List(T) */
+                LLVMTypeRef list_type = pp_environment_backend_lookup_type(cg, type);
+                if (list_type) {
+                    return list_type;
+                }
+                /* Check if already created by name */
+                LLVMTypeRef existing = LLVMGetTypeByName2(cg->ctx, "pp.list");
+                if (existing) {
+                    return existing;
+                }
+                /* Create the shared List handle struct */
+                LLVMTypeRef ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
+                LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
+                LLVMTypeRef field_types[3] = { ptr_type, i64_type, i64_type };
+                LLVMTypeRef list_struct = LLVMStructCreateNamed(cg->ctx, "pp.list");
+                LLVMStructSetBody(list_struct, field_types, 3, 0);
+                return list_struct;
+            }
         case PP_TK_Function:
         case PP_TK_Lambda:
-            /* Stubbed for now – full lowering not implemented yet */
-            assert(0 && "TODO: pp_backend_lower_type does not yet support lowering, list, function, or lambda");
-            break;
 
         default:
             break;
@@ -1205,7 +1220,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
 
     const PPType* base_type = pp_type_decay_cg(cg->gtt, object_decoration->resolved_type);
     assert(base_type);
-    assert(base_type->kind == PP_TK_Array); // List not implemented yet
+    if (base_type->kind != PP_TK_Array && base_type->kind != PP_TK_List) { assert(0 && "Unsupported base type for array/list access"); return NULL; }
 
     LLVMValueRef llvm_base_ptr =
         pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->array_list_access.expr);
