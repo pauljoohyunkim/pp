@@ -1230,18 +1230,30 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
         pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
     assert(llvm_index);
 
-    LLVMTypeRef llvm_base_type = pp_environment_backend_lookup_type(cg, base_type);
-    assert(llvm_base_type);
-
-    /* For fixed-size arrays, the base pointer is usually a pointer to the array [N x T].
-     * GEP index 0 gets to the array, GEP index 'index' gets to the element. */
-    LLVMValueRef indices[2];
-    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 32);
-    indices[1] = llvm_index;
-    LLVMValueRef llvm_element_ptr = LLVMBuildGEP2(cg->builder, llvm_base_type, llvm_base_ptr, indices, 2, "array_idx");
-    assert(llvm_element_ptr);
-
-    return llvm_element_ptr;
+    if (base_type->kind == PP_TK_Array) {
+        LLVMTypeRef llvm_base_type = pp_environment_backend_lookup_type(cg, base_type);
+        assert(llvm_base_type);
+        LLVMValueRef indices[2];
+        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 32);
+        indices[1] = llvm_index;
+        LLVMValueRef llvm_element_ptr = LLVMBuildGEP2(cg->builder, llvm_base_type, llvm_base_ptr, indices, 2, "array_idx");
+        assert(llvm_element_ptr);
+        return llvm_element_ptr;
+    } else {
+        const PPType* elem_type = base_type->type.pp_type_list.element_type;
+        assert(elem_type);
+        LLVMTypeRef llvm_elem_type = pp_backend_lower_type(cg, elem_type);
+        assert(llvm_elem_type);
+        LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, base_type);
+        assert(llvm_list_type);
+        LLVMValueRef field_idx = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 32);
+        LLVMValueRef data_ptr_ptr = LLVMBuildGEP2(cg->builder, llvm_list_type, llvm_base_ptr, &field_idx, 1, "list_data_ptr");
+        LLVMValueRef data_ptr = LLVMBuildLoad2(cg->builder, LLVMPointerTypeInContext(cg->ctx, 0), data_ptr_ptr, "list_data");
+        assert(data_ptr);
+        LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, llvm_elem_type, data_ptr, &llvm_index, 1, "list_elem_ptr");
+        assert(elem_ptr);
+        return elem_ptr;
+    }
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeGenerator* cg,
@@ -1263,6 +1275,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeG
         const PPType* element_type = pp_type_decay_cg(cg->gtt, object_decoration->resolved_type);
         if (element_type->kind == PP_TK_Array) {
             element_type = element_type->type.pp_type_array.element_type;
+        } else if (element_type->kind == PP_TK_List) {
+            element_type = element_type->type.pp_type_list.element_type;
         }
         return pp_code_generator_l_value_to_r_value(cg, element_type, llvm_lval);
     }
