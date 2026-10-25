@@ -1214,6 +1214,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
     assert(env_b);
     assert(node);
     assert(node->node_type == PP_AST_ArrayListAccessNode);
+    #warning "List access currently assumes data is allocated; uninitialized lists will segfault"
 
     const PP_AST_Decoration* object_decoration = pp_ast_get_decoration(node->array_list_access.expr);
     assert(object_decoration);
@@ -1234,7 +1235,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
         LLVMTypeRef llvm_base_type = pp_environment_backend_lookup_type(cg, base_type);
         assert(llvm_base_type);
         LLVMValueRef indices[2];
-        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 32);
+        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 0);
         indices[1] = llvm_index;
         LLVMValueRef llvm_element_ptr = LLVMBuildGEP2(cg->builder, llvm_base_type, llvm_base_ptr, indices, 2, "array_idx");
         assert(llvm_element_ptr);
@@ -1246,7 +1247,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
         assert(llvm_elem_type);
         LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, base_type);
         assert(llvm_list_type);
-        LLVMValueRef field_idx = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 32);
+        LLVMValueRef field_idx = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 0);
         LLVMValueRef data_ptr_ptr = LLVMBuildGEP2(cg->builder, llvm_list_type, llvm_base_ptr, &field_idx, 1, "list_data_ptr");
         LLVMValueRef data_ptr = LLVMBuildLoad2(cg->builder, LLVMPointerTypeInContext(cg->ctx, 0), data_ptr_ptr, "list_data");
         assert(data_ptr);
@@ -1998,34 +1999,66 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
     const PPType* coll_type = decor->resolved_type;
     assert(coll_type);
 
-    #warning "Collection initializer does not yet support generating lists"
-    assert(coll_type->kind == PP_TK_Array);
+    if (coll_type->kind == PP_TK_Array) {
+        LLVMTypeRef llvm_array_type = pp_environment_backend_lookup_type(cg, coll_type);
+        assert(llvm_array_type);
 
-    LLVMTypeRef llvm_array_type = pp_environment_backend_lookup_type(cg, coll_type);
-    assert(llvm_array_type);
-
-    if (!cg->current_function_type) {
-        LLVMValueRef* const_vals = (LLVMValueRef*)calloc(node->collection_initializer.element_count, sizeof(LLVMValueRef));
-        if (!const_vals) return NULL;
-        for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
-            const_vals[i] = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
-            if (!const_vals[i]) { free(const_vals); return NULL; }
+        if (!cg->current_function_type) {
+            LLVMValueRef* const_vals = (LLVMValueRef*)calloc(node->collection_initializer.element_count, sizeof(LLVMValueRef));
+            if (!const_vals) return NULL;
+            for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
+                const_vals[i] = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
+                if (!const_vals[i]) { free(const_vals); return NULL; }
+            }
+            LLVMValueRef result = LLVMConstArray(llvm_array_type, const_vals, node->collection_initializer.element_count);
+            free(const_vals);
+            return result;
+        } else {
+            LLVMValueRef undef_val = LLVMGetUndef(llvm_array_type);
+            LLVMValueRef result = undef_val;
+            for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
+                LLVMValueRef elem_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
+                if (!elem_val) return NULL;
+                result = LLVMBuildInsertValue(cg->builder, result, elem_val, i, "array_init_elem");
+            }
+            return result;
         }
-        LLVMValueRef result = LLVMConstArray(llvm_array_type, const_vals, node->collection_initializer.element_count);
-        free(const_vals);
-        return result;
-    } else {
-        LLVMValueRef undef_val = LLVMGetUndef(llvm_array_type);
-        LLVMValueRef result = undef_val;
-        for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
+    } else if (coll_type->kind == PP_TK_List) {
+        #warning "List initializer is runtime-only; globals not supported yet"
+        if (!cg->current_function_type) {
+            assert(0 && "List initializer not supported at global scope");
+            return NULL;
+        }
+        const PPType* elem_type = coll_type->type.pp_type_list.element_type;
+        assert(elem_type);
+        LLVMTypeRef llvm_elem_type = pp_backend_lower_type(cg, elem_type);
+        assert(llvm_elem_type);
+        unsigned int n = node->collection_initializer.element_count;
+        LLVMTypeRef array_type = LLVMArrayType(llvm_elem_type, n);
+        LLVMValueRef buf = LLVMBuildAlloca(cg->builder, array_type, "list_buf");
+        assert(buf);
+        for (unsigned int i = 0; i < n; i++) {
             LLVMValueRef elem_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
-            if (!elem_val) return NULL;
-            result = LLVMBuildInsertValue(cg->builder, result, elem_val, i, "array_init_elem");
+            assert(elem_val);
+            LLVMValueRef idx0 = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 0);
+            LLVMValueRef idx1 = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), i, 0);
+            LLVMValueRef indices[2] = { idx0, idx1 };
+            LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, array_type, buf, indices, 2, "list_elem_ptr");
+            LLVMBuildStore(cg->builder, elem_val, elem_ptr);
         }
-        return result;
+        LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, coll_type);
+        assert(llvm_list_type);
+        LLVMValueRef list_val = LLVMGetUndef(llvm_list_type);
+        list_val = LLVMBuildInsertValue(cg->builder, list_val, buf, 0, "list_data");
+        LLVMValueRef len_val = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), n, 0);
+        list_val = LLVMBuildInsertValue(cg->builder, list_val, len_val, 1, "list_len");
+        list_val = LLVMBuildInsertValue(cg->builder, list_val, len_val, 2, "list_cap");
+        return list_val;
     }
-}
 
+    assert(0 && "Unsupported collection type");
+    return NULL;
+}
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_CodeGenerator* cg,
                                                                            PPSymbolTable* symbol_table,
                                                                            PP_Environment_Backend* env_b,
