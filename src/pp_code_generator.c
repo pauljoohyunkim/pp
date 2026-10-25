@@ -1476,6 +1476,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_StructInitializerNode:
             llvm_val = pp_code_generator_generate_rvalue_struct_init(cg, symbol_table, env_b, node);
             break;
+        case PP_AST_CollectionInitializerNode:
+            llvm_val = pp_code_generator_generate_rvalue_collection_init(cg, symbol_table, env_b, node);
+            break;
         case PP_AST_LiteralNode:
             llvm_val = pp_code_generator_generate_rvalue_literal(cg, symbol_table, env_b, node);
             break;
