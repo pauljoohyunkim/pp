@@ -838,3 +838,77 @@ TEST(CodeGenTest, ConstPropagationRvalueMemberAccess) {
 }
 
 
+
+TEST(CodeGenTest, ArrayMemberAccessLvalue) {
+    const char* source =
+        "func test_array_access :: () -> int32 { let arr :: [int32 : 5u]; arr[2u] = 42; return arr[2u]; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    if (!cg_raw) {
+        FAIL() << "CodeGen failed: lex=" << lexer_errors << ", parse=" << parser_errors << ", sem=" << semantic_errors << ", res=" << codegen_result;
+    }
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "getelementptr");
+    assert_ir_contains(cg.get(), "store i32 42");
+}
+
+TEST(CodeGenTest, GlobalArrayInit) {
+    const char* source =
+        "let arr :: [int32 : 3u] = [int32 : 3u; 1, 2, 3];\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@arr");
+    assert_ir_contains(cg.get(), "[3 x i32]");
+    assert_ir_contains(cg.get(), "i32 1");
+    assert_ir_contains(cg.get(), "i32 2");
+    assert_ir_contains(cg.get(), "i32 3");
+}
+
+TEST(CodeGenTest, RuntimeArrayInit) {
+    const char* source =
+        "func make_arr :: () -> [int32 : 3u] { let a :: [int32 : 3u] = [int32 : 3u; 10, 20, 30]; return a; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@make_arr");
+    assert_ir_contains(cg.get(), "alloca [3 x i32]");
+    assert_ir_contains(cg.get(), "i32 10");
+    assert_ir_contains(cg.get(), "i32 20");
+    assert_ir_contains(cg.get(), "i32 30");
+}
+
+TEST(CodeGenTest, ArrayAccessRvalue) {
+    const char* source =
+        "func test_arr_rvalue :: () -> int32 { let arr :: [int32 : 3u] = [int32 : 3u; 7, 8, 9]; let v :: int32 = arr[1u]; return v; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_arr_rvalue");
+    assert_ir_contains(cg.get(), "getelementptr");
+    assert_ir_contains(cg.get(), "load i32");
+}

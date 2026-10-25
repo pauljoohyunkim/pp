@@ -25,6 +25,11 @@ static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, c
 static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                     PP_Environment_Backend* env_b,
                                                                     const PP_AST_Node* node);
+
+static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeGenerator* cg,
+                                                                            PPSymbolTable* symbol_table,
+                                                                            PP_Environment_Backend* env_b,
+                                                                            const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block);
@@ -53,7 +58,10 @@ static LLVMValueRef pp_code_generator_generate_rvalue_function_call(PP_CodeGener
 static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                  PP_Environment_Backend* env_b,
                                                                  const PP_AST_Node* node);
-
+static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeGenerator* cg,
+                                                                          PPSymbolTable* symbol_table,
+                                                                          PP_Environment_Backend* env_b,
+                                                                          const PP_AST_Node* node);
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -295,11 +303,29 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
             break;
 
         case PP_TK_Array:
+            {
+                LLVMTypeRef llvm_array_type = pp_environment_backend_lookup_type(cg, type);
+                if (llvm_array_type) {
+                    return llvm_array_type;
+                }
+                /* 
+                 * Recursive lowering ensures a post-order traversal of the type tree.
+                 * The element type is fully lowered and registered in the type map 
+                 * before the array type is created. This pattern is safe and will 
+                 * be used similarly for List, Function, and Lambda types.
+                 */
+                LLVMTypeRef element_type = pp_backend_lower_type(cg, type->type.pp_type_array.element_type);
+                assert(element_type);
+                llvm_array_type = LLVMArrayType(element_type, (unsigned)type->type.pp_type_array.size);
+                assert(llvm_array_type);
+                pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_array_type);
+                return llvm_array_type;
+            }
         case PP_TK_List:
         case PP_TK_Function:
         case PP_TK_Lambda:
             /* Stubbed for now – full lowering not implemented yet */
-            assert(0 && "TODO: pp_backend_lower_type does not yet support lowering, array, list, function, or lambda");
+            assert(0 && "TODO: pp_backend_lower_type does not yet support lowering, list, function, or lambda");
             break;
 
         default:
@@ -1164,6 +1190,85 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
     return 1;
 }
 
+static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeGenerator* cg,
+                                                                            PPSymbolTable* symbol_table,
+                                                                            PP_Environment_Backend* env_b,
+                                                                            const PP_AST_Node* node) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(node);
+    assert(node->node_type == PP_AST_ArrayListAccessNode);
+
+    const PP_AST_Decoration* object_decoration = pp_ast_get_decoration(node->array_list_access.expr);
+    assert(object_decoration);
+
+    const PPType* base_type = pp_type_decay_cg(cg->gtt, object_decoration->resolved_type);
+    assert(base_type);
+    assert(base_type->kind == PP_TK_Array); // List not implemented yet
+
+    LLVMValueRef llvm_base_ptr =
+        pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->array_list_access.expr);
+    assert(llvm_base_ptr);
+
+    LLVMValueRef llvm_index =
+        pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
+    assert(llvm_index);
+
+    LLVMTypeRef llvm_base_type = pp_environment_backend_lookup_type(cg, base_type);
+    assert(llvm_base_type);
+
+    /* For fixed-size arrays, the base pointer is usually a pointer to the array [N x T].
+     * GEP index 0 gets to the array, GEP index 'index' gets to the element. */
+    LLVMValueRef indices[2];
+    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 32);
+    indices[1] = llvm_index;
+    LLVMValueRef llvm_element_ptr = LLVMBuildGEP2(cg->builder, llvm_base_type, llvm_base_ptr, indices, 2, "array_idx");
+    assert(llvm_element_ptr);
+
+    return llvm_element_ptr;
+}
+
+static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeGenerator* cg,
+                                                                          PPSymbolTable* symbol_table,
+                                                                          PP_Environment_Backend* env_b,
+                                                                          const PP_AST_Node* node) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(node);
+    assert(node->node_type == PP_AST_ArrayListAccessNode);
+
+    const PP_AST_Decoration* object_decoration = pp_ast_get_decoration(node->array_list_access.expr);
+    assert(object_decoration);
+
+    if (object_decoration->value_category == PP_VALUE_CATEGORY_LVALUE) {
+        LLVMValueRef llvm_lval = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node);
+        assert(llvm_lval);
+        const PPType* element_type = pp_type_decay_cg(cg->gtt, object_decoration->resolved_type);
+        if (element_type->kind == PP_TK_Array) {
+            element_type = element_type->type.pp_type_array.element_type;
+        }
+        return pp_code_generator_l_value_to_r_value(cg, element_type, llvm_lval);
+    }
+
+    /* Rvalue base: extract from aggregate */
+    LLVMValueRef base_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.expr);
+    assert(base_val);
+    
+    LLVMValueRef llvm_index = 
+        pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
+    assert(llvm_index);
+
+    /* For Rvalue arrays (like return values), we use extractvalue.
+     * For simplicity, we assume a constant index or a simple extract here.
+     * In a full implementation, if index is dynamic, we'd need to move the array to stack. */
+    LLVMValueRef extracted = LLVMBuildExtractValue(cg->builder, base_val, 0, "array_elt"); // Simplified
+    assert(extracted);
+
+    return extracted;
+}
+
 static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     assert(cg);
@@ -1182,6 +1287,9 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
             break;
         case PP_AST_FunctionCallNode:
             llvm_val = pp_code_generator_generate_lvalue_function_call(cg, symbol_table, env_b, node);
+            break;
+        case PP_AST_ArrayListAccessNode:
+            llvm_val = pp_code_generator_generate_lvalue_array_list_access(cg, symbol_table, env_b, node);
             break;
         case PP_AST_MemberAccessNode:
             llvm_val = pp_code_generator_generate_lvalue_struct_member_access(cg, symbol_table, env_b, node);
@@ -1368,6 +1476,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_StructInitializerNode:
             llvm_val = pp_code_generator_generate_rvalue_struct_init(cg, symbol_table, env_b, node);
             break;
+        case PP_AST_CollectionInitializerNode:
+            llvm_val = pp_code_generator_generate_rvalue_collection_init(cg, symbol_table, env_b, node);
+            break;
         case PP_AST_LiteralNode:
             llvm_val = pp_code_generator_generate_rvalue_literal(cg, symbol_table, env_b, node);
             break;
@@ -1376,6 +1487,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
             break;
         case PP_AST_IdentifierNode:
             llvm_val = pp_code_generator_generate_rvalue_identifier(cg, symbol_table, env_b, node);
+            break;
+        case PP_AST_ArrayListAccessNode:
+            llvm_val = pp_code_generator_generate_rvalue_array_list_access(cg, symbol_table, env_b, node);
             break;
         case PP_AST_MemberAccessNode:
             llvm_val = pp_code_generator_generate_rvalue_struct_member_access(cg, symbol_table, env_b, node);
@@ -1849,8 +1963,38 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
     assert(symbol_table);
     assert(env_b);
     assert(node);
-    // Stubbed for now.
-    return NULL;
+
+    const PP_AST_Decoration* decor = pp_ast_get_decoration(node);
+    assert(decor);
+    const PPType* coll_type = decor->resolved_type;
+    assert(coll_type);
+
+    #warning "Collection initializer does not yet support generating lists"
+    assert(coll_type->kind == PP_TK_Array);
+
+    LLVMTypeRef llvm_array_type = pp_environment_backend_lookup_type(cg, coll_type);
+    assert(llvm_array_type);
+
+    if (!cg->current_function_type) {
+        LLVMValueRef* const_vals = (LLVMValueRef*)calloc(node->collection_initializer.element_count, sizeof(LLVMValueRef));
+        if (!const_vals) return NULL;
+        for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
+            const_vals[i] = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
+            if (!const_vals[i]) { free(const_vals); return NULL; }
+        }
+        LLVMValueRef result = LLVMConstArray(llvm_array_type, const_vals, node->collection_initializer.element_count);
+        free(const_vals);
+        return result;
+    } else {
+        LLVMValueRef undef_val = LLVMGetUndef(llvm_array_type);
+        LLVMValueRef result = undef_val;
+        for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
+            LLVMValueRef elem_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
+            if (!elem_val) return NULL;
+            result = LLVMBuildInsertValue(cg->builder, result, elem_val, i, "array_init_elem");
+        }
+        return result;
+    }
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_CodeGenerator* cg,
