@@ -1960,8 +1960,38 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
     assert(symbol_table);
     assert(env_b);
     assert(node);
-    // Stubbed for now.
-    return NULL;
+
+    const PP_AST_Decoration* decor = pp_ast_get_decoration(node);
+    assert(decor);
+    const PPType* coll_type = decor->resolved_type;
+    assert(coll_type);
+
+    #warning "Collection initializer does not yet support generating lists"
+    assert(coll_type->kind == PP_TK_Array);
+
+    LLVMTypeRef llvm_array_type = pp_environment_backend_lookup_type(cg, coll_type);
+    assert(llvm_array_type);
+
+    if (!cg->current_function_type) {
+        LLVMValueRef* const_vals = (LLVMValueRef*)calloc(node->collection_initializer.element_count, sizeof(LLVMValueRef));
+        if (!const_vals) return NULL;
+        for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
+            const_vals[i] = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
+            if (!const_vals[i]) { free(const_vals); return NULL; }
+        }
+        LLVMValueRef result = LLVMConstArray(llvm_array_type, const_vals, node->collection_initializer.element_count);
+        free(const_vals);
+        return result;
+    } else {
+        LLVMValueRef undef_val = LLVMGetUndef(llvm_array_type);
+        LLVMValueRef result = undef_val;
+        for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
+            LLVMValueRef elem_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
+            if (!elem_val) return NULL;
+            result = LLVMBuildInsertValue(cg->builder, result, elem_val, i, "array_init_elem");
+        }
+        return result;
+    }
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_CodeGenerator* cg,
