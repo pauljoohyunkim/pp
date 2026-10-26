@@ -7,6 +7,8 @@
 #include <string.h>
 #include <sys/types.h>
 
+#warning "List copy semantics are temporarily banned for move-only v1. Remove this ban and implement copy/drop when value semantics are desired."
+
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
 #define SCOPE_LEVEL_FUNC_BODY (2)
@@ -1378,6 +1380,17 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
             pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
         NULL_POINTER_ERROR_HANDLE(param_type);
 
+        // Move-only list check v1: disallow by-value List parameters
+        {
+            const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+            if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
+                                         node->function_declaration.params[i]->col,
+                                         "By-value List parameter is not allowed in move-only v1; use a reference");
+                goto error_cleanup;
+            }
+        }
+
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false);
         if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
@@ -1497,6 +1510,17 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
         const PPType* param_type =
             pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
         NULL_POINTER_ERROR_HANDLE(param_type);
+
+        // Move-only list check v1: disallow by-value List parameters
+        {
+            const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+            if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
+                                         node->function_declaration.params[i]->col,
+                                         "By-value List parameter is not allowed in move-only v1; use a reference");
+                goto error_cleanup;
+            }
+        }
 
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false);
         if (!pp_symbol_table_push(lambda_param_symbol_table, param_name, param_symbol)) {
@@ -1947,6 +1971,13 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
             goto error_cleanup;
         }
 
+        // Move-only list check v1: disallow copying List from lvalue initializer
+        if (decayed_symbol_type->kind == PP_TK_List && initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "List initialization from lvalue is not allowed in move-only v1; use an rvalue initializer or a reference");
+            goto error_cleanup;
+        }
+
         // Create symbol
         // is_constexpr: variable has to be constant, and initializer should also be constexpr (so the value that
         // variable has is determined at compile time) is_escapable_ref: Note that this reference can refer to variable
@@ -2105,6 +2136,13 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "LHS and RHS of assignment must have the same type.");
+        goto error_cleanup;
+    }
+
+    // Move-only list check v1: disallow copying List from lvalue RHS
+    if (decayed_lhs_type->kind == PP_TK_List && rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "List assignment from lvalue is not allowed in move-only v1; use an rvalue initializer or a reference");
         goto error_cleanup;
     }
 
