@@ -97,7 +97,7 @@ My main use cases were:
 * Porting from CZ
 * Static Analysis (dead-code elimination, etc.)
 * Unit test generation (I am not writing that by myself...)
-* User documentation at [docs](docs/), contributer's notes at [dev-docs](dev-docs/) as well as some of my personal notes during development in [notes](notes/) for book keeping.
+* User documentation at [docs](docs/), contributor's notes at [dev-docs](dev-docs/) as well as some of my personal notes during development in [notes](notes/) for book keeping.
 I still kept the discipline of reading through the changes that it made (at least briefly!)
 
 I am **NOT** a fan of having to pay for AI services, hence all usage of AI was limited to open-weight models.
@@ -126,3 +126,7 @@ Here is a list of models that I have used.
   * While super fast, it kept trying to call "search" tool even though it was not part of my agentic coding tool, hence I could not continue with it.
 
 Agentic coding tool of choice was [Pi Coding Agent](https://pi.dev/). You can see the relevant files in [.pi](.pi)
+
+### Third-party Licenses
+
+This project uses LLVM as its backend. See [THIRD-PARTY-LICENSES](THIRD-PARTY-LICENSES) for license notices.
