@@ -66,6 +66,7 @@ One shared LLVM type for all `List(T)`. Element type is carried by semantic type
 
 ### Stage 6 - Growth Operations
 - [ ] `push`, `pop`, `resize` via `realloc` with doubling strategy.
+- **Status:** BLOCKED – no syntax/AST/semantic support for `list.push(expr)`, `list.pop()`, `list.resize(n)` in parser/BNF. Member access is struct-only; no builtin list-method resolution exists.
 
 ## Progress Tracking
 - [x] Stage 1 completed
@@ -74,6 +75,7 @@ One shared LLVM type for all `List(T)`. Element type is carried by semantic type
 - [x] Stage 4 completed
 - [x] Stage 5 completed
 - [ ] Stage 6 completed
+- **Stage 6 status:** BLOCKED pending syntax/AST/semantic definition for push/pop/resize.
 
 ## Open Questions
 - Index type conversion policy
