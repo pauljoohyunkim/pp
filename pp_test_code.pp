@@ -1,6 +1,4 @@
-let x :: int32 = 1;
-let y :: int32 = 1;
-let z :: int32 = 1;
-func test_multi :: () -> int32 { 
-    let sum :: int32 = x + y + z;
-return sum; }
+struct S { a :: int32; b :: int32 = 99; }
+func f :: () -> void {
+    let s :: int32 = S { .a = 5 }.a;
+}

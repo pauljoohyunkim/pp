@@ -7,6 +7,9 @@
 #include <string.h>
 #include <sys/types.h>
 
+#warning \
+    "List copy semantics are temporarily banned for move-only v1. Remove this ban and implement copy/drop when value semantics are desired."
+
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
 #define SCOPE_LEVEL_FUNC_BODY (2)
@@ -109,6 +112,7 @@ typedef enum {
 static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_Node* simple_expr_node, size_t* val);
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node);
 static bool pp_type_contains_reference(const PPType* type);
+static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node);
 static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, unsigned int line,
                                                unsigned int col);
 /* Pass I */
@@ -355,6 +359,31 @@ static bool pp_type_contains_reference(const PPType* t) {
             for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
                 if (pp_type_contains_reference(t->type.pp_type_lambda.param_types[i])) return true;
             }
+            return false;
+        default:
+            return false;
+    }
+}
+
+static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node) {
+    if (!node) return false;
+    switch (node->node_type) {
+        case PP_AST_StatementListNode:
+            for (unsigned int i = 0; i < node->statement_list.stmt_count; ++i) {
+                if (pp_ast_node_returns_on_all_paths(node->statement_list.stmts[i])) return true;
+            }
+            return false;
+        case PP_AST_ReturnStatementNode:
+            return true;
+        case PP_AST_IfStatementNode: {
+            bool then_ret = pp_ast_node_returns_on_all_paths(node->if_statement.then_branch);
+            bool else_ret = node->if_statement.else_branch
+                                ? pp_ast_node_returns_on_all_paths(node->if_statement.else_branch)
+                                : false;
+            return then_ret && else_ret;
+        }
+        case PP_AST_WhileStatementNode:
+        case PP_AST_ForStatementNode:
             return false;
         default:
             return false;
@@ -1271,7 +1300,7 @@ error_cleanup:
 /* Pass 2 - Function Declaration Checklist (based on cz_semantic_analyzer_check_function_body):
  * [x] Look up function symbol from global table and verify kind is FUNCTION.
  * [x] Set sa->current_function_type (or return type) for checking inside body.
- * [ ] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
+ * [x] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
  * [x] Create parameter scope (SCOPE_LEVEL_FUNC_PARAMS) with parent = global table.
  * [x] Verify parameter count in AST matches parameter count in function type.
  * [x] Detect duplicate parameter names within parameter scope.
@@ -1310,6 +1339,20 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
     // Set the current function type
     sa->current_function_type = func_symbol->type;
 
+    // 1.5 If not void function, all exit paths must return a value
+    {
+        const PPType* ret_type = sa->current_function_type->type.pp_type_function.return_type;
+        if (ret_type && ret_type->kind != PP_TK_Void) {
+            if (!pp_ast_node_returns_on_all_paths(node->function_declaration.body)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Function \"%s\" returns non-void, but there may exist a path that it exits "
+                                         "without returning something.",
+                                         func_name);
+                goto error_cleanup;
+            }
+        }
+    }
+
     // Create parameter scope.
     func_param_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_PARAMS);
     NULL_POINTER_ERROR_HANDLE(func_param_symbol_table);
@@ -1337,6 +1380,17 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
         const PPType* param_type =
             pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
         NULL_POINTER_ERROR_HANDLE(param_type);
+
+        // Move-only list check v1: disallow by-value List parameters
+        {
+            const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+            if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
+                                         node->function_declaration.params[i]->col,
+                                         "By-value List parameter is not allowed in move-only v1; use a reference");
+                goto error_cleanup;
+            }
+        }
 
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false);
         if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
@@ -1376,7 +1430,7 @@ error_cleanup:
 /* Pass 2 - Lambda Declaration Checklist (based on cz_semantic_analyzer_check_function_body):
  * [x] Look up lambda symbol from global table and verify kind is LAMBDA.
  * [x] Set sa->current_function_type to lambda type for checking inside body.
- * [ ] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
+ * [x] If return type is non-void, verify all control paths return a value (cz_ast_node_returns_on_all_paths).
  * [x] Create parameter scope (SCOPE_LEVEL_FUNC_PARAMS) with parent = global table.
  * [x] Verify parameter count in AST matches parameter count in lambda type.
  * [x] Detect duplicate parameter names within parameter scope.
@@ -1416,6 +1470,20 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
     // Set the current function type
     sa->current_function_type = lambda_symbol->type;
 
+    // 1.5 If not void lambda, all exit paths must return a value
+    {
+        const PPType* ret_type = sa->current_function_type->type.pp_type_lambda.return_type;
+        if (ret_type && ret_type->kind != PP_TK_Void) {
+            if (!pp_ast_node_returns_on_all_paths(node->function_declaration.body)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Lambda \"%s\" returns non-void, but there may exist a path that it exits "
+                                         "without returning something.",
+                                         func_name);
+                goto error_cleanup;
+            }
+        }
+    }
+
     // Create parameter scope.
     lambda_param_symbol_table = pp_symbol_table_create(SCOPE_LEVEL_FUNC_PARAMS);
     NULL_POINTER_ERROR_HANDLE(lambda_param_symbol_table);
@@ -1443,6 +1511,17 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
         const PPType* param_type =
             pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
         NULL_POINTER_ERROR_HANDLE(param_type);
+
+        // Move-only list check v1: disallow by-value List parameters
+        {
+            const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+            if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
+                                         node->function_declaration.params[i]->col,
+                                         "By-value List parameter is not allowed in move-only v1; use a reference");
+                goto error_cleanup;
+            }
+        }
 
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false);
         if (!pp_symbol_table_push(lambda_param_symbol_table, param_name, param_symbol)) {
@@ -1484,7 +1563,7 @@ error_cleanup:
  * [x] Detect duplicate field names while populating layout.
  * [x] Populate struct layout with fields from AST.
  * [x] Verify each field type is well-defined in GTT.
- * [ ] For fields with initializers:
+ * [x] For fields with initializers:
  *      - [x] Check expression validity and type resolution via check_expression.
  *      - [x] Require constexpr initializer.
  *      - [x] Ensure type match between field and initializer after decay.
@@ -1783,6 +1862,8 @@ static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, 
             inner_symbol_table = NULL;
             break;
         default:
+            /* Expression statement: check expression for side-effects */
+            if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node)) { goto error_cleanup; }
             break;
     }
 
@@ -1890,6 +1971,14 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         if (!pp_type_equal(decayed_symbol_type, decayed_initializer_type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Type of variable \"%s\" does not match its initializer", symbol_name);
+            goto error_cleanup;
+        }
+
+        // Move-only list check v1: disallow copying List from lvalue initializer
+        if (decayed_symbol_type->kind == PP_TK_List && initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "List initialization from lvalue is not allowed in move-only v1; use an rvalue "
+                                     "initializer or a reference");
             goto error_cleanup;
         }
 
@@ -2006,7 +2095,7 @@ error_cleanup:
  * [x] Ensure LHS is mutable (not const).
  * [-] After decay, ensure both sides are primitive and types match.
  *      -> Not necessarily primitive? (Struct assignment, list assignment are possible.)
- * [ ] Validate compound assignment operators against allowed primitive combinations.
+ * [x] Validate compound assignment operators against allowed primitive combinations.
  */
 static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                                   PP_AST_Node* node) {
@@ -2051,6 +2140,14 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "LHS and RHS of assignment must have the same type.");
+        goto error_cleanup;
+    }
+
+    // Move-only list check v1: disallow copying List from lvalue RHS
+    if (decayed_lhs_type->kind == PP_TK_List && rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "List assignment from lvalue is not allowed in move-only v1; use an rvalue "
+                                 "initializer or a reference");
         goto error_cleanup;
     }
 
@@ -2368,12 +2465,13 @@ static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer*
  * [x] Dispatch to unary expression checker
  * [x] Dispatch to literal expression checker
  * [x] Dispatch to identifier expression checker
- * [x] Dispatch to cast expression checker PP_AST_CastExpressionNode -> pp_semantic_analyzer_check_cast_expression
- * [ ] Dispatch to function call expression checker CZ_AST_FunctionCallNodeType ->
- * cz_semantic_analyzer_check_function_call_expression [ ] Dispatch to struct member access checker
- * CZ_AST_StructMemberAccessNodeType -> cz_semantic_analyzer_check_struct_access [ ] Dispatch to struct init checker
- * CZ_AST_StructInitNodeType -> cz_semantic_analyzer_check_struct_init [ ] Default error for unsupported node types with
- * cz_error_list_push_error
+ * [x] Dispatch to cast expression checker
+ * [x] Dispatch to function call expression checker
+ * [x] Dispatch to array/list access expression checker
+ * [x] Dispatch to struct member access checker
+ * [x] Dispatch to struct init expression checker
+ * [x] Dispatch to collection initializer expression checker
+ * [-] Default error for unsupported nodes -> PP returns 0 without explicit push
  */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                  PP_AST_Node* expr) {
@@ -2856,11 +2954,11 @@ error_cleanup:
  *    - PP_TT_INTEGER_LITERAL -> int32 alias
  *    - PP_TT_TRUE / PP_TT_FALSE -> bool
  *    - PP_TT_FLOAT_LITERAL -> float
- * [ ] Distinguish unsigned suffix for numeric literals, CZ parses lexeme for '.' and 'u' to choose int32/uint32/float
+ * [x] Distinguish unsigned suffix for numeric literals, CZ parses lexeme for '.' and 'u' to choose int32/uint32/float
  * [x] Create const-wrapped type via pp_type_create(PP_TK_Const) then intern
  * [x] Create decoration with resolved type, PP_VALUE_CATEGORY_RVALUE, is_constexpr true, escapable_ref false
  * [ ] Explicitly reject string literal with error push, CZ pushes "String literal not yet supported."
- * [ ] Set scope level 0 explicitly in decoration as CZ does
+ * [-] Set scope level 0 explicitly in decoration as CZ does -> PP does not track scope level per decoration
  */
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                          PP_AST_Node* expr) {
