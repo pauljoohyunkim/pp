@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "pp_ast.h"
 #include "pp_code_generator.h"
@@ -21,10 +23,37 @@ static long get_file_size(const char* filename) {
 
 int main(int argc, char** argv) {
     int exit_code = 0;
-    if (argc != 2) {
-        fprintf(stderr, "Usage: pplang src.pp\n");
-        return 1;
+
+    //if (argc != 2) {
+    //    fprintf(stderr, "Usage: pplang src.pp\n");
+    //    return 1;
+    //}
+
+    bool to_object = false;
+    bool verbose = false;
+    char output_filename[BUFSIZ] = { 0 };
+    strcpy(output_filename, "a.out");
+    int opt;
+    while  ((opt = getopt(argc, argv, "hcvo:")) != -1) {
+        switch (opt) {
+            case 'h':
+                // TODO: Print help
+                return 1;
+            case 'c':
+                to_object = true;
+                break;
+            case 'v':
+                verbose = true;
+                break;
+            case 'o':
+                memset(output_filename, 0, sizeof(output_filename));
+                strncpy(output_filename, optarg, BUFSIZ-1);
+                break;
+            default:
+                return 1;
+        }
     }
+
 
     const char* source_filename = argv[1];
     long filesize = get_file_size(source_filename);
