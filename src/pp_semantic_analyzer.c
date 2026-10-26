@@ -7,6 +7,9 @@
 #include <string.h>
 #include <sys/types.h>
 
+#warning \
+    "List copy semantics are temporarily banned for move-only v1. Remove this ban and implement copy/drop when value semantics are desired."
+
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
 #define SCOPE_LEVEL_FUNC_BODY (2)
@@ -1378,6 +1381,17 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
             pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
         NULL_POINTER_ERROR_HANDLE(param_type);
 
+        // Move-only list check v1: disallow by-value List parameters
+        {
+            const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+            if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
+                                         node->function_declaration.params[i]->col,
+                                         "By-value List parameter is not allowed in move-only v1; use a reference");
+                goto error_cleanup;
+            }
+        }
+
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false);
         if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
@@ -1498,6 +1512,17 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
             pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
         NULL_POINTER_ERROR_HANDLE(param_type);
 
+        // Move-only list check v1: disallow by-value List parameters
+        {
+            const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+            if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
+                                         node->function_declaration.params[i]->col,
+                                         "By-value List parameter is not allowed in move-only v1; use a reference");
+                goto error_cleanup;
+            }
+        }
+
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false);
         if (!pp_symbol_table_push(lambda_param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
@@ -1538,7 +1563,7 @@ error_cleanup:
  * [x] Detect duplicate field names while populating layout.
  * [x] Populate struct layout with fields from AST.
  * [x] Verify each field type is well-defined in GTT.
- * [ ] For fields with initializers:
+ * [x] For fields with initializers:
  *      - [x] Check expression validity and type resolution via check_expression.
  *      - [x] Require constexpr initializer.
  *      - [x] Ensure type match between field and initializer after decay.
@@ -1837,6 +1862,8 @@ static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, 
             inner_symbol_table = NULL;
             break;
         default:
+            /* Expression statement: check expression for side-effects */
+            if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node)) { goto error_cleanup; }
             break;
     }
 
@@ -1944,6 +1971,14 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         if (!pp_type_equal(decayed_symbol_type, decayed_initializer_type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Type of variable \"%s\" does not match its initializer", symbol_name);
+            goto error_cleanup;
+        }
+
+        // Move-only list check v1: disallow copying List from lvalue initializer
+        if (decayed_symbol_type->kind == PP_TK_List && initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "List initialization from lvalue is not allowed in move-only v1; use an rvalue "
+                                     "initializer or a reference");
             goto error_cleanup;
         }
 
@@ -2060,7 +2095,7 @@ error_cleanup:
  * [x] Ensure LHS is mutable (not const).
  * [-] After decay, ensure both sides are primitive and types match.
  *      -> Not necessarily primitive? (Struct assignment, list assignment are possible.)
- * [ ] Validate compound assignment operators against allowed primitive combinations.
+ * [x] Validate compound assignment operators against allowed primitive combinations.
  */
 static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                                   PP_AST_Node* node) {
@@ -2105,6 +2140,14 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "LHS and RHS of assignment must have the same type.");
+        goto error_cleanup;
+    }
+
+    // Move-only list check v1: disallow copying List from lvalue RHS
+    if (decayed_lhs_type->kind == PP_TK_List && rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "List assignment from lvalue is not allowed in move-only v1; use an rvalue "
+                                 "initializer or a reference");
         goto error_cleanup;
     }
 
@@ -2422,12 +2465,13 @@ static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer*
  * [x] Dispatch to unary expression checker
  * [x] Dispatch to literal expression checker
  * [x] Dispatch to identifier expression checker
- * [x] Dispatch to cast expression checker PP_AST_CastExpressionNode -> pp_semantic_analyzer_check_cast_expression
- * [ ] Dispatch to function call expression checker CZ_AST_FunctionCallNodeType ->
- * cz_semantic_analyzer_check_function_call_expression [ ] Dispatch to struct member access checker
- * CZ_AST_StructMemberAccessNodeType -> cz_semantic_analyzer_check_struct_access [ ] Dispatch to struct init checker
- * CZ_AST_StructInitNodeType -> cz_semantic_analyzer_check_struct_init [ ] Default error for unsupported node types with
- * cz_error_list_push_error
+ * [x] Dispatch to cast expression checker
+ * [x] Dispatch to function call expression checker
+ * [x] Dispatch to array/list access expression checker
+ * [x] Dispatch to struct member access checker
+ * [x] Dispatch to struct init expression checker
+ * [x] Dispatch to collection initializer expression checker
+ * [-] Default error for unsupported nodes -> PP returns 0 without explicit push
  */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                  PP_AST_Node* expr) {
@@ -2910,11 +2954,11 @@ error_cleanup:
  *    - PP_TT_INTEGER_LITERAL -> int32 alias
  *    - PP_TT_TRUE / PP_TT_FALSE -> bool
  *    - PP_TT_FLOAT_LITERAL -> float
- * [ ] Distinguish unsigned suffix for numeric literals, CZ parses lexeme for '.' and 'u' to choose int32/uint32/float
+ * [x] Distinguish unsigned suffix for numeric literals, CZ parses lexeme for '.' and 'u' to choose int32/uint32/float
  * [x] Create const-wrapped type via pp_type_create(PP_TK_Const) then intern
  * [x] Create decoration with resolved type, PP_VALUE_CATEGORY_RVALUE, is_constexpr true, escapable_ref false
  * [ ] Explicitly reject string literal with error push, CZ pushes "String literal not yet supported."
- * [ ] Set scope level 0 explicitly in decoration as CZ does
+ * [-] Set scope level 0 explicitly in decoration as CZ does -> PP does not track scope level per decoration
  */
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                          PP_AST_Node* expr) {
