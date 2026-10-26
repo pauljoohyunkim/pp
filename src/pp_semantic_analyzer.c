@@ -7,7 +7,8 @@
 #include <string.h>
 #include <sys/types.h>
 
-#warning "List copy semantics are temporarily banned for move-only v1. Remove this ban and implement copy/drop when value semantics are desired."
+#warning \
+    "List copy semantics are temporarily banned for move-only v1. Remove this ban and implement copy/drop when value semantics are desired."
 
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
@@ -1974,7 +1975,8 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         // Move-only list check v1: disallow copying List from lvalue initializer
         if (decayed_symbol_type->kind == PP_TK_List && initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                     "List initialization from lvalue is not allowed in move-only v1; use an rvalue initializer or a reference");
+                                     "List initialization from lvalue is not allowed in move-only v1; use an rvalue "
+                                     "initializer or a reference");
             goto error_cleanup;
         }
 
@@ -2142,7 +2144,8 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     // Move-only list check v1: disallow copying List from lvalue RHS
     if (decayed_lhs_type->kind == PP_TK_List && rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                 "List assignment from lvalue is not allowed in move-only v1; use an rvalue initializer or a reference");
+                                 "List assignment from lvalue is not allowed in move-only v1; use an rvalue "
+                                 "initializer or a reference");
         goto error_cleanup;
     }
 

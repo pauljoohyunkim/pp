@@ -27,9 +27,9 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                                                                     const PP_AST_Node* node);
 
 static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeGenerator* cg,
-                                                                            PPSymbolTable* symbol_table,
-                                                                            PP_Environment_Backend* env_b,
-                                                                            const PP_AST_Node* node);
+                                                                        PPSymbolTable* symbol_table,
+                                                                        PP_Environment_Backend* env_b,
+                                                                        const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block);
@@ -59,9 +59,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerato
                                                                  PP_Environment_Backend* env_b,
                                                                  const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeGenerator* cg,
-                                                                          PPSymbolTable* symbol_table,
-                                                                          PP_Environment_Backend* env_b,
-                                                                          const PP_AST_Node* node);
+                                                                        PPSymbolTable* symbol_table,
+                                                                        PP_Environment_Backend* env_b,
+                                                                        const PP_AST_Node* node);
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -85,6 +85,8 @@ static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* 
                                            PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                   PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
+
+static const LLVMTypeRef pp_environment_backend_lookup_type(const PP_CodeGenerator* cg, const PPType* type);
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
@@ -110,6 +112,61 @@ error_cleanup:
 static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block) {
     LLVMBasicBlockRef cur = LLVMGetInsertBlock(cg->builder);
     if (cur && LLVMGetBasicBlockTerminator(cur) == NULL) { LLVMBuildBr(cg->builder, merge_block); }
+}
+
+static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
+    if (cg == NULL || address == NULL || type == NULL) return;
+    if (type->kind != PP_TK_List) return;
+    if (pp_type_is_reference(type)) return;
+    // Load the list handle from alloca
+    LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, type);
+    if (!llvm_list_type) return;
+    LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_list_type, address, "load_list");
+    // Extract data pointer at index 0
+    LLVMValueRef data_ptr = LLVMBuildExtractValue(cg->builder, loaded, 0, "list_data");
+    // Cast to i8* for free
+    LLVMValueRef data_ptr_i8 =
+        LLVMBuildBitCast(cg->builder, data_ptr, LLVMPointerTypeInContext(cg->ctx, 0), "list_data_i8");
+    LLVMValueRef free_fn = LLVMGetNamedFunction(cg->mod, "free");
+    if (!free_fn) return;
+    LLVMValueRef args[1] = {data_ptr_i8};
+    LLVMTypeRef free_type =
+        LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), (LLVMTypeRef[]){LLVMPointerTypeInContext(cg->ctx, 0)}, 1, 0);
+    LLVMBuildCall2(cg->builder, free_type, free_fn, args, 1, "free_list");
+}
+
+static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg) {
+    if (cg == NULL) return;
+    // Emit drops in reverse order
+    while (cg->drop_stack_count > 0) {
+        size_t idx = cg->drop_stack_count - 1;
+        LLVMValueRef addr = cg->drop_stack_addresses[idx];
+        const PPType* typ = cg->drop_stack_types[idx];
+        if (typ && pp_type_needs_drop(typ) && !pp_type_is_reference(typ)) {
+            pp_code_generator_emit_drop(cg, addr, typ);
+        }
+        cg->drop_stack_count--;
+    }
+}
+
+static void pp_code_generator_push_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
+    if (cg == NULL || address == NULL || type == NULL) return;
+    if (!pp_type_needs_drop(type)) return;
+    if (pp_type_is_reference(type)) return;
+    // Ensure capacity
+    if (cg->drop_stack_capacity == 0) {
+        cg->drop_stack_capacity = 16;
+        cg->drop_stack_addresses = (LLVMValueRef*)calloc(cg->drop_stack_capacity, sizeof(LLVMValueRef));
+        cg->drop_stack_types = (PPType**)calloc(cg->drop_stack_capacity, sizeof(PPType*));
+    } else if (cg->drop_stack_count >= cg->drop_stack_capacity) {
+        cg->drop_stack_capacity *= 2;
+        cg->drop_stack_addresses =
+            (LLVMValueRef*)realloc(cg->drop_stack_addresses, cg->drop_stack_capacity * sizeof(LLVMValueRef));
+        cg->drop_stack_types = (PPType**)realloc(cg->drop_stack_types, cg->drop_stack_capacity * sizeof(PPType*));
+    }
+    cg->drop_stack_addresses[cg->drop_stack_count] = address;
+    cg->drop_stack_types[cg->drop_stack_count] = (PPType*)type;
+    cg->drop_stack_count++;
 }
 
 PP_Environment_Backend* pp_environment_backend_create(void) {
@@ -302,44 +359,36 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
             }
             break;
 
-        case PP_TK_Array:
-            {
-                LLVMTypeRef llvm_array_type = pp_environment_backend_lookup_type(cg, type);
-                if (llvm_array_type) {
-                    return llvm_array_type;
-                }
-                /* 
-                 * Recursive lowering ensures a post-order traversal of the type tree.
-                 * The element type is fully lowered and registered in the type map 
-                 * before the array type is created. This pattern is safe and will 
-                 * be used similarly for List, Function, and Lambda types.
-                 */
-                LLVMTypeRef element_type = pp_backend_lower_type(cg, type->type.pp_type_array.element_type);
-                assert(element_type);
-                llvm_array_type = LLVMArrayType(element_type, (unsigned)type->type.pp_type_array.size);
-                assert(llvm_array_type);
-                return llvm_array_type;
-            }
-        case PP_TK_List:
-            {
-                /* Shared handle struct pp.list = { ptr, i64, i64 } for all List(T) */
-                LLVMTypeRef list_type = pp_environment_backend_lookup_type(cg, type);
-                if (list_type) {
-                    return list_type;
-                }
-                /* Check if already created by name */
-                LLVMTypeRef existing = LLVMGetTypeByName2(cg->ctx, "pp.list");
-                if (existing) {
-                    return existing;
-                }
-                /* Create the shared List handle struct */
-                LLVMTypeRef ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
-                LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
-                LLVMTypeRef field_types[3] = { ptr_type, i64_type, i64_type };
-                LLVMTypeRef list_struct = LLVMStructCreateNamed(cg->ctx, "pp.list");
-                LLVMStructSetBody(list_struct, field_types, 3, 0);
-                return list_struct;
-            }
+        case PP_TK_Array: {
+            LLVMTypeRef llvm_array_type = pp_environment_backend_lookup_type(cg, type);
+            if (llvm_array_type) { return llvm_array_type; }
+            /*
+             * Recursive lowering ensures a post-order traversal of the type tree.
+             * The element type is fully lowered and registered in the type map
+             * before the array type is created. This pattern is safe and will
+             * be used similarly for List, Function, and Lambda types.
+             */
+            LLVMTypeRef element_type = pp_backend_lower_type(cg, type->type.pp_type_array.element_type);
+            assert(element_type);
+            llvm_array_type = LLVMArrayType(element_type, (unsigned)type->type.pp_type_array.size);
+            assert(llvm_array_type);
+            return llvm_array_type;
+        }
+        case PP_TK_List: {
+            /* Shared handle struct pp.list = { ptr, i64, i64 } for all List(T) */
+            LLVMTypeRef list_type = pp_environment_backend_lookup_type(cg, type);
+            if (list_type) { return list_type; }
+            /* Check if already created by name */
+            LLVMTypeRef existing = LLVMGetTypeByName2(cg->ctx, "pp.list");
+            if (existing) { return existing; }
+            /* Create the shared List handle struct */
+            LLVMTypeRef ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
+            LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
+            LLVMTypeRef field_types[3] = {ptr_type, i64_type, i64_type};
+            LLVMTypeRef list_struct = LLVMStructCreateNamed(cg->ctx, "pp.list");
+            LLVMStructSetBody(list_struct, field_types, 3, 0);
+            return list_struct;
+        }
         case PP_TK_Function:
         case PP_TK_Lambda:
 
@@ -413,23 +462,20 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
 
     // Ensure runtime library declarations for list support
     {
-        LLVMTypeRef i64_type   = LLVMInt64TypeInContext(cg->ctx);
+        LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
         LLVMTypeRef i8ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
 
         LLVMTypeRef malloc_param = i64_type;
         LLVMTypeRef malloc_type = LLVMFunctionType(i8ptr_type, &malloc_param, 1, 0);
-        if (!LLVMGetNamedFunction(cg->mod, "malloc"))
-            LLVMAddFunction(cg->mod, "malloc", malloc_type);
+        if (!LLVMGetNamedFunction(cg->mod, "malloc")) LLVMAddFunction(cg->mod, "malloc", malloc_type);
 
-        LLVMTypeRef realloc_params[2] = { i8ptr_type, i64_type };
+        LLVMTypeRef realloc_params[2] = {i8ptr_type, i64_type};
         LLVMTypeRef realloc_type = LLVMFunctionType(i8ptr_type, realloc_params, 2, 0);
-        if (!LLVMGetNamedFunction(cg->mod, "realloc"))
-            LLVMAddFunction(cg->mod, "realloc", realloc_type);
+        if (!LLVMGetNamedFunction(cg->mod, "realloc")) LLVMAddFunction(cg->mod, "realloc", realloc_type);
 
         LLVMTypeRef free_param = i8ptr_type;
         LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), &free_param, 1, 0);
-        if (!LLVMGetNamedFunction(cg->mod, "free"))
-            LLVMAddFunction(cg->mod, "free", free_type);
+        if (!LLVMGetNamedFunction(cg->mod, "free")) LLVMAddFunction(cg->mod, "free", free_type);
     }
 
     return cg;
@@ -456,6 +502,8 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         pp_global_type_table_free(cg->gtt);
         free((char*)cg->code);
         pp_string_pool_free(cg->sp);
+        free(cg->drop_stack_addresses);
+        free(cg->drop_stack_types);
     }
     free(cg);
     LLVMShutdown();
@@ -834,6 +882,12 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
 
     if (pp_environment_backend_push_val_map(env_b, var_symbol, llvm_var_alloca) != 1) { return 0; }
 
+    // Push onto scope drop stack if needed (List with trivially droppable elements)
+    if (!pp_type_is_reference(var_type) && pp_type_needs_drop(var_type)) {
+        // For v1, only handle List variables with trivially droppable elements; skip references
+        if (var_type->kind == PP_TK_List) { pp_code_generator_push_drop(cg, llvm_var_alloca, var_type); }
+    }
+
     return 1;
 }
 
@@ -937,18 +991,53 @@ static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPS
 
     if (current_function_return_type->kind == PP_TK_Void) {
         if (stmt->return_statement.expr == NULL) {
+            pp_code_generator_emit_scope_drops(cg);
             LLVMBuildRetVoid(cg->builder);
         } else {
-            // Not possible
             abort();
         }
     } else if (pp_type_is_reference(current_function_return_type)) {
         LLVMValueRef llvm_return_val_ref =
             pp_code_generator_generate_lvalue(cg, symbol_table, env_b, stmt->return_statement.expr);
+        pp_code_generator_emit_scope_drops(cg);
         LLVMBuildRet(cg->builder, llvm_return_val_ref);
     } else {
         LLVMValueRef llvm_return_val_ref =
             pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->return_statement.expr);
+        /* Move semantics for returning a local List by value.
+           If the return expression is an identifier of a List-owning type, clear the
+           source variable to {null,0,0} so the later scope drop is a no-op. This implements
+           return-as-move and avoids double-free of the heap buffer. */
+        if (stmt->return_statement.expr && stmt->return_statement.expr->node_type == PP_AST_IdentifierNode) {
+            const char* name = stmt->return_statement.expr->identifier.identifier;
+            assert(name);
+            const PP_AST_Decoration* dec = pp_ast_get_decoration(stmt->return_statement.expr);
+            assert(dec);
+            const PPType* ret_type = dec->resolved_type;
+            assert(ret_type);
+            if (pp_type_needs_drop(ret_type) && !pp_type_is_reference(ret_type)) {
+                const PPSymbol* sym = pp_symbol_table_lookup(symbol_table, name, true);
+                assert(sym);
+                for (size_t i = 0; i < cg->drop_stack_count; i++) {
+                    if (cg->drop_stack_types[i] == ret_type) {
+                        LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, ret_type);
+                        assert(llvm_list_type);
+                        LLVMValueRef empty = LLVMGetUndef(llvm_list_type);
+                        LLVMValueRef null_ptr = LLVMConstNull(LLVMPointerTypeInContext(cg->ctx, 0));
+                        empty = LLVMBuildInsertValue(cg->builder, empty, null_ptr, 0, "moved_data");
+                        empty =
+                            LLVMBuildInsertValue(cg->builder, empty,
+                                                 LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), 1, "moved_len");
+                        empty =
+                            LLVMBuildInsertValue(cg->builder, empty,
+                                                 LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), 2, "moved_cap");
+                        LLVMBuildStore(cg->builder, empty, cg->drop_stack_addresses[i]);
+                        break;
+                    }
+                }
+            }
+        }
+        pp_code_generator_emit_scope_drops(cg);
         LLVMBuildRet(cg->builder, llvm_return_val_ref);
     }
 
@@ -1140,6 +1229,8 @@ static int pp_code_generator_generate_block_statement(PP_CodeGenerator* cg, PPSy
     inner_env_b = pp_environment_backend_enter_scope(env_b);
     assert(inner_env_b);
 
+    size_t drop_stack_mark = cg->drop_stack_count;
+
     unsigned int inner_stmt_count = stmt->statement_list.stmt_count;
     const PP_AST_Node** inner_stmts = stmt->statement_list.stmts;
     PPSymbolTable* inner_symbol_table = stmt->statement_list.symbol_table;
@@ -1150,6 +1241,17 @@ static int pp_code_generator_generate_block_statement(PP_CodeGenerator* cg, PPSy
             goto error_cleanup;
         }
     }
+    // Emit drops for variables declared in this block before exiting
+    // Emit in reverse order from current to mark
+    for (size_t i = cg->drop_stack_count; i > drop_stack_mark;) {
+        i--;
+        LLVMValueRef addr = cg->drop_stack_addresses[i];
+        const PPType* typ = cg->drop_stack_types[i];
+        if (typ && pp_type_needs_drop(typ) && !pp_type_is_reference(typ)) {
+            pp_code_generator_emit_drop(cg, addr, typ);
+        }
+    }
+    cg->drop_stack_count = drop_stack_mark;
     pp_environment_backend_free(inner_env_b);
     return 1;
 
@@ -1228,29 +1330,31 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
 }
 
 static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeGenerator* cg,
-                                                                            PPSymbolTable* symbol_table,
-                                                                            PP_Environment_Backend* env_b,
-                                                                            const PP_AST_Node* node) {
+                                                                        PPSymbolTable* symbol_table,
+                                                                        PP_Environment_Backend* env_b,
+                                                                        const PP_AST_Node* node) {
     assert(cg);
     assert(symbol_table);
     assert(env_b);
     assert(node);
     assert(node->node_type == PP_AST_ArrayListAccessNode);
-    #warning "List access currently assumes data is allocated; uninitialized lists will segfault"
+#warning "List access currently assumes data is allocated; uninitialized lists will segfault"
 
     const PP_AST_Decoration* object_decoration = pp_ast_get_decoration(node->array_list_access.expr);
     assert(object_decoration);
 
     const PPType* base_type = pp_type_decay_cg(cg->gtt, object_decoration->resolved_type);
     assert(base_type);
-    if (base_type->kind != PP_TK_Array && base_type->kind != PP_TK_List) { assert(0 && "Unsupported base type for array/list access"); return NULL; }
+    if (base_type->kind != PP_TK_Array && base_type->kind != PP_TK_List) {
+        assert(0 && "Unsupported base type for array/list access");
+        return NULL;
+    }
 
     LLVMValueRef llvm_base_ptr =
         pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->array_list_access.expr);
     assert(llvm_base_ptr);
 
-    LLVMValueRef llvm_index =
-        pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
+    LLVMValueRef llvm_index = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
     assert(llvm_index);
 
     if (base_type->kind == PP_TK_Array) {
@@ -1259,7 +1363,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
         LLVMValueRef indices[2];
         indices[0] = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 0);
         indices[1] = llvm_index;
-        LLVMValueRef llvm_element_ptr = LLVMBuildGEP2(cg->builder, llvm_base_type, llvm_base_ptr, indices, 2, "array_idx");
+        LLVMValueRef llvm_element_ptr =
+            LLVMBuildGEP2(cg->builder, llvm_base_type, llvm_base_ptr, indices, 2, "array_idx");
         assert(llvm_element_ptr);
         return llvm_element_ptr;
     } else {
@@ -1270,8 +1375,10 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
         LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, base_type);
         assert(llvm_list_type);
         LLVMValueRef field_idx = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 0);
-        LLVMValueRef data_ptr_ptr = LLVMBuildGEP2(cg->builder, llvm_list_type, llvm_base_ptr, &field_idx, 1, "list_data_ptr");
-        LLVMValueRef data_ptr = LLVMBuildLoad2(cg->builder, LLVMPointerTypeInContext(cg->ctx, 0), data_ptr_ptr, "list_data");
+        LLVMValueRef data_ptr_ptr =
+            LLVMBuildGEP2(cg->builder, llvm_list_type, llvm_base_ptr, &field_idx, 1, "list_data_ptr");
+        LLVMValueRef data_ptr =
+            LLVMBuildLoad2(cg->builder, LLVMPointerTypeInContext(cg->ctx, 0), data_ptr_ptr, "list_data");
         assert(data_ptr);
         LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, llvm_elem_type, data_ptr, &llvm_index, 1, "list_elem_ptr");
         assert(elem_ptr);
@@ -1280,9 +1387,9 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeGenerator* cg,
-                                                                          PPSymbolTable* symbol_table,
-                                                                          PP_Environment_Backend* env_b,
-                                                                          const PP_AST_Node* node) {
+                                                                        PPSymbolTable* symbol_table,
+                                                                        PP_Environment_Backend* env_b,
+                                                                        const PP_AST_Node* node) {
     assert(cg);
     assert(symbol_table);
     assert(env_b);
@@ -1307,15 +1414,14 @@ static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeG
     /* Rvalue base: extract from aggregate */
     LLVMValueRef base_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.expr);
     assert(base_val);
-    
-    LLVMValueRef llvm_index = 
-        pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
+
+    LLVMValueRef llvm_index = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
     assert(llvm_index);
 
     /* For Rvalue arrays (like return values), we use extractvalue.
      * For simplicity, we assume a constant index or a simple extract here.
      * In a full implementation, if index is dynamic, we'd need to move the array to stack. */
-    LLVMValueRef extracted = LLVMBuildExtractValue(cg->builder, base_val, 0, "array_elt"); // Simplified
+    LLVMValueRef extracted = LLVMBuildExtractValue(cg->builder, base_val, 0, "array_elt");  // Simplified
     assert(extracted);
 
     return extracted;
@@ -1328,9 +1434,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
     assert(env_b);
     assert(node);
     const PP_AST_Decoration* dec = pp_ast_get_decoration(node);
-    if (dec) {
-        assert(dec->value_category == PP_VALUE_CATEGORY_LVALUE && "generate_lvalue called on rvalue node");
-    }
+    if (dec) { assert(dec->value_category == PP_VALUE_CATEGORY_LVALUE && "generate_lvalue called on rvalue node"); }
     LLVMValueRef llvm_val = NULL;
 
     switch (node->node_type) {
@@ -2026,27 +2130,34 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
         assert(llvm_array_type);
 
         if (!cg->current_function_type) {
-            LLVMValueRef* const_vals = (LLVMValueRef*)calloc(node->collection_initializer.element_count, sizeof(LLVMValueRef));
+            LLVMValueRef* const_vals =
+                (LLVMValueRef*)calloc(node->collection_initializer.element_count, sizeof(LLVMValueRef));
             if (!const_vals) return NULL;
             for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
-                const_vals[i] = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
-                if (!const_vals[i]) { free(const_vals); return NULL; }
+                const_vals[i] = pp_code_generator_generate_rvalue(cg, symbol_table, env_b,
+                                                                  node->collection_initializer.elements[i]);
+                if (!const_vals[i]) {
+                    free(const_vals);
+                    return NULL;
+                }
             }
-            LLVMValueRef result = LLVMConstArray(llvm_array_type, const_vals, node->collection_initializer.element_count);
+            LLVMValueRef result =
+                LLVMConstArray(llvm_array_type, const_vals, node->collection_initializer.element_count);
             free(const_vals);
             return result;
         } else {
             LLVMValueRef undef_val = LLVMGetUndef(llvm_array_type);
             LLVMValueRef result = undef_val;
             for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
-                LLVMValueRef elem_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
+                LLVMValueRef elem_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b,
+                                                                          node->collection_initializer.elements[i]);
                 if (!elem_val) return NULL;
                 result = LLVMBuildInsertValue(cg->builder, result, elem_val, i, "array_init_elem");
             }
             return result;
         }
     } else if (coll_type->kind == PP_TK_List) {
-        #warning "List initializer is runtime-only; globals not supported yet"
+#warning "List initializer is runtime-only; globals not supported yet"
         if (!cg->current_function_type) {
             assert(0 && "List initializer not supported at global scope");
             return NULL;
@@ -2057,29 +2168,13 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
         assert(llvm_elem_type);
         unsigned int n = node->collection_initializer.element_count;
 
-        // Get malloc declaration
+        // Runtime functions are ensured at cg creation
         LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
         LLVMTypeRef i8ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
+        LLVMValueRef malloc_fn = LLVMGetNamedFunction(cg->mod, "malloc");
+        assert(malloc_fn);
         LLVMTypeRef malloc_param = i64_type;
         LLVMTypeRef malloc_type = LLVMFunctionType(i8ptr_type, &malloc_param, 1, 0);
-        LLVMValueRef malloc_fn = LLVMGetNamedFunction(cg->mod, "malloc");
-        if (!malloc_fn) {
-            malloc_fn = LLVMAddFunction(cg->mod, "malloc", malloc_type);
-        }
-
-        // Ensure realloc and free declarations for future use
-        LLVMTypeRef realloc_params[2] = { i8ptr_type, i64_type };
-        LLVMTypeRef realloc_type = LLVMFunctionType(i8ptr_type, realloc_params, 2, 0);
-        LLVMValueRef realloc_fn = LLVMGetNamedFunction(cg->mod, "realloc");
-        if (!realloc_fn) {
-            realloc_fn = LLVMAddFunction(cg->mod, "realloc", realloc_type);
-        }
-        LLVMTypeRef free_param = i8ptr_type;
-        LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), &free_param, 1, 0);
-        LLVMValueRef free_fn = LLVMGetNamedFunction(cg->mod, "free");
-        if (!free_fn) {
-            free_fn = LLVMAddFunction(cg->mod, "free", free_type);
-        }
 
         // Compute size = n * sizeof(elem)
         const char* data_layout_str = LLVMGetDataLayout(cg->mod);
@@ -2096,7 +2191,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
         buf = LLVMBuildBitCast(cg->builder, buf, elem_ptr_type, "list_buf_cast");
 
         for (unsigned int i = 0; i < n; i++) {
-            LLVMValueRef elem_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
+            LLVMValueRef elem_val =
+                pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
             assert(elem_val);
             LLVMValueRef idx = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), i, 0);
             LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, llvm_elem_type, buf, &idx, 1, "list_elem_ptr");

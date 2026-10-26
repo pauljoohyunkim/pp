@@ -14,7 +14,7 @@ If you need date, always use `date` instead of relying on your memory.
 Be concise in your output.
 
 ## Clang Format
-Whenever you are at a C/C++ repo, you should use clang-format:
+You should use `clang-format` for formatting:
 
 Repository uses a project `.clang-format` file. Run:
 
@@ -27,8 +27,7 @@ Or for all C/H files:
 find src include -type f \( -name "*.c" -o -name "*.h" \) -exec clang-format -i {} +
 ```
 
-The style is Google-based with 4-space indent, braces attached, `ColumnLimit: 120`, arguments packed, and short if statements kept on one line:
-BasedOnStyle: Google, IndentWidth: 4, ContinuationIndentWidth: 4, UseTab: Never, BreakBeforeBraces: Attach, SpaceBeforeParens: ControlStatements, ColumnLimit: 120, BinPackArguments: true, BinPackParameters: true, PenaltyBreakBeforeFirstCallParameter: 10000, AllowShortIfStatementsOnASingleLine: WithoutElse, AllowShortLoopsOnASingleLine: true, AllowShortBlocksOnASingleLine: true
+For example, if you remove conditional, do not attempt to fix the indentation by edit tool, but rely on `clang-format`.
 
 ## Memory Leak check
 When testing using `pplang` binary, to check for memory leak, you can use `valgrind`:

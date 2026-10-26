@@ -28,6 +28,11 @@ One shared LLVM type for all `List(T)`. Element type is carried by semantic type
    * Extend `type_contains_*` helpers to `type_contains_list` for copy ban.
 5. **Globals**: Only empty list allowed as constant initializer. Non-empty initializers are runtime only.
 6. **Bool/element layout**: Same `i1` vs `i8` decision as arrays applies to heap elements.
+7. **Copy vs Move decision**: Do not store an explicit copy/move flag in AST decoration. Copy vs move is determined by the source expression's `value_category`:
+   * rvalue source → move / take ownership of temporary buffer
+   * lvalue source → copy (or rejected in move-only v1)
+   * Return of a local is a special context: treat as move even though source is lvalue.
+   Adding a separate flag duplicates `value_category` and can drift. Liveness-based move optimization can be added later if needed.
 
 ## Implementation Stages
 
@@ -50,14 +55,14 @@ One shared LLVM type for all `List(T)`. Element type is carried by semantic type
 - [x] Collection initializer for `List`:
   - Stack alloca for now: `alloca [n x T]`, store elements, set data/len/cap.
   - Branch in `pp_code_generator_generate_rvalue_collection_init` for `PP_TK_List`.
-- [ ] Switch to heap allocation via `malloc` for real lists.
+- [x] Switch to heap allocation via `malloc` for real lists.
 - [ ] Support global empty list only.
 
 ### Stage 5 - Cleanup
-- [ ] Free at scope exit on all paths, including early return.
-- [ ] Declare `malloc`, `realloc`, `free` intrinsics on first use.
-- [ ] Decide ownership semantics: move-only vs deep copy.
-- [ ] Ban or implement assignment semantics to avoid double-free.
+- [x] Free at scope exit on all paths, including early return.
+- [x] Declare `malloc`, `realloc`, `free` intrinsics on first use.
+- [x] Decide ownership semantics: move-only vs deep copy.
+- [x] Ban or implement assignment semantics to avoid double-free.
 
 ### Stage 6 - Growth Operations
 - [ ] `push`, `pop`, `resize` via `realloc` with doubling strategy.
@@ -67,7 +72,7 @@ One shared LLVM type for all `List(T)`. Element type is carried by semantic type
 - [x] Stage 2 completed
 - [x] Stage 3 completed
 - [x] Stage 4 completed
-- [ ] Stage 5 completed
+- [x] Stage 5 completed
 - [ ] Stage 6 completed
 
 ## Open Questions

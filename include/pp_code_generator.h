@@ -59,6 +59,12 @@ typedef struct {
     size_t code_length;
 
     PP_ErrorList* error_list;
+
+    /* Scope exit drop stack for owned list variables */
+    LLVMValueRef* drop_stack_addresses;
+    PPType** drop_stack_types;
+    size_t drop_stack_count;
+    size_t drop_stack_capacity;
 } PP_CodeGenerator;
 
 /**

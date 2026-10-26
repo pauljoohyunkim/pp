@@ -135,3 +135,28 @@ bool pp_type_is_numerical(const PPType* type) {
             return false;
     }
 }
+
+bool pp_type_needs_drop(const PPType* type) {
+    if (type == NULL) return false;
+
+    switch (type->kind) {
+        case PP_TK_List:
+            return true;
+        case PP_TK_Const:
+            return pp_type_needs_drop(type->type.pp_type_const.const_of);
+        case PP_TK_Array:
+            return pp_type_needs_drop(type->type.pp_type_array.element_type);
+        case PP_TK_Newtype:
+            return pp_type_needs_drop(type->type.pp_type_newtype.underlying);
+        case PP_TK_Struct: {
+            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+            if (!layout) return false;
+            for (size_t i = 0; i < layout->field_count; i++) {
+                if (pp_type_needs_drop(layout->fields[i].field_type)) return true;
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
