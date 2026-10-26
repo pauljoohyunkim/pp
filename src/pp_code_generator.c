@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
@@ -134,7 +135,7 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
     LLVMValueRef args[1] = {data_ptr_i8};
     LLVMTypeRef free_type =
         LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), (LLVMTypeRef[]){LLVMPointerTypeInContext(cg->ctx, 0)}, 1, 0);
-    LLVMBuildCall2(cg->builder, free_type, free_fn, args, 1, "free_list");
+    LLVMBuildCall2(cg->builder, free_type, free_fn, args, 1, "");
 }
 
 static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg) {
@@ -667,6 +668,22 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
         }
     }
 
+    // Verify generated LLVM module
+    {
+        char* verify_err = NULL;
+        if (LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &verify_err)) {
+            if (verify_err) {
+                pp_error_list_push_error(cg->error_list, cg->filename, 0, 0, "LLVM verification failed: %s",
+                                         verify_err);
+                LLVMDisposeMessage(verify_err);
+            } else {
+                pp_error_list_push_error(cg->error_list, cg->filename, 0, 0, "LLVM verification failed");
+            }
+            goto error_cleanup;
+        }
+        if (verify_err) LLVMDisposeMessage(verify_err);
+    }
+
     return 1;
 error_cleanup:
     return 0;
@@ -719,8 +736,7 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
     assert(stmt);
     assert(stmt->node_type == PP_AST_FunctionDeclarationNode || stmt->node_type == PP_AST_LambdaDeclarationNode);
 
-    /* Stubbed for now.
-       Implementation will follow CZ:
+    /* Implementation will follow CZ:
        1. Create entry basic block.
        2. Populate local environment with parameters (alloca + store).
        3. Generate statements in the body.
