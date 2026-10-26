@@ -408,7 +408,29 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
     cg->sp = sa->sp;
     sa->sp = NULL;
 
-    cg->current_function_type = sa->current_function_type;
+    assert(sa->current_function_type == NULL);
+    cg->current_function_type = NULL;
+
+    // Ensure runtime library declarations for list support
+    {
+        LLVMTypeRef i64_type   = LLVMInt64TypeInContext(cg->ctx);
+        LLVMTypeRef i8ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
+
+        LLVMTypeRef malloc_param = i64_type;
+        LLVMTypeRef malloc_type = LLVMFunctionType(i8ptr_type, &malloc_param, 1, 0);
+        if (!LLVMGetNamedFunction(cg->mod, "malloc"))
+            LLVMAddFunction(cg->mod, "malloc", malloc_type);
+
+        LLVMTypeRef realloc_params[2] = { i8ptr_type, i64_type };
+        LLVMTypeRef realloc_type = LLVMFunctionType(i8ptr_type, realloc_params, 2, 0);
+        if (!LLVMGetNamedFunction(cg->mod, "realloc"))
+            LLVMAddFunction(cg->mod, "realloc", realloc_type);
+
+        LLVMTypeRef free_param = i8ptr_type;
+        LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), &free_param, 1, 0);
+        if (!LLVMGetNamedFunction(cg->mod, "free"))
+            LLVMAddFunction(cg->mod, "free", free_type);
+    }
 
     return cg;
 
@@ -2034,16 +2056,50 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
         LLVMTypeRef llvm_elem_type = pp_backend_lower_type(cg, elem_type);
         assert(llvm_elem_type);
         unsigned int n = node->collection_initializer.element_count;
-        LLVMTypeRef array_type = LLVMArrayType(llvm_elem_type, n);
-        LLVMValueRef buf = LLVMBuildAlloca(cg->builder, array_type, "list_buf");
-        assert(buf);
+
+        // Get malloc declaration
+        LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
+        LLVMTypeRef i8ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
+        LLVMTypeRef malloc_param = i64_type;
+        LLVMTypeRef malloc_type = LLVMFunctionType(i8ptr_type, &malloc_param, 1, 0);
+        LLVMValueRef malloc_fn = LLVMGetNamedFunction(cg->mod, "malloc");
+        if (!malloc_fn) {
+            malloc_fn = LLVMAddFunction(cg->mod, "malloc", malloc_type);
+        }
+
+        // Ensure realloc and free declarations for future use
+        LLVMTypeRef realloc_params[2] = { i8ptr_type, i64_type };
+        LLVMTypeRef realloc_type = LLVMFunctionType(i8ptr_type, realloc_params, 2, 0);
+        LLVMValueRef realloc_fn = LLVMGetNamedFunction(cg->mod, "realloc");
+        if (!realloc_fn) {
+            realloc_fn = LLVMAddFunction(cg->mod, "realloc", realloc_type);
+        }
+        LLVMTypeRef free_param = i8ptr_type;
+        LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), &free_param, 1, 0);
+        LLVMValueRef free_fn = LLVMGetNamedFunction(cg->mod, "free");
+        if (!free_fn) {
+            free_fn = LLVMAddFunction(cg->mod, "free", free_type);
+        }
+
+        // Compute size = n * sizeof(elem)
+        const char* data_layout_str = LLVMGetDataLayout(cg->mod);
+        LLVMTargetDataRef target_data = LLVMCreateTargetData(data_layout_str);
+        unsigned elem_size = LLVMABISizeOfType(target_data, llvm_elem_type);
+        LLVMDisposeTargetData(target_data);
+        LLVMValueRef elem_size_val = LLVMConstInt(i64_type, elem_size, 0);
+        LLVMValueRef n_val = LLVMConstInt(i64_type, n, 0);
+        LLVMValueRef size_val = LLVMBuildMul(cg->builder, elem_size_val, n_val, "list_alloc_size");
+        LLVMValueRef raw_ptr = LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &size_val, 1, "list_raw");
+        LLVMValueRef buf = LLVMBuildBitCast(cg->builder, raw_ptr, LLVMPointerTypeInContext(cg->ctx, 0), "list_buf");
+        // Actually need pointer to elem type
+        LLVMTypeRef elem_ptr_type = LLVMPointerType(llvm_elem_type, 0);
+        buf = LLVMBuildBitCast(cg->builder, buf, elem_ptr_type, "list_buf_cast");
+
         for (unsigned int i = 0; i < n; i++) {
             LLVMValueRef elem_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->collection_initializer.elements[i]);
             assert(elem_val);
-            LLVMValueRef idx0 = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 0);
-            LLVMValueRef idx1 = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), i, 0);
-            LLVMValueRef indices[2] = { idx0, idx1 };
-            LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, array_type, buf, indices, 2, "list_elem_ptr");
+            LLVMValueRef idx = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), i, 0);
+            LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, llvm_elem_type, buf, &idx, 1, "list_elem_ptr");
             LLVMBuildStore(cg->builder, elem_val, elem_ptr);
         }
         LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, coll_type);
