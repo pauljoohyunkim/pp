@@ -1862,6 +1862,8 @@ static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, 
             inner_symbol_table = NULL;
             break;
         default:
+            /* Expression statement: check expression for side-effects */
+            if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node)) { goto error_cleanup; }
             break;
     }
 

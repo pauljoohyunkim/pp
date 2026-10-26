@@ -853,9 +853,13 @@ static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTa
         case PP_AST_StatementListNode:
             if (!pp_code_generator_generate_block_statement(cg, symbol_table, env_b, node)) return 0;
             break;
-#warning "Expression must be checked"
         default:
-            abort();
+            /* Expression statement: evaluate for side-effects and discard result */
+            {
+                LLVMValueRef val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node);
+                (void)val;
+            }
+            break;
     }
 
     return 1;

@@ -1,5 +1,12 @@
 # Improvements & Technical Debt
 
+## Completed
+
+### Double-push prevention
+**Fixed:** `lower_type` no longer pushes types to map; pass-1 loop owns pushes.
+
+## Open Improvements
+
 ## List handle caching - Potential Improvement
 **Current approach:** `pp_backend_lower_type` for `PP_TK_List` uses name lookup via `LLVMGetTypeByName2` to find/reuse the shared `%pp.list` handle. No in-memory cache in `PP_CodeGenerator`.
 
@@ -21,6 +28,3 @@
 **Issue:** Comment in `pp_backend_lower_type` claims element type is registered during recursion, but primitives are not registered. 
 **Improvement:** Reword comment to reflect that pass-1 loop owns registration.
 **Status:** Open.
-
-## Double-push prevention
-**Fixed:** `lower_type` no longer pushes types to map; pass-1 loop owns pushes.
