@@ -1,0 +1,32 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build pplang",
+            "type": "shell",
+            "command": "make pplang"
+        },
+        {
+            "label": "Build pplang (Stop at Lexer)",
+            "type": "shell",
+            "command": "make pplang CFLAGS_EXTRA=-DSTOP_AT_LEXER"
+        },
+        {
+            "label": "Build pplang (Stop at Parser)",
+            "type": "shell",
+            "command": "make pplang CFLAGS_EXTRA=-DSTOP_AT_PARSER"
+        },
+        {
+            "label": "Build pplang (Stop at Semantic Analyzer)",
+            "type": "shell",
+            "command": "make pplang CFLAGS_EXTRA=-DSTOP_AT_SEMANTIC_ANALYZER"
+        },
+        {
+            "label": "Make unittest",
+            "type": "shell",
+            "command": "make unittest"
+        }
+    ]
+}

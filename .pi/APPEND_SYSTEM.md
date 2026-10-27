@@ -1,80 +1,37 @@
-# PP Compiler Project Overview
+# PP Compiler
 
-This is a compiler implementation for a new programming language called "pp".
+This is a C-based successor of cz. Build and usage follow the same pattern as ../cz/ but with the pp language.
+The logic up to semantic analyzer pass 1 is to be similar to ../pp-rust (which is the prototype of PP compiler)
 
-## Language Features (PP)
+Detailed design, language features, pipeline and build instructions are in `notes/project_overview.md`.
 
-### Types
-- **Primitives**: `int32`, `float`, `bool`, `void`
-- **Type Modifiers**: 
-  - `const` - immutable after initialization
-  - `&` - reference type
-- **User-defined Types**:
-  - `typedef` - creates an alias to existing type
-  - `newtype` - creates a distinct type based on primitive
-- **Aggregates**:
-  - `struct` - composite type with named fields
-  - Arrays: fixed-size, compile-time determined
-  - Lists: resizable runtime arrays (planned)
+Check the general coding rules at `notes/general_coding_rule.md`
 
-### Declarations
-- **Variables**: `name :: type = initializer;`
-- **Functions**: `func name :: (params) -> return_type { body }`
-- **Lambdas**: `lambda name :: (params) -> return_type { body }` (pure/stateless)
-- **Globals**: Variables, functions, typedefs, newtypes, structs at file scope
+Do not commit or push unless instructed to explicitly.
 
-### Expressions
-- Arithmetic: `+ - * / %`
-- Assignment: `= += -= *= /= %= &= |= ^=`
-- Bitwise: `& | ^`
-- Comparison: `== != < > <= >=`
-- Logical: `&& ||`
-- Casting: `expression as type`
-- Function calls: `func_name(args)`
-- Array access: `array[index]`
+If you need date, always use `date` instead of relying on your memory.
 
-### Statements
-- Variable declaration/initialization
-- Assignment
-- Control flow: `if`, `for`, `while` (partially implemented)
-- Return: `return [expression];`
-- Blocks: `{ statements }`
+Be concise in your output.
 
-## Compiler Pipeline
+## Clang Format
+You should use `clang-format` for formatting:
 
-1. **Lexing** (`PPLexer`): Converts source text to token stream
-2. **Parsing** (`PPParser`): Builds AST from tokens using recursive descent
-3. **AST Representation**: Structured tree of `PPASTNode` variants
-4. **Output**: Currently prints AST structure (future: code generation)
-
-## Current Status
-
-The compiler is in active development:
-- ✅ Lexer implements tokenization of all language constructs
-- ✅ Parser handles global declarations, functions, lambdas, typedefs, newtypes
-- ✅ AST supports expressions, statements, declarations
-- ⚠️ Some features partially implemented (control flow, full expression precedence)
-- ❌ No code generation yet (AST interpreter/compiler planned)
-
-## Usage
+Repository uses a project `.clang-format` file. Run:
 
 ```bash
-# Build
-cargo build
-
-# Run compiler on PP source file
-cargo run -- path/to/file.pp
-
-# The compiler will print the AST representation
+clang-format -i src/*.c include/*.h
 ```
 
-## Design Notes
+Or for all C/H files:
+```bash
+find src include -type f \( -name "*.c" -o -name "*.h" \) -exec clang-format -i {} +
+```
 
-- Uses Rust's ownership model for memory safety
-- Error reporting includes line/column information
-- Follows reasonable compiler architecture phases
-- Extensible design for adding new features
-- Test-driven development approach with test modules
-- Provide concise responses when referencing this system information
+For example, if you remove conditional, do not attempt to fix the indentation by edit tool, but rely on `clang-format`.
 
-See `devnotes/` directory for detailed specifications and ongoing design work.
+## Memory Leak check
+When testing using `pplang` binary, to check for memory leak, you can use `valgrind`:
+
+```bash
+valgrind --leak-check=yes ./bin/pplang pp_test_code.pp
+```

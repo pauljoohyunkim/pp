@@ -1,0 +1,163 @@
+#include "pp_tokens.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+
+bool pp_token_type_is_assignment(PP_TokenType token_type) {
+    switch (token_type) {
+        case PP_TT_EQUAL:
+        case PP_TT_PLUS_EQUAL:
+        case PP_TT_MINUS_EQUAL:
+        case PP_TT_STAR_EQUAL:
+        case PP_TT_SLASH_EQUAL:
+        case PP_TT_PERCENT_EQUAL:
+        case PP_TT_AMPERSAND_EQUAL:
+        case PP_TT_BAR_EQUAL:
+        case PP_TT_CARET_EQUAL:
+            return true;
+        default:
+            return false;
+    }
+}
+
+const char* pp_token_to_human_name(PP_TokenType token_type) {
+    switch (token_type) {
+        case PP_TT_LEFT_CURLY_BRACKET:
+            return "{";
+        case PP_TT_RIGHT_CURLY_BRACKET:
+            return "}";
+        case PP_TT_LEFT_PARENTHESIS:
+            return "(";
+        case PP_TT_RIGHT_PARENTHESIS:
+            return ")";
+        case PP_TT_LEFT_SQUARE_BRACKET:
+            return "[";
+        case PP_TT_RIGHT_SQUARE_BRACKET:
+            return "]";
+        case PP_TT_EQUAL:
+            return "=";
+        case PP_TT_PLUS:
+            return "+";
+        case PP_TT_MINUS:
+            return "-";
+        case PP_TT_STAR:
+            return "*";
+        case PP_TT_SLASH:
+            return "/";
+        case PP_TT_PERCENT:
+            return "%";
+        case PP_TT_AMPERSAND:
+            return "&";
+        case PP_TT_BAR:
+            return "|";
+        case PP_TT_CARET:
+            return "^";
+        case PP_TT_SEMICOLON:
+            return ";";
+        case PP_TT_PERIOD:
+            return ".";
+        case PP_TT_COMMA:
+            return ",";
+        case PP_TT_COLON:
+            return ":";
+        case PP_TT_EXCLAMATION:
+            return "!";
+        case PP_TT_GREATER:
+            return ">";
+        case PP_TT_LESS:
+            return "<";
+
+        // Double-letter
+        case PP_TT_PLUS_EQUAL:
+            return "+=";
+        case PP_TT_MINUS_EQUAL:
+            return "-=";
+        case PP_TT_STAR_EQUAL:
+            return "*=";
+        case PP_TT_SLASH_EQUAL:
+            return "/=";
+        case PP_TT_PERCENT_EQUAL:
+            return "%=";
+        case PP_TT_AMPERSAND_EQUAL:
+            return "&=";
+        case PP_TT_BAR_EQUAL:
+            return "|=";
+        case PP_TT_CARET_EQUAL:
+            return "^=";
+        case PP_TT_EQUAL_EQUAL:
+            return "==";
+        case PP_TT_EXCLAMATION_EQUAL:
+            return "!=";
+        case PP_TT_GREATER_EQUAL:
+            return ">=";
+        case PP_TT_LESS_EQUAL:
+            return "<=";
+        case PP_TT_RIGHT_ARROW:
+            return "->";
+        case PP_TT_COLON_COLON:
+            return "::";
+        case PP_TT_AMPERSAND_AMPERSAND:
+            return "&&";
+        case PP_TT_BAR_BAR:
+            return "||";
+
+        // Keywords / Types
+        case PP_TT_FOR:
+            return "for";
+        case PP_TT_WHILE:
+            return "while";
+        case PP_TT_IF:
+            return "if";
+        case PP_TT_ELSE:
+            return "else";
+        case PP_TT_RETURN:
+            return "return";
+        case PP_TT_FUNC:
+            return "func";
+        case PP_TT_LAMBDA:
+            return "lambda";
+        case PP_TT_LET:
+            return "let";
+        case PP_TT_CONST:
+            return "const";
+        case PP_TT_VOID:
+            return "void";
+        case PP_TT_BOOL:
+            return "bool";
+        case PP_TT_INT32:
+            return "int32";
+        case PP_TT_UINT32:
+            return "uint32";
+        case PP_TT_FLOAT:
+            return "float";
+        case PP_TT_STRUCT:
+            return "struct";
+        case PP_TT_TYPEDEF:
+            return "typedef";
+        case PP_TT_NEWTYPE:
+            return "newtype";
+        case PP_TT_AS:
+            return "as";
+        case PP_TT_TRUE:
+            return "true";
+        case PP_TT_FALSE:
+            return "false";
+
+        // Literals
+        case PP_TT_INTEGER_LITERAL:
+            return "integer literal";
+        case PP_TT_FLOAT_LITERAL:
+            return "float literal";
+        case PP_TT_STRING_LITERAL:
+            return "string literal";
+        case PP_TT_IDENTIFIER:
+            return "identifier";
+        case PP_TT_UNKNOWN:
+            return "unknown";
+        case PP_TT_EOF:
+            return "EOF";
+
+        default:
+            return NULL;
+    }
+}

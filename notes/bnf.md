@@ -53,18 +53,25 @@
 <param_decl>                ::= <identifier> "::" <type>
 
 ;; --- Type ---
-<type>                      ::= <mutability> <base_type> [ <array_specifier> ] [ "&" ]
+<type>                      ::= <mutability> <collection_type> [ "&" ]
 <mutability>                ::= "const" | ""
+<collection_type>           ::= "[" <type> [ ":" <expression> ] "]" | <base_type>
 <base_type>                 ::= "void"
-                              | "int32" [ <array_specifier> ]
-                              | "float" [ <array_specifier> ]
-                              | "bool"  [ <array_specifier> ]
-                              | <identifier> [ <array_specifier> ]
-<array_specifier>           ::= "[" [ <expression> ] "]"
+                              | "int32"
+                              | "uint32"
+                              | "float"
+                              | "bool"
+                              | <identifier>
 
 ;; --- Expression ---
 ;; TODO: Need to add equality, relational, etc.
-<expression>                ::= <equality>
+<expression>                ::= <logical_or>
+
+<logical_or>                ::= <logical_or> "||" <logical_and>
+                              | <equality>
+
+<logical_and>               ::= <logical_and> "&&" <equality>
+                              | <equality>
 
 <equality>                  ::= <equality> "==" <relational> 
                               | <equality> "!=" <relational> 
