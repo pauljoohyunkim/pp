@@ -21,6 +21,12 @@ static long get_file_size(const char* filename) {
     return size;
 }
 
+static void print_help(void) {
+    printf("Usage: pplang [-c] [-o filename] src.pp\n");
+    printf("-c\t\t\t\tCompile to object file.\n");
+    printf("-o filename\t\tOutput filename (default: a.out)\n");
+}
+
 int main(int argc, char** argv) {
     int exit_code = 0;
 
@@ -37,7 +43,7 @@ int main(int argc, char** argv) {
     while  ((opt = getopt(argc, argv, "hcvo:")) != -1) {
         switch (opt) {
             case 'h':
-                // TODO: Print help
+                print_help();
                 return 1;
             case 'c':
                 to_object = true;
@@ -54,13 +60,18 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (optind >= argc) {
+        fprintf(stderr, "No source file given.\n");
+        return 1;
+    }
 
-    const char* source_filename = argv[1];
+    const char* source_filename = argv[optind];
     long filesize = get_file_size(source_filename);
     if (filesize < 0) {
         fprintf(stderr, "Could not open %s\n", source_filename);
         return 1;
     }
+    
 
     FILE* fp = fopen(source_filename, "r");
     if (!fp) {
