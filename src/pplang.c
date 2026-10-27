@@ -8,6 +8,7 @@
 #include "pp_lexer.h"
 #include "pp_parser.h"
 #include "pp_semantic_analyzer.h"
+#include "pp_linker_offload.h"
 
 static long get_file_size(const char* filename) {
     FILE* fp = fopen(filename, "rb");
@@ -30,14 +31,10 @@ static void print_help(void) {
 int main(int argc, char** argv) {
     int exit_code = 0;
 
-    //if (argc != 2) {
-    //    fprintf(stderr, "Usage: pplang src.pp\n");
-    //    return 1;
-    //}
-
     bool to_object = false;
     bool verbose = false;
     char output_filename[BUFSIZ] = { 0 };
+    char temp_filename[L_tmpnam] = { 0 };
     strcpy(output_filename, "a.out");
     int opt;
     while  ((opt = getopt(argc, argv, "hcvo:")) != -1) {
@@ -62,11 +59,6 @@ int main(int argc, char** argv) {
 
     if (optind >= argc) {
         fprintf(stderr, "No source file given.\n");
-        return 1;
-    }
-
-    if (!to_object) {
-        fprintf(stderr, "TODO: Currently compiling to object file is supported only.\n");
         return 1;
     }
 
@@ -220,9 +212,27 @@ int main(int argc, char** argv) {
             pp_environment_backend_print_value_map(cg->global_env_b);
             LLVMDumpModule(cg->mod);
         }
-        if (!pp_code_generator_emit_object_file(cg->mod, output_filename)) {
+        if (to_object) {
+            if (!pp_code_generator_emit_object_file(cg->mod, output_filename)) {
             fprintf(stderr, "Could not write file to %s. Do you have write permission?\n", output_filename);
             goto error_cleanup_exit;
+        }
+        } else {
+            // Need to create temporary object file, then invoke the linker
+            if (!tmpnam(temp_filename)) {
+                fprintf(stderr, "Could not write file for temporary object file. Do you have write permission?\n");
+            goto error_cleanup_exit;
+            }
+
+            if (!pp_code_generator_emit_object_file(cg->mod, temp_filename)) {
+                fprintf(stderr, "Could not write file for temporary object file to %s. Do you have write permission?\n", temp_filename);
+            goto error_cleanup_exit;
+            }
+
+            if (!pp_linker_offload(temp_filename, output_filename)) {
+               fprintf(stderr, "Could not link to %s. Do you have write permission?\n", output_filename);
+            goto error_cleanup_exit; 
+            }
         }
     }
 
