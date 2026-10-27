@@ -65,6 +65,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (!to_object) {
+        fprintf(stderr, "TODO: Currently compiling to object file is supported only.\n");
+        return 1;
+    }
+
     const char* source_filename = argv[optind];
     long filesize = get_file_size(source_filename);
     if (filesize < 0) {
@@ -143,8 +148,11 @@ int main(int argc, char** argv) {
                     e->column, e->message);
         }
     } else {
-        printf("Parse succeeded. AST:\n");
-        pp_ast_root_print(parser->program, 0);
+        if (verbose) {
+            printf("Parse succeeded. AST:\n");
+            pp_ast_root_print(parser->program, 0);
+        }
+        
     }
 
 #ifdef STOP_AT_PARSER
@@ -171,9 +179,11 @@ int main(int argc, char** argv) {
                     e->line, e->column, e->message);
         }
     } else {
-        printf("Semantic analysis succeeded.\n");
-        printf("Type Table:\n");
-        pp_global_type_table_print(sa->gtt);
+        if (verbose) {
+            printf("Semantic analysis succeeded.\n");
+            printf("Type Table:\n");
+            pp_global_type_table_print(sa->gtt);
+        } 
     }
 
 #ifdef STOP_AT_SEMANTIC_ANALYZER
@@ -193,18 +203,27 @@ int main(int argc, char** argv) {
         exit_code = 1;
         goto error_cleanup_exit;
     } else {
-        printf("Code generator created successfully.\n");
+        if (verbose) {
+           printf("Code generator created successfully.\n"); 
+        } 
     }
 
     ret = pp_code_generator_generate(cg);
     if (!ret) {
         fprintf(stderr, "Code generation failure\n");
         exit_code = 1;
+        goto error_cleanup_exit;
     } else {
-        printf("Code generation succeeded.\n");
-        pp_environment_backend_print_type_map(cg->global_env_b);
-        pp_environment_backend_print_value_map(cg->global_env_b);
-        LLVMDumpModule(cg->mod);
+        if (verbose) {
+            printf("Code generation succeeded.\n");
+            pp_environment_backend_print_type_map(cg->global_env_b);
+            pp_environment_backend_print_value_map(cg->global_env_b);
+            LLVMDumpModule(cg->mod);
+        }
+        if (!pp_code_generator_emit_object_file(cg->mod, output_filename)) {
+            fprintf(stderr, "Could not write file to %s. Do you havr write permission?\n", output_filename);
+            goto error_cleanup_exit;
+        }
     }
 
 error_cleanup_exit:
