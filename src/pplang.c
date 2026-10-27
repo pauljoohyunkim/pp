@@ -1,11 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "pp_ast.h"
 #include "pp_code_generator.h"
 #include "pp_lexer.h"
 #include "pp_parser.h"
 #include "pp_semantic_analyzer.h"
+#include "pp_linker_offload.h"
 
 static long get_file_size(const char* filename) {
     FILE* fp = fopen(filename, "rb");
@@ -19,19 +22,55 @@ static long get_file_size(const char* filename) {
     return size;
 }
 
+static void print_help(void) {
+    printf("Usage: pplang [-h] [-v] [-c] [-o filename] src.pp\n");
+    printf("-h\t\t\t\tShow this help menu\n");
+    printf("-v\t\t\t\tShow verbose output\n");
+    printf("-c\t\t\t\tCompile to object file.\n");
+    printf("-o filename\t\tOutput filename (default: a.out)\n");
+}
+
 int main(int argc, char** argv) {
     int exit_code = 0;
-    if (argc != 2) {
-        fprintf(stderr, "Usage: pplang src.pp\n");
+
+    bool to_object = false;
+    bool verbose = false;
+    char output_filename[BUFSIZ] = { 0 };
+    char temp_filename[L_tmpnam] = { 0 };
+    strcpy(output_filename, "a.out");
+    int opt;
+    while  ((opt = getopt(argc, argv, "hcvo:")) != -1) {
+        switch (opt) {
+            case 'h':
+                print_help();
+                return 1;
+            case 'c':
+                to_object = true;
+                break;
+            case 'v':
+                verbose = true;
+                break;
+            case 'o':
+                memset(output_filename, 0, sizeof(output_filename));
+                strncpy(output_filename, optarg, BUFSIZ-1);
+                break;
+            default:
+                return 1;
+        }
+    }
+
+    if (optind >= argc) {
+        fprintf(stderr, "No source file given.\n");
         return 1;
     }
 
-    const char* source_filename = argv[1];
+    const char* source_filename = argv[optind];
     long filesize = get_file_size(source_filename);
     if (filesize < 0) {
         fprintf(stderr, "Could not open %s\n", source_filename);
         return 1;
     }
+    
 
     FILE* fp = fopen(source_filename, "r");
     if (!fp) {
@@ -103,8 +142,11 @@ int main(int argc, char** argv) {
                     e->column, e->message);
         }
     } else {
-        printf("Parse succeeded. AST:\n");
-        pp_ast_root_print(parser->program, 0);
+        if (verbose) {
+            printf("Parse succeeded. AST:\n");
+            pp_ast_root_print(parser->program, 0);
+        }
+        
     }
 
 #ifdef STOP_AT_PARSER
@@ -131,9 +173,11 @@ int main(int argc, char** argv) {
                     e->line, e->column, e->message);
         }
     } else {
-        printf("Semantic analysis succeeded.\n");
-        printf("Type Table:\n");
-        pp_global_type_table_print(sa->gtt);
+        if (verbose) {
+            printf("Semantic analysis succeeded.\n");
+            printf("Type Table:\n");
+            pp_global_type_table_print(sa->gtt);
+        } 
     }
 
 #ifdef STOP_AT_SEMANTIC_ANALYZER
@@ -153,18 +197,60 @@ int main(int argc, char** argv) {
         exit_code = 1;
         goto error_cleanup_exit;
     } else {
-        printf("Code generator created successfully.\n");
+        if (verbose) {
+           printf("Code generator created successfully.\n"); 
+        } 
     }
 
     ret = pp_code_generator_generate(cg);
     if (!ret) {
         fprintf(stderr, "Code generation failure\n");
         exit_code = 1;
+        goto error_cleanup_exit;
     } else {
-        printf("Code generation succeeded.\n");
-        pp_environment_backend_print_type_map(cg->global_env_b);
-        pp_environment_backend_print_value_map(cg->global_env_b);
-        LLVMDumpModule(cg->mod);
+        if (verbose) {
+            printf("Code generation succeeded.\n");
+            pp_environment_backend_print_type_map(cg->global_env_b);
+            pp_environment_backend_print_value_map(cg->global_env_b);
+            LLVMDumpModule(cg->mod);
+        }
+        if (to_object) {
+            if (!pp_code_generator_emit_object_file(cg->mod, output_filename)) {
+            fprintf(stderr, "Could not write file to %s. Do you have write permission?\n", output_filename);
+            exit_code = 1;
+            goto error_cleanup_exit;
+        }
+        } else {
+            // Need to create temporary object file, then invoke the linker
+            if (!tmpnam(temp_filename)) {
+                fprintf(stderr, "Could not acquire temporary file name for temporary object file. Do you have write permission?\n");
+                exit_code = 1;
+                goto error_cleanup_exit;
+            }
+
+            if (verbose) {
+                printf("Before linking, a temporary object file will be compiled to %s.\n", temp_filename);
+            }
+            
+            if (!pp_code_generator_emit_object_file(cg->mod, temp_filename)) {
+                fprintf(stderr, "Could not write file for temporary object file to %s. Do you have write permission?\n", temp_filename);
+                exit_code = 1;
+            goto error_cleanup_exit;
+            }
+
+            if (verbose) {
+                printf("Invoking linker...\n");
+            }
+
+            if (!pp_linker_offload(temp_filename, output_filename)) {
+               fprintf(stderr, "Could not link to %s. Do you have write permission?\n", output_filename);
+            exit_code = 1;
+            goto error_cleanup_exit; 
+            }
+            if (verbose) {
+                printf("Output %s\n", output_filename);
+            }
+        }
     }
 
 error_cleanup_exit:
