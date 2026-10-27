@@ -221,7 +221,7 @@ int main(int argc, char** argv) {
             LLVMDumpModule(cg->mod);
         }
         if (!pp_code_generator_emit_object_file(cg->mod, output_filename)) {
-            fprintf(stderr, "Could not write file to %s. Do you havr write permission?\n", output_filename);
+            fprintf(stderr, "Could not write file to %s. Do you have write permission?\n", output_filename);
             goto error_cleanup_exit;
         }
     }
