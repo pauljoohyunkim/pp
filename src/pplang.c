@@ -23,7 +23,9 @@ static long get_file_size(const char* filename) {
 }
 
 static void print_help(void) {
-    printf("Usage: pplang [-c] [-o filename] src.pp\n");
+    printf("Usage: pplang [-h] [-v] [-c] [-o filename] src.pp\n");
+    printf("-h\t\t\t\tShow this help menu\n");
+    printf("-v\t\t\t\tShow verbose output\n");
     printf("-c\t\t\t\tCompile to object file.\n");
     printf("-o filename\t\tOutput filename (default: a.out)\n");
 }
@@ -215,22 +217,34 @@ int main(int argc, char** argv) {
         if (to_object) {
             if (!pp_code_generator_emit_object_file(cg->mod, output_filename)) {
             fprintf(stderr, "Could not write file to %s. Do you have write permission?\n", output_filename);
+            exit_code = 1;
             goto error_cleanup_exit;
         }
         } else {
             // Need to create temporary object file, then invoke the linker
             if (!tmpnam(temp_filename)) {
-                fprintf(stderr, "Could not write file for temporary object file. Do you have write permission?\n");
+                fprintf(stderr, "Could not acquire temporary file name for temporary object file. Do you have write permission?\n");
+                exit_code = 1;
+                goto error_cleanup_exit;
+            }
+
+            if (verbose) {
+                printf("Before linking, a temporary object file will be compiled to %s.\n", temp_filename);
+            }
+            
+            if (!pp_code_generator_emit_object_file(cg->mod, temp_filename)) {
+                fprintf(stderr, "Could not write file for temporary object file to %s. Do you have write permission?\n", temp_filename);
+                exit_code = 1;
             goto error_cleanup_exit;
             }
 
-            if (!pp_code_generator_emit_object_file(cg->mod, temp_filename)) {
-                fprintf(stderr, "Could not write file for temporary object file to %s. Do you have write permission?\n", temp_filename);
-            goto error_cleanup_exit;
+            if (verbose) {
+                printf("Invoking linker...\n");
             }
 
             if (!pp_linker_offload(temp_filename, output_filename)) {
                fprintf(stderr, "Could not link to %s. Do you have write permission?\n", output_filename);
+            exit_code = 1;
             goto error_cleanup_exit; 
             }
         }
