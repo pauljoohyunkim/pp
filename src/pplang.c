@@ -247,6 +247,9 @@ int main(int argc, char** argv) {
             exit_code = 1;
             goto error_cleanup_exit; 
             }
+            if (verbose) {
+                printf("Output %s\n", output_filename);
+            }
         }
     }
 
