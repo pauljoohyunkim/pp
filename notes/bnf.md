@@ -8,14 +8,21 @@
 <program>                   ::= <global_declaration_list>
 <global_declaration_list>   ::= <global_declaration> <global_declaration_list> | ""
 <global_declaration>        ::= <function_decl>
+                              | <extern_function_decl>
                               | <lambda_decl>
+                              | <extern_lambda_decl>
                               | <struct_decl>
                               | <variable_decl> ";"
                               | <typedef_decl> ";"
                               | <newtype_decl> ";"
 
-<function_decl>             ::= "func" <identifier> "::" "(" <param_list> ")" "->" <type> <block>
-<lambda_decl>               ::= "lambda" <identifier> "::" "(" <param_list> ")" "->" <type> <block>
+<function_signature>        ::= <identifier> "::" "(" <param_list> ")" "->" <type>
+<lambda_signature>          ::= <identifier> "::" "(" <param_list> ")" "->" <type>
+
+<function_decl>             ::= "func" <function_signature> <block>
+<extern_function_decl>      ::= "extern" "func" <function_signature> ";"
+<lambda_decl>               ::= "lambda" <lambda_signature> <block>
+<extern_lambda_decl>        ::= "extern" "lambda" <lambda_signature> ";"
 <struct_decl>               ::= "struct" <identifier> "{" <struct_member_list> "}"
 <struct_member_list>        ::= <struct_member> ";" <struct_member_list> | ""
 <struct_member>             ::= <param_decl> [ "=" <expression> ]

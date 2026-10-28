@@ -1208,3 +1208,31 @@ TEST(ParserTest, ArrayReferenceType) {
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
 
+TEST(ParserTest, GoodExternFunctionDeclaration) {
+    const char* source =
+        "extern func foo :: (a :: int32, b :: int32) -> int32;";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodExternLambdaDeclaration) {
+    const char* source =
+        "extern lambda add :: (x :: int32) -> int32;";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodExternFunctionForwardDeclarationWithFunctionDef) {
+    const char* source =
+        "extern func foo :: () -> void;\n"
+        "func bar :: () -> void { return; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
