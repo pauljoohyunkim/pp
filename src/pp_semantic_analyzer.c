@@ -801,7 +801,14 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false);
     if (existing) {
         if (existing->type == func_type) {
-            // Identical forward declaration, allow without error
+            if (existing->is_definition) {
+                // Duplicate definition
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Symbol '%s' is previously defined.",
+                                         node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+                goto error_cleanup;
+            }
+            // Existing is a forward declaration, identical type → allow upgrade
             return 1;
         } else {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
@@ -812,7 +819,7 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     }
 
     // Create symbol
-    func_symbol = pp_symbol_create(func_type, false, false, true);
+    func_symbol = pp_symbol_create(func_type, false, false, true, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to allocate symbol for function '%s'",
@@ -893,6 +900,11 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false);
     if (existing) {
         if (existing->type == lambda_type) {
+            if (existing->is_definition) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Symbol '%s' is previously defined.",
+                                     node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+                goto error_cleanup;
+            }
             return 1;
         } else {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Conflicting types for symbol '%s'",
@@ -902,7 +914,7 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     }
 
     // Create symbol
-    lambda_symbol = pp_symbol_create(lambda_type, false, false, true);
+    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, true);
     if (!lambda_symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to allocate symbol for lambda '%s'",
@@ -986,7 +998,7 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
         }
     }
 
-    func_symbol = pp_symbol_create(func_type, false, false, true);
+    func_symbol = pp_symbol_create(func_type, false, false, true, false);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to allocate symbol for function '%s'",
@@ -1067,7 +1079,7 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
         }
     }
 
-    lambda_symbol = pp_symbol_create(lambda_type, false, false, true);
+    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, false);
     if (!lambda_symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to allocate symbol for lambda '%s'",
@@ -1181,7 +1193,7 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
         goto error_cleanup;
     }
 
-    symbol = pp_symbol_create(var_type, false, false, true);
+    symbol = pp_symbol_create(var_type, false, false, true, true);
     if (!symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to allocate symbol for variable '%s'",
@@ -1581,7 +1593,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
             }
         }
 
-        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false);
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
         if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
                                      node->function_declaration.params[i]->col,
@@ -1712,7 +1724,7 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
             }
         }
 
-        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false);
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
         if (!pp_symbol_table_push(lambda_param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
                                      node->function_declaration.params[i]->col,
@@ -2177,9 +2189,9 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         // from outside, then return it back. For this, it must be reference, and initializer must be escapable.
         variable_symbol =
             pp_symbol_create(symbol_type, pp_type_is_const(symbol_type) && initializer_decor->is_constexpr,
-                             pp_type_is_reference(symbol_type) && initializer_decor->is_escapable_ref, false);
+                             pp_type_is_reference(symbol_type) && initializer_decor->is_escapable_ref, false, true);
     } else {
-        variable_symbol = pp_symbol_create(symbol_type, false, false, false);
+        variable_symbol = pp_symbol_create(symbol_type, false, false, false, true);
     }
     NULL_POINTER_ERROR_HANDLE(variable_symbol);
 
