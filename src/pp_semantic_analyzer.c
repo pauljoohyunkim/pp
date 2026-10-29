@@ -756,14 +756,6 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     const PPType* func_type = NULL;
     PPSymbol* func_symbol = NULL;
 
-    // Duplicate check
-    if (pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                 "Symbol '%s' is previously defined.",
-                                 node->function_declaration.name ? node->function_declaration.name : "<unknown>");
-        goto error_cleanup;
-    }
-
     tmp_func = pp_type_create(PP_TK_Function);
     if (!tmp_func) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
@@ -804,6 +796,20 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
         goto error_cleanup;
     }
     tmp_func = NULL;
+
+    // Duplicate handling with forward declaration support
+    const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false);
+    if (existing) {
+        if (existing->type == func_type) {
+            // Identical forward declaration, allow without error
+            return 1;
+        } else {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Conflicting types for symbol '%s'",
+                                     node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+    }
 
     // Create symbol
     func_symbol = pp_symbol_create(func_type, false, false, true);
@@ -844,13 +850,6 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     const PPType* lambda_type = NULL;
     PPSymbol* lambda_symbol = NULL;
 
-    // Duplicate symbol check
-    if (pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Symbol '%s' previously defined.",
-                                 node->function_declaration.name ? node->function_declaration.name : "<unknown>");
-        goto error_cleanup;
-    }
-
     tmp_lambda = pp_type_create(PP_TK_Lambda);
     if (!tmp_lambda) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
@@ -890,6 +889,18 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     }
     tmp_lambda = NULL;
 
+    // Duplicate handling with forward declaration support
+    const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false);
+    if (existing) {
+        if (existing->type == lambda_type) {
+            return 1;
+        } else {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Conflicting types for symbol '%s'",
+                                     node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+    }
+
     // Create symbol
     lambda_symbol = pp_symbol_create(lambda_type, false, false, true);
     if (!lambda_symbol) {
@@ -923,14 +934,6 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
     PPType* tmp_func = NULL;
     const PPType* func_type = NULL;
     PPSymbol* func_symbol = NULL;
-
-    // Duplicate check
-    if (pp_symbol_table_lookup(sa->gst, node->extern_function_declaration.name, false)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                 "Symbol '%s' is previously defined.",
-                                 node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
-        goto error_cleanup;
-    }
 
     tmp_func = pp_type_create(PP_TK_Function);
     if (!tmp_func) {
@@ -970,6 +973,19 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
     }
     tmp_func = NULL;
 
+    // Duplicate handling with forward declaration support
+    const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->extern_function_declaration.name, false);
+    if (existing) {
+        if (existing->type == func_type) {
+            return 1;
+        } else {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Conflicting types for symbol '%s'",
+                                     node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+    }
+
     func_symbol = pp_symbol_create(func_type, false, false, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
@@ -1002,12 +1018,6 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
     PPType* tmp_lambda = NULL;
     const PPType* lambda_type = NULL;
     PPSymbol* lambda_symbol = NULL;
-
-    if (pp_symbol_table_lookup(sa->gst, node->extern_lambda_declaration.name, false)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Symbol '%s' previously defined.",
-                                 node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
-        goto error_cleanup;
-    }
 
     tmp_lambda = pp_type_create(PP_TK_Lambda);
     if (!tmp_lambda) {
@@ -1044,6 +1054,18 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
         goto error_cleanup;
     }
     tmp_lambda = NULL;
+
+    // Duplicate handling with forward declaration support
+    const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->extern_lambda_declaration.name, false);
+    if (existing) {
+        if (existing->type == lambda_type) {
+            return 1;
+        } else {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Conflicting types for symbol '%s'",
+                                     node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+    }
 
     lambda_symbol = pp_symbol_create(lambda_type, false, false, true);
     if (!lambda_symbol) {
