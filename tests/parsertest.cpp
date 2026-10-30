@@ -1236,3 +1236,30 @@ TEST(ParserTest, GoodExternFunctionForwardDeclarationWithFunctionDef) {
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
 
+TEST(ParserTest, GoodForWithLetInit) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let sum :: int32 = 0;\n"
+        "    for (let i :: int32 = 0; i < 10; i = i + 1) {\n"
+        "        sum += i;\n"
+        "    }\n"
+        "    return sum;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodForWithEmptyInitAndCond) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    for (; i < 10; ) { }\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+
