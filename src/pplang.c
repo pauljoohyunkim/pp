@@ -10,11 +10,71 @@
 #include "pp_semantic_analyzer.h"
 #include "pp_linker_offload.h"
 
+#define NULL_POINTER_ERROR_HANDLE(ptr)         \
+    do {                                       \
+        if ((ptr) == NULL) goto error_cleanup; \
+    } while (0)
+
 typedef enum {
     PP_UNKNOWN,
     PP_SOURCE,
     PP_OBJECT
 } PPLang_Filetype;
+
+typedef struct {
+    char* src_path;
+    char* obj_path;
+    PPLang_Filetype type;
+} PPLang_Input;
+
+typedef struct {
+    PPLang_Input* inputs;
+    unsigned int count;
+    unsigned int capacity;
+} PPLang_InputList;
+
+static PPLang_InputList* pplang_input_list_create(void) {
+    PPLang_InputList* list = (PPLang_InputList*)calloc(1, sizeof(PPLang_InputList));
+    if (!list) return NULL;
+    list->capacity = 4;
+    list->inputs = (PPLang_Input*)calloc(list->capacity, sizeof(PPLang_Input));
+    if (!list->inputs) {
+        free(list);
+        return NULL;
+    }
+    list->count = 0;
+    return list;
+}
+
+static void pplang_input_list_free(PPLang_InputList* list) {
+    if (!list) return;
+    if (list->inputs) {
+        for (unsigned int i = 0; i < list->count; i++) {
+            if (list->inputs[i].src_path) free(list->inputs[i].src_path);
+            if (list->inputs[i].obj_path) free(list->inputs[i].obj_path);
+        }
+        free(list->inputs);
+    }
+    free(list);
+}
+
+static int pplang_input_list_push(PPLang_InputList* list, PPLang_Input input) {
+    PPLang_Input* new_inputs = NULL;
+    unsigned int new_cap = 0;
+    NULL_POINTER_ERROR_HANDLE(list);
+    if (list->count >= list->capacity) {
+        new_cap = list->capacity * 2;
+        new_inputs = (PPLang_Input*)realloc(list->inputs, new_cap * sizeof(PPLang_Input));
+        NULL_POINTER_ERROR_HANDLE(new_inputs);
+        list->inputs = new_inputs;
+        list->capacity = new_cap;
+    }
+    list->inputs[list->count] = input;
+    list->count++;
+    return 1;
+error_cleanup:
+    return 0;
+}
 
 static PPLang_Filetype detect_filetype(const char* path) {
     FILE* fp = NULL;
@@ -83,7 +143,7 @@ int main(int argc, char** argv) {
     char temp_filename[L_tmpnam] = { 0 };
     strcpy(output_filename, "a.out");
     int opt;
-    while  ((opt = getopt(argc, argv, "hcvo:")) != -1) {
+    while ((opt = getopt(argc, argv, "hcvo:")) != -1) {
         switch (opt) {
             case 'h':
                 print_help();
