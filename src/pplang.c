@@ -1,8 +1,8 @@
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <limits.h>
 
 #include "pp_ast.h"
 #include "pp_code_generator.h"
@@ -38,6 +38,7 @@ static int pplang_input_list_push(PPLang_InputList* list, PPLang_Input input);
 static PPLang_Filetype detect_filetype(const char* path);
 static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose);
 static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose);
+static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGenerator** out_cg);
 static long get_file_size(const char* filename);
 static void print_help(void);
 
@@ -233,14 +234,10 @@ static void pplang_input_list_free(PPLang_InputList* list) {
             if (list->inputs[i].src_path) free(list->inputs[i].src_path);
             if (list->inputs[i].obj_path) {
                 /* Unlink temporary object files if they exist */
-                if (strncmp(list->inputs[i].obj_path, "/tmp/pplang-", 11) == 0) {
-                    unlink(list->inputs[i].obj_path);
-                }
+                if (strncmp(list->inputs[i].obj_path, "/tmp/pplang-", 11) == 0) { unlink(list->inputs[i].obj_path); }
                 free(list->inputs[i].obj_path);
             }
-            if (list->inputs[i].obj_buf) {
-                LLVMDisposeMemoryBuffer(list->inputs[i].obj_buf);
-            }
+            if (list->inputs[i].obj_buf) { LLVMDisposeMemoryBuffer(list->inputs[i].obj_buf); }
         }
         free(list->inputs);
     }
@@ -297,7 +294,7 @@ static PPLang_Filetype detect_filetype(const char* path) {
     return PP_SOURCE;
 }
 
-static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose) {
+static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGenerator** out_cg) {
     FILE* fp = NULL;
     char* code = NULL;
     PP_Lexer* lexer = NULL;
@@ -305,22 +302,23 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
     PP_SemanticAnalyzer* sa = NULL;
     PP_CodeGenerator* cg = NULL;
     long filesize = 0;
-    int exit_code = 0;
     size_t total_errors = 0;
     bool generate_code = true;
 
-    if (!src_path || !obj_path) return 0;
+    NULL_POINTER_ERROR_HANDLE(src_path);
+    NULL_POINTER_ERROR_HANDLE(out_cg);
+    *out_cg = NULL;
 
     filesize = get_file_size(src_path);
     if (filesize < 0) {
         fprintf(stderr, "Could not open %s\n", src_path);
-        return 0;
+        goto error_cleanup;
     }
 
     fp = fopen(src_path, "r");
     if (!fp) {
         fprintf(stderr, "Could not open %s\n", src_path);
-        return 0;
+        goto error_cleanup;
     }
     code = (char*)calloc(filesize + 1, sizeof(char));
     if (!code) {
@@ -334,10 +332,7 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
     lexer = pp_lexer_create(code, src_path);
     free(code);
     code = NULL;
-    if (!lexer) {
-        fprintf(stderr, "Lexer creation failure\n");
-        goto error_cleanup;
-    }
+    NULL_POINTER_ERROR_HANDLE(lexer);
     if (!pp_lexer_analyze(lexer)) {
         fprintf(stderr, "Lexer analyze failure\n");
         goto error_cleanup;
@@ -353,10 +348,7 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
     }
 
     parser = pp_parser_create(lexer);
-    if (!parser) {
-        fprintf(stderr, "Parser creation failure\n");
-        goto error_cleanup;
-    }
+    NULL_POINTER_ERROR_HANDLE(parser);
     if (pp_parser_parse(parser) != 1) { fprintf(stderr, "Parser failed\n"); }
     if (parser->error_list && parser->error_list->n_errors > 0) {
         total_errors += parser->error_list->n_errors;
@@ -373,10 +365,7 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
     }
 
     sa = pp_semantic_analyzer_create(parser);
-    if (!sa) {
-        fprintf(stderr, "Semantic analyzer creation failure\n");
-        goto error_cleanup;
-    }
+    NULL_POINTER_ERROR_HANDLE(sa);
     if (pp_semantic_analyzer_analyze(sa) != 1) { fprintf(stderr, "Semantic analysis failed\n"); }
     if (sa->error_list && sa->error_list->n_errors > 0) {
         total_errors += sa->error_list->n_errors;
@@ -395,168 +384,55 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
     }
 
     cg = pp_code_generator_create(sa);
-    if (!cg) {
-        fprintf(stderr, "Code generator creation failure\n");
-        goto error_cleanup;
-    }
+    NULL_POINTER_ERROR_HANDLE(cg);
     if (verbose) { printf("Code generator created successfully.\n"); }
     if (!pp_code_generator_generate(cg)) {
         fprintf(stderr, "Code generation failure\n");
         goto error_cleanup;
     }
     if (verbose) { printf("Code generation succeeded.\n"); }
-    if (!pp_code_generator_emit_object_file(cg->mod, obj_path)) {
-        fprintf(stderr, "Could not write object file to %s\n", obj_path);
-        goto error_cleanup;
-    }
 
-    exit_code = 1;
-    goto cleanup;
+    *out_cg = cg;
+    cg = NULL;
+    pp_semantic_analyzer_free(sa);
+    sa = NULL;
+    pp_parser_free(parser);
+    parser = NULL;
+    pp_lexer_free(lexer);
+    lexer = NULL;
+    return 1;
 
 error_cleanup:
-    exit_code = 0;
-
-cleanup:
-    if (cg) pp_code_generator_free(cg);
-    if (sa) pp_semantic_analyzer_free(sa);
-    if (parser) pp_parser_free(parser);
-    if (lexer) pp_lexer_free(lexer);
+    pp_code_generator_free(cg);
+    pp_semantic_analyzer_free(sa);
+    pp_parser_free(parser);
+    pp_lexer_free(lexer);
     if (code) free(code);
     if (fp) fclose(fp);
-    return exit_code;
+    *out_cg = NULL;
+    return 0;
+}
+
+static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose) {
+    PP_CodeGenerator* cg = NULL;
+    if (!compile_pp_source_core(src_path, verbose, &cg)) return 0;
+    int ok = pp_code_generator_emit_object_file(cg->mod, obj_path);
+    pp_code_generator_free(cg);
+    return ok;
 }
 
 static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose) {
-    FILE* fp = NULL;
-    char* code = NULL;
-    PP_Lexer* lexer = NULL;
-    PP_Parser* parser = NULL;
-    PP_SemanticAnalyzer* sa = NULL;
+    if (!out_buf) return 0;
     PP_CodeGenerator* cg = NULL;
-    long filesize = 0;
-    int exit_code = 0;
-    size_t total_errors = 0;
-    bool generate_code = true;
-
-    if (!src_path || !out_buf) return 0;
-
-    filesize = get_file_size(src_path);
-    if (filesize < 0) {
-        fprintf(stderr, "Could not open %s\n", src_path);
-        return 0;
-    }
-
-    fp = fopen(src_path, "r");
-    if (!fp) {
-        fprintf(stderr, "Could not open %s\n", src_path);
-        return 0;
-    }
-    code = (char*)calloc(filesize + 1, sizeof(char));
-    if (!code) {
-        fprintf(stderr, "Could not allocate memory for code.\n");
-        goto error_cleanup;
-    }
-    fread(code, sizeof(char), filesize, fp);
-    fclose(fp);
-    fp = NULL;
-
-    lexer = pp_lexer_create(code, src_path);
-    free(code);
-    code = NULL;
-    if (!lexer) {
-        fprintf(stderr, "Lexer creation failure\n");
-        goto error_cleanup;
-    }
-    if (!pp_lexer_analyze(lexer)) {
-        fprintf(stderr, "Lexer analyze failure\n");
-        goto error_cleanup;
-    }
-    if (lexer->error_list && lexer->error_list->n_errors > 0) {
-        total_errors += lexer->error_list->n_errors;
-        generate_code = false;
-        for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
-            PP_Error* e = &lexer->error_list->errors[i];
-            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
-        }
-    }
-
-    parser = pp_parser_create(lexer);
-    if (!parser) {
-        fprintf(stderr, "Parser creation failure\n");
-        goto error_cleanup;
-    }
-    if (pp_parser_parse(parser) != 1) { fprintf(stderr, "Parser failed\n"); }
-    if (parser->error_list && parser->error_list->n_errors > 0) {
-        total_errors += parser->error_list->n_errors;
-        generate_code = false;
-        for (size_t i = 0; i < parser->error_list->n_errors; i++) {
-            PP_Error* e = &parser->error_list->errors[i];
-            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
-        }
-    }
-    if (verbose && parser->error_list && parser->error_list->n_errors == 0) {
-        printf("Parse succeeded. AST:\n");
-        pp_ast_root_print(parser->program, 0);
-    }
-
-    sa = pp_semantic_analyzer_create(parser);
-    if (!sa) {
-        fprintf(stderr, "Semantic analyzer creation failure\n");
-        goto error_cleanup;
-    }
-    if (pp_semantic_analyzer_analyze(sa) != 1) { fprintf(stderr, "Semantic analysis failed\n"); }
-    if (sa->error_list && sa->error_list->n_errors > 0) {
-        total_errors += sa->error_list->n_errors;
-        generate_code = false;
-        for (size_t i = 0; i < sa->error_list->n_errors; i++) {
-            PP_Error* e = &sa->error_list->errors[i];
-            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
-        }
-    }
-    if (verbose && sa->error_list && sa->error_list->n_errors == 0) { printf("Semantic analysis succeeded.\n"); }
-
-    if (!generate_code) {
-        fprintf(stderr, "Skipping code generation due to %zu errors\n", total_errors);
-        goto error_cleanup;
-    }
-
-    cg = pp_code_generator_create(sa);
-    if (!cg) {
-        fprintf(stderr, "Code generator creation failure\n");
-        goto error_cleanup;
-    }
-    if (verbose) { printf("Code generator created successfully.\n"); }
-    if (!pp_code_generator_generate(cg)) {
-        fprintf(stderr, "Code generation failure\n");
-        goto error_cleanup;
-    }
-    if (verbose) { printf("Code generation succeeded.\n"); }
-    
+    if (!compile_pp_source_core(src_path, verbose, &cg)) return 0;
     LLVMMemoryBufferRef buf = NULL;
     if (!pp_code_generator_emit_object_to_buffer(cg->mod, &buf)) {
-        fprintf(stderr, "Could not emit object to buffer for %s\n", src_path);
-        goto error_cleanup;
+        pp_code_generator_free(cg);
+        return 0;
     }
     *out_buf = buf;
-
-    exit_code = 1;
-    goto cleanup;
-
-error_cleanup:
-    exit_code = 0;
-    if (out_buf && *out_buf) {
-        LLVMDisposeMemoryBuffer(*out_buf);
-        *out_buf = NULL;
-    }
-
-cleanup:
-    if (cg) pp_code_generator_free(cg);
-    if (sa) pp_semantic_analyzer_free(sa);
-    if (parser) pp_parser_free(parser);
-    if (lexer) pp_lexer_free(lexer);
-    if (code) free(code);
-    if (fp) fclose(fp);
-    return exit_code;
+    pp_code_generator_free(cg);
+    return 1;
 }
 
 static long get_file_size(const char* filename) {

@@ -780,10 +780,9 @@ int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBuff
     LLVMDisposeTargetMachine(target_machine);
     LLVMDisposeMessage(target_triple);
 
-    if (out_buf) *out_buf = buf;
-    else {
-        LLVMDisposeMemoryBuffer(buf);
-    }
+    if (out_buf)
+        *out_buf = buf;
+    else { LLVMDisposeMemoryBuffer(buf); }
     return 1;
 }
 
