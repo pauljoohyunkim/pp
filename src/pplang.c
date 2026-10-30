@@ -33,6 +33,8 @@ typedef struct {
     unsigned int capacity;
 } PPLang_InputList;
 
+static long get_file_size(const char* filename);
+
 static PPLang_InputList* pplang_input_list_create(void) {
     PPLang_InputList* list = (PPLang_InputList*)calloc(1, sizeof(PPLang_InputList));
     if (!list) return NULL;
@@ -114,6 +116,142 @@ static PPLang_Filetype detect_filetype(const char* path) {
     return PP_SOURCE;
 }
 
+static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose) {
+    FILE* fp = NULL;
+    char* code = NULL;
+    PP_Lexer* lexer = NULL;
+    PP_Parser* parser = NULL;
+    PP_SemanticAnalyzer* sa = NULL;
+    PP_CodeGenerator* cg = NULL;
+    long filesize = 0;
+    int exit_code = 0;
+    size_t total_errors = 0;
+    bool generate_code = true;
+
+    if (!src_path || !obj_path) return 0;
+
+    filesize = get_file_size(src_path);
+    if (filesize < 0) {
+        fprintf(stderr, "Could not open %s\n", src_path);
+        return 0;
+    }
+
+    fp = fopen(src_path, "r");
+    if (!fp) {
+        fprintf(stderr, "Could not open %s\n", src_path);
+        return 0;
+    }
+    code = (char*)calloc(filesize + 1, sizeof(char));
+    if (!code) {
+        fprintf(stderr, "Could not allocate memory for code.\n");
+        goto error_cleanup;
+    }
+    fread(code, sizeof(char), filesize, fp);
+    fclose(fp);
+    fp = NULL;
+
+    lexer = pp_lexer_create(code, src_path);
+    free(code);
+    code = NULL;
+    if (!lexer) {
+        fprintf(stderr, "Lexer creation failure\n");
+        goto error_cleanup;
+    }
+    if (!pp_lexer_analyze(lexer)) {
+        fprintf(stderr, "Lexer analyze failure\n");
+        goto error_cleanup;
+    }
+    if (lexer->error_list && lexer->error_list->n_errors > 0) {
+        total_errors += lexer->error_list->n_errors;
+        generate_code = false;
+        for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
+            PP_Error* e = &lexer->error_list->errors[i];
+            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+        }
+    }
+
+    parser = pp_parser_create(lexer);
+    if (!parser) {
+        fprintf(stderr, "Parser creation failure\n");
+        goto error_cleanup;
+    }
+    if (pp_parser_parse(parser) != 1) {
+        fprintf(stderr, "Parser failed\n");
+    }
+    if (parser->error_list && parser->error_list->n_errors > 0) {
+        total_errors += parser->error_list->n_errors;
+        generate_code = false;
+        for (size_t i = 0; i < parser->error_list->n_errors; i++) {
+            PP_Error* e = &parser->error_list->errors[i];
+            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+        }
+    }
+    if (verbose && parser->error_list && parser->error_list->n_errors == 0) {
+        printf("Parse succeeded. AST:\n");
+        pp_ast_root_print(parser->program, 0);
+    }
+
+    sa = pp_semantic_analyzer_create(parser);
+    if (!sa) {
+        fprintf(stderr, "Semantic analyzer creation failure\n");
+        goto error_cleanup;
+    }
+    if (pp_semantic_analyzer_analyze(sa) != 1) {
+        fprintf(stderr, "Semantic analysis failed\n");
+    }
+    if (sa->error_list && sa->error_list->n_errors > 0) {
+        total_errors += sa->error_list->n_errors;
+        generate_code = false;
+        for (size_t i = 0; i < sa->error_list->n_errors; i++) {
+            PP_Error* e = &sa->error_list->errors[i];
+            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+        }
+    }
+    if (verbose && sa->error_list && sa->error_list->n_errors == 0) {
+        printf("Semantic analysis succeeded.\n");
+    }
+
+    if (!generate_code) {
+        fprintf(stderr, "Skipping code generation due to %zu errors\n", total_errors);
+        goto error_cleanup;
+    }
+
+    cg = pp_code_generator_create(sa);
+    if (!cg) {
+        fprintf(stderr, "Code generator creation failure\n");
+        goto error_cleanup;
+    }
+    if (verbose) {
+        printf("Code generator created successfully.\n");
+    }
+    if (!pp_code_generator_generate(cg)) {
+        fprintf(stderr, "Code generation failure\n");
+        goto error_cleanup;
+    }
+    if (verbose) {
+        printf("Code generation succeeded.\n");
+    }
+    if (!pp_code_generator_emit_object_file(cg->mod, obj_path)) {
+        fprintf(stderr, "Could not write object file to %s\n", obj_path);
+        goto error_cleanup;
+    }
+
+    exit_code = 1;
+    goto cleanup;
+
+error_cleanup:
+    exit_code = 0;
+
+cleanup:
+    if (cg) pp_code_generator_free(cg);
+    if (sa) pp_semantic_analyzer_free(sa);
+    if (parser) pp_parser_free(parser);
+    if (lexer) pp_lexer_free(lexer);
+    if (code) free(code);
+    if (fp) fclose(fp);
+    return exit_code;
+}
+
 static long get_file_size(const char* filename) {
     FILE* fp = fopen(filename, "rb");
     if (!fp) return -1;
@@ -140,8 +278,8 @@ int main(int argc, char** argv) {
     bool to_object = false;
     bool verbose = false;
     char output_filename[BUFSIZ] = { 0 };
-    char temp_filename[L_tmpnam] = { 0 };
     strcpy(output_filename, "a.out");
+    PPLang_InputList* input_list = NULL;
     int opt;
     while ((opt = getopt(argc, argv, "hcvo:")) != -1) {
         switch (opt) {
@@ -168,199 +306,88 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const char* source_filename = argv[optind];
-    long filesize = get_file_size(source_filename);
-    if (filesize < 0) {
-        fprintf(stderr, "Could not open %s\n", source_filename);
+    input_list = pplang_input_list_create();
+    if (!input_list) {
+        fprintf(stderr, "Failed to create input list\n");
         return 1;
     }
-    
-
-    FILE* fp = fopen(source_filename, "r");
-    if (!fp) {
-        fprintf(stderr, "Could not open %s\n", source_filename);
-        return 1;
-    }
-
-    char* code = (char*)calloc(filesize + 1, sizeof(char));
-    if (!code) {
-        fprintf(stderr, "Could not allocate memory for code.\n");
-        fclose(fp);
-        return 1;
-    }
-
-    fread(code, sizeof(char), filesize, fp);
-    fclose(fp);
-
-    PP_Lexer* lexer = NULL;
-    PP_Parser* parser = NULL;
-    PP_SemanticAnalyzer* sa = NULL;
-    PP_CodeGenerator* cg = NULL;
-    bool generate_code = true;
-    size_t total_errors = 0;
-
-    lexer = pp_lexer_create(code, source_filename);
-    free(code);
-    if (!lexer) {
-        fprintf(stderr, "Lexer creation failure\n");
-        return 1;
-    }
-
-    if (!pp_lexer_analyze(lexer)) {
-        fprintf(stderr, "Lexer analyze failure\n");
-        pp_lexer_free(lexer);
-        return 1;
-    }
-
-    if (lexer->error_list && lexer->error_list->n_errors > 0) {
-        total_errors += lexer->error_list->n_errors;
-        generate_code = false;
-        for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
-            PP_Error* e = &lexer->error_list->errors[i];
-            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
-                    e->column, e->message);
-        }
-    }
-
-#ifdef STOP_AT_LEXER
-    printf("STOP_AT_LEXER: skipping parser and semantic analyzer\n");
-    goto error_cleanup_exit;
-#endif
-
-    parser = pp_parser_create(lexer);
-    if (!parser) {
-        fprintf(stderr, "Parser creation failure\n");
-        exit_code = 1;
-        goto error_cleanup_exit;
-    }
-
-    int ret = pp_parser_parse(parser);
-    if (ret != 1) { fprintf(stderr, "Parser failed\n"); }
-
-    if (parser->error_list && parser->error_list->n_errors > 0) {
-        total_errors += parser->error_list->n_errors;
-        generate_code = false;
-        for (size_t i = 0; i < parser->error_list->n_errors; i++) {
-            PP_Error* e = &parser->error_list->errors[i];
-            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
-                    e->column, e->message);
-        }
-    } else {
-        if (verbose) {
-            printf("Parse succeeded. AST:\n");
-            pp_ast_root_print(parser->program, 0);
-        }
-        
-    }
-
-#ifdef STOP_AT_PARSER
-    printf("STOP_AT_PARSER: skipping semantic analyzer\n");
-    goto error_cleanup_exit;
-#endif
-
-    sa = pp_semantic_analyzer_create(parser);
-    if (!sa) {
-        fprintf(stderr, "Semantic analyzer creation failure\n");
-        exit_code = 1;
-        goto error_cleanup_exit;
-    }
-
-    ret = pp_semantic_analyzer_analyze(sa);
-    if (ret != 1) { fprintf(stderr, "Semantic analysis failed\n"); }
-
-    if (sa->error_list && sa->error_list->n_errors > 0) {
-        total_errors += sa->error_list->n_errors;
-        generate_code = false;
-        for (size_t i = 0; i < sa->error_list->n_errors; i++) {
-            PP_Error* e = &sa->error_list->errors[i];
-            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>",
-                    e->line, e->column, e->message);
-        }
-    } else {
-        if (verbose) {
-            printf("Semantic analysis succeeded.\n");
-            printf("Type Table:\n");
-            pp_global_type_table_print(sa->gtt);
-        } 
-    }
-
-#ifdef STOP_AT_SEMANTIC_ANALYZER
-    printf("STOP_AT_SEMANTIC_ANALYZER: skipping code generator\n");
-    generate_code = false;
-#endif
-
-    if (!generate_code) {
-        fprintf(stderr, "Skipping code generation due to %zu errors\n", total_errors);
-        exit_code = (total_errors > 0) ? 1 : 0;
-        goto error_cleanup_exit;
-    }
-
-    cg = pp_code_generator_create(sa);
-    if (!cg) {
-        fprintf(stderr, "Code generator creation failure\n");
-        exit_code = 1;
-        goto error_cleanup_exit;
-    } else {
-        if (verbose) {
-           printf("Code generator created successfully.\n"); 
-        } 
-    }
-
-    ret = pp_code_generator_generate(cg);
-    if (!ret) {
-        fprintf(stderr, "Code generation failure\n");
-        exit_code = 1;
-        goto error_cleanup_exit;
-    } else {
-        if (verbose) {
-            printf("Code generation succeeded.\n");
-            pp_environment_backend_print_type_map(cg->global_env_b);
-            pp_environment_backend_print_value_map(cg->global_env_b);
-            LLVMDumpModule(cg->mod);
-        }
-        if (to_object) {
-            if (!pp_code_generator_emit_object_file(cg->mod, output_filename)) {
-            fprintf(stderr, "Could not write file to %s. Do you have write permission?\n", output_filename);
-            exit_code = 1;
-            goto error_cleanup_exit;
-        }
+    unsigned int source_count = 0;
+    for (int i = optind; i < argc; i++) {
+        PPLang_Input input;
+        input.src_path = strdup(argv[i]);
+        input.obj_path = NULL;
+        input.type = detect_filetype(argv[i]);
+        if (input.type == PP_SOURCE) {
+            source_count++;
+            if (to_object) {
+                // -c mode: use user-specified output filename directly
+                input.obj_path = strdup(output_filename);
+            } else {
+                // Generate temporary object filename for source
+                char temp_obj[L_tmpnam];
+                tmpnam(temp_obj);
+                // Append .o extension
+                char* obj_path = (char*)calloc(strlen(temp_obj) + 3, sizeof(char));
+                if (obj_path) {
+                    sprintf(obj_path, "%s.o", temp_obj);
+                    input.obj_path = obj_path;
+                }
+            }
         } else {
-            // Need to create temporary object file, then invoke the linker
-            if (!tmpnam(temp_filename)) {
-                fprintf(stderr, "Could not acquire temporary file name for temporary object file. Do you have write permission?\n");
-                exit_code = 1;
-                goto error_cleanup_exit;
-            }
+            input.obj_path = strdup(argv[i]);
+        }
+        if (!pplang_input_list_push(input_list, input)) {
+            fprintf(stderr, "Failed to push input\n");
+            pplang_input_list_free(input_list);
+            return 1;
+        }
+    }
 
-            if (verbose) {
-                printf("Before linking, a temporary object file will be compiled to %s.\n", temp_filename);
-            }
-            
-            if (!pp_code_generator_emit_object_file(cg->mod, temp_filename)) {
-                fprintf(stderr, "Could not write file for temporary object file to %s. Do you have write permission?\n", temp_filename);
-                exit_code = 1;
-            goto error_cleanup_exit;
-            }
+    if (to_object && source_count != 1) {
+        fprintf(stderr, "-c requires exactly one source file, got %u\n", source_count);
+        pplang_input_list_free(input_list);
+        return 1;
+    }
 
-            if (verbose) {
-                printf("Invoking linker...\n");
-            }
-
-            if (!pp_linker_offload(temp_filename, output_filename)) {
-               fprintf(stderr, "Could not link to %s. Do you have write permission?\n", output_filename);
-            exit_code = 1;
-            goto error_cleanup_exit; 
-            }
-            if (verbose) {
-                printf("Output %s\n", output_filename);
+    // Compile all source files to their temporary object files
+    for (unsigned int i = 0; i < input_list->count; i++) {
+        PPLang_Input* inp = &input_list->inputs[i];
+        if (inp->type == PP_SOURCE && inp->obj_path) {
+            if (!compile_pp_source(inp->src_path, inp->obj_path, verbose)) {
+                fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
+                pplang_input_list_free(input_list);
+                return 1;
             }
         }
     }
 
-error_cleanup_exit:
-    if (cg) pp_code_generator_free(cg);
-    if (sa) pp_semantic_analyzer_free(sa);
-    if (parser) pp_parser_free(parser);
-    if (lexer) pp_lexer_free(lexer);
-    return exit_code;
+    if (!to_object) {
+        // Multi-file linking mode: collect object files
+        unsigned int obj_count = 0;
+        for (unsigned int i = 0; i < input_list->count; i++) {
+            if (input_list->inputs[i].obj_path) obj_count++;
+        }
+        if (obj_count > 0) {
+            const char** obj_names = (const char**)calloc(obj_count, sizeof(char*));
+            unsigned int idx = 0;
+            for (unsigned int i = 0; i < input_list->count; i++) {
+                if (input_list->inputs[i].obj_path) {
+                    obj_names[idx++] = input_list->inputs[i].obj_path;
+                }
+            }
+            pp_linker_offload_multi(obj_names, obj_count, output_filename);
+            free(obj_names);
+        }
+        pplang_input_list_free(input_list);
+        return exit_code;
+    }
+
+    // For -c mode, the compile helper already emitted the object file.
+    // Keep existing single-file path for compatibility if needed.
+    if (to_object) {
+        // Nothing more to do; object already written by compile_pp_source
+        pplang_input_list_free(input_list);
+        return exit_code;
+    }
+
 }
