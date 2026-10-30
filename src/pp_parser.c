@@ -46,6 +46,7 @@ static PP_AST_Node* pp_parser_create_while_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_variable_declaration(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_variable_decl(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_param_decl(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned char min_bp);
 static PP_AST_Node* pp_parser_create_expression_or_assignment(PP_Parser* parser);
@@ -1073,7 +1074,9 @@ static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser) {
 
     // init (optional)
     if (pp_parser_peek_token_type(parser, 0) != PP_TT_SEMICOLON) {
-        init = pp_parser_create_expression_or_assignment(parser);
+        init = pp_parser_peek_token_type(parser, 0) == PP_TT_LET
+            ? pp_parser_create_variable_decl(parser)
+            : pp_parser_create_expression_or_assignment(parser);
         NULL_POINTER_ERROR_HANDLE(init);
     }
 
@@ -1083,7 +1086,8 @@ static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser) {
 
     // cond (optional)
     if (pp_parser_peek_token_type(parser, 0) != PP_TT_SEMICOLON) {
-        cond = pp_parser_create_expression_or_assignment(parser);
+        // Condition is expression only, no assignment
+        cond = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
         NULL_POINTER_ERROR_HANDLE(cond);
     }
 
@@ -1161,7 +1165,7 @@ error_cleanup:
     return NULL;
 }
 
-static PP_AST_Node* pp_parser_create_variable_declaration(PP_Parser* parser) {
+static PP_AST_Node* pp_parser_create_variable_decl(PP_Parser* parser) {
     PP_AST_Node* node = NULL;
     PP_AST_Node* var_decl = NULL;
     PP_AST_Node* initializer = NULL;
@@ -1186,10 +1190,6 @@ static PP_AST_Node* pp_parser_create_variable_declaration(PP_Parser* parser) {
         initializer = pp_parser_create_expression_or_assignment(parser);
         NULL_POINTER_ERROR_HANDLE(initializer);
     }
-    {
-        PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
-        NULL_POINTER_ERROR_HANDLE(semi_tok);
-    }
     node = pp_ast_node_create(PP_AST_VariableDeclarationNode, line, col);
     NULL_POINTER_ERROR_HANDLE(node);
     node->variable_declaration.var_decl = var_decl;
@@ -1201,6 +1201,21 @@ error_cleanup:
     pp_ast_root_free(node);
     pp_ast_root_free(var_decl);
     pp_ast_root_free(initializer);
+    return NULL;
+}
+
+static PP_AST_Node* pp_parser_create_variable_declaration(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
+    node = pp_parser_create_variable_decl(parser);
+    NULL_POINTER_ERROR_HANDLE(node);
+    {
+        PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semi_tok);
+    }
+    return node;
+error_cleanup:
+    pp_ast_root_free(node);
     return NULL;
 }
 
