@@ -10,6 +10,50 @@
 #include "pp_semantic_analyzer.h"
 #include "pp_linker_offload.h"
 
+typedef enum {
+    PP_UNKNOWN,
+    PP_SOURCE,
+    PP_OBJECT
+} PPLang_Filetype;
+
+static PPLang_Filetype detect_filetype(const char* path) {
+    FILE* fp = NULL;
+    unsigned char magic[4] = {0};
+    size_t r = 0;
+
+    if (!path) return PP_UNKNOWN;
+
+    const char* dot = strrchr(path, '.');
+    if (dot) {
+        if (strcmp(dot, ".pp") == 0) return PP_SOURCE;
+        if (strcmp(dot, ".o") == 0 || strcmp(dot, ".obj") == 0 || strcmp(dot, ".a") == 0 || strcmp(dot, ".so") == 0 || strcmp(dot, ".dylib") == 0) {
+            return PP_OBJECT;
+        }
+    }
+
+    fp = fopen(path, "rb");
+    if (!fp) return PP_UNKNOWN;
+
+    r = fread(magic, 1, 4, fp);
+    if (fp) fclose(fp);
+    if (r >= 4) {
+        // ELF magic
+        if (magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F') {
+            return PP_OBJECT;
+        }
+        // Mach-O 64-bit little/big endian
+        if ((magic[0] == 0xfe && magic[1] == 0xed && magic[2] == 0xfa && magic[3] == 0xed) ||
+            (magic[0] == 0xce && magic[1] == 0xfa && magic[2] == 0xed && magic[3] == 0xfe)) {
+            return PP_OBJECT;
+        }
+        // PE/COFF DOS stub magic "MZ"
+        if (magic[0] == 0x4d && magic[1] == 0x5a) {
+            return PP_OBJECT;
+        }
+    }
+    return PP_SOURCE;
+}
+
 static long get_file_size(const char* filename) {
     FILE* fp = fopen(filename, "rb");
     if (!fp) return -1;
