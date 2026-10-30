@@ -119,6 +119,8 @@ static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PP
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
 static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
@@ -711,6 +713,12 @@ static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa) {
             case PP_AST_LambdaDeclarationNode:
                 pp_semantic_analyzer_build_global_table_lambda_decl(sa, decl);
                 break;
+            case PP_AST_ExternFunctionDeclarationNode:
+                pp_semantic_analyzer_build_global_table_extern_function_decl(sa, decl);
+                break;
+            case PP_AST_ExternLambdaDeclarationNode:
+                pp_semantic_analyzer_build_global_table_extern_lambda_decl(sa, decl);
+                break;
             case PP_AST_StructDeclarationNode:
                 pp_semantic_analyzer_build_global_table_struct_decl(sa, decl);
                 break;
@@ -747,14 +755,6 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     PPType* tmp_func = NULL;
     const PPType* func_type = NULL;
     PPSymbol* func_symbol = NULL;
-
-    // Duplicate check
-    if (pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                 "Symbol '%s' is previously defined.",
-                                 node->function_declaration.name ? node->function_declaration.name : "<unknown>");
-        goto error_cleanup;
-    }
 
     tmp_func = pp_type_create(PP_TK_Function);
     if (!tmp_func) {
@@ -797,8 +797,29 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     }
     tmp_func = NULL;
 
+    // Duplicate handling with forward declaration support
+    const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false);
+    if (existing) {
+        if (existing->type == func_type) {
+            if (existing->is_definition) {
+                // Duplicate definition
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Symbol '%s' is previously defined.",
+                                         node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+                goto error_cleanup;
+            }
+            // Existing is a forward declaration, identical type → allow upgrade
+            return 1;
+        } else {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Conflicting types for symbol '%s'",
+                                     node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+    }
+
     // Create symbol
-    func_symbol = pp_symbol_create(func_type, false, false, true);
+    func_symbol = pp_symbol_create(func_type, false, false, true, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to allocate symbol for function '%s'",
@@ -835,13 +856,6 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     PPType* tmp_lambda = NULL;
     const PPType* lambda_type = NULL;
     PPSymbol* lambda_symbol = NULL;
-
-    // Duplicate symbol check
-    if (pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Symbol '%s' previously defined.",
-                                 node->function_declaration.name ? node->function_declaration.name : "<unknown>");
-        goto error_cleanup;
-    }
 
     tmp_lambda = pp_type_create(PP_TK_Lambda);
     if (!tmp_lambda) {
@@ -882,8 +896,25 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     }
     tmp_lambda = NULL;
 
+    // Duplicate handling with forward declaration support
+    const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false);
+    if (existing) {
+        if (existing->type == lambda_type) {
+            if (existing->is_definition) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Symbol '%s' is previously defined.",
+                                     node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+                goto error_cleanup;
+            }
+            return 1;
+        } else {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Conflicting types for symbol '%s'",
+                                     node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+    }
+
     // Create symbol
-    lambda_symbol = pp_symbol_create(lambda_type, false, false, true);
+    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, true);
     if (!lambda_symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to allocate symbol for lambda '%s'",
@@ -895,6 +926,170 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     if (!pp_symbol_table_push(sa->gst, node->function_declaration.name, lambda_symbol)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register lambda '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+    lambda_symbol = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_type_free(tmp_lambda);
+    pp_symbol_free(lambda_symbol);
+    return 0;
+}
+
+/* Pass 1 - Extern Function Declaration Checklist: */
+static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_ExternFunctionDeclarationNode);
+    PPType* tmp_func = NULL;
+    const PPType* func_type = NULL;
+    PPSymbol* func_symbol = NULL;
+
+    tmp_func = pp_type_create(PP_TK_Function);
+    if (!tmp_func) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to allocate memory for function type");
+        goto error_cleanup;
+    }
+
+    const PPType* return_type = pp_type_from_type_node(sa, node->extern_function_declaration.return_type);
+    if (!return_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Invalid return type for function '%s'",
+                                 node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+
+    tmp_func->type.pp_type_function.return_type = return_type;
+
+    for (size_t i = 0; i < node->extern_function_declaration.param_count; i++) {
+        const PPType* param_type =
+            pp_type_from_type_node(sa, node->extern_function_declaration.params[i]->param_declaration.type_expr);
+        if (!param_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Invalid parameter type for function '%s'",
+                                     node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+        if (!pp_type_push_param(tmp_func, param_type)) { goto error_cleanup; }
+    }
+
+    func_type = pp_global_type_table_intern(sa->gtt, tmp_func);
+    if (!func_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to intern function type for function '%s'",
+                                 node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+    tmp_func = NULL;
+
+    // Duplicate handling with forward declaration support
+    const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->extern_function_declaration.name, false);
+    if (existing) {
+        if (existing->type == func_type) {
+            return 1;
+        } else {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Conflicting types for symbol '%s'",
+                                     node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+    }
+
+    func_symbol = pp_symbol_create(func_type, false, false, true, false);
+    if (!func_symbol) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to allocate symbol for function '%s'",
+                                 node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+
+    if (!pp_symbol_table_push(sa->gst, node->extern_function_declaration.name, func_symbol)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to register function '%s'",
+                                 node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+    func_symbol = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_type_free(tmp_func);
+    pp_symbol_free(func_symbol);
+    return 0;
+}
+
+/* Pass 1 - Extern Lambda Declaration Checklist: */
+static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_ExternLambdaDeclarationNode);
+    PPType* tmp_lambda = NULL;
+    const PPType* lambda_type = NULL;
+    PPSymbol* lambda_symbol = NULL;
+
+    tmp_lambda = pp_type_create(PP_TK_Lambda);
+    if (!tmp_lambda) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to allocate memory for lambda type");
+        goto error_cleanup;
+    }
+
+    const PPType* return_type = pp_type_from_type_node(sa, node->extern_lambda_declaration.return_type);
+    if (!return_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid return type for lambda");
+        goto error_cleanup;
+    }
+
+    tmp_lambda->type.pp_type_lambda.return_type = return_type;
+
+    for (size_t i = 0; i < node->extern_lambda_declaration.param_count; i++) {
+        const PPType* param_type =
+            pp_type_from_type_node(sa, node->extern_lambda_declaration.params[i]->param_declaration.type_expr);
+        if (!param_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Invalid parameter type for lambda '%s'",
+                                     node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+        if (!pp_type_push_param(tmp_lambda, param_type)) { goto error_cleanup; }
+    }
+
+    lambda_type = pp_global_type_table_intern(sa->gtt, tmp_lambda);
+    if (!lambda_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to intern lambda type for lambda '%s'",
+                                 node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+    tmp_lambda = NULL;
+
+    // Duplicate handling with forward declaration support
+    const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->extern_lambda_declaration.name, false);
+    if (existing) {
+        if (existing->type == lambda_type) {
+            return 1;
+        } else {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Conflicting types for symbol '%s'",
+                                     node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+    }
+
+    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, false);
+    if (!lambda_symbol) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to allocate symbol for lambda '%s'",
+                                 node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+
+    if (!pp_symbol_table_push(sa->gst, node->extern_lambda_declaration.name, lambda_symbol)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register lambda '%s'",
+                                 node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
         goto error_cleanup;
     }
     lambda_symbol = NULL;
@@ -998,7 +1193,7 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
         goto error_cleanup;
     }
 
-    symbol = pp_symbol_create(var_type, false, false, true);
+    symbol = pp_symbol_create(var_type, false, false, true, true);
     if (!symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to allocate symbol for variable '%s'",
@@ -1285,6 +1480,12 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
             case PP_AST_NewtypeDeclarationNode:
                 // Nothing to do
                 break;
+            case PP_AST_ExternFunctionDeclarationNode:
+                // Skip extern declarations in Pass 2
+                break;
+            case PP_AST_ExternLambdaDeclarationNode:
+                // Skip extern declarations in Pass 2
+                break;
             default:
                 assert(0 && "Semantic Analyzer Pass 2 default case. This should have been handled at parser.");
                 abort();
@@ -1392,7 +1593,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
             }
         }
 
-        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false);
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
         if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
                                      node->function_declaration.params[i]->col,
@@ -1523,7 +1724,7 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
             }
         }
 
-        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false);
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
         if (!pp_symbol_table_push(lambda_param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
                                      node->function_declaration.params[i]->col,
@@ -1988,9 +2189,9 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         // from outside, then return it back. For this, it must be reference, and initializer must be escapable.
         variable_symbol =
             pp_symbol_create(symbol_type, pp_type_is_const(symbol_type) && initializer_decor->is_constexpr,
-                             pp_type_is_reference(symbol_type) && initializer_decor->is_escapable_ref, false);
+                             pp_type_is_reference(symbol_type) && initializer_decor->is_escapable_ref, false, true);
     } else {
-        variable_symbol = pp_symbol_create(symbol_type, false, false, false);
+        variable_symbol = pp_symbol_create(symbol_type, false, false, false, true);
     }
     NULL_POINTER_ERROR_HANDLE(variable_symbol);
 

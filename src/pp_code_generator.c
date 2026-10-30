@@ -632,6 +632,22 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
     // Pass 2 to build type map. (Struct Body & Function)
     if (pp_code_generator_fill_type_map_complex(cg) != 1) { goto error_cleanup; }
 
+    // Emit extern declarations for symbols that are not definitions
+    for (size_t i = 0; i < cg->gst->count; ++i) {
+        const char* name = cg->gst->names[i];
+        const PPSymbol* sym = cg->gst->symbols[i];
+        if (!sym) continue;
+        if (sym->is_definition) continue;
+        // Only emit for functions/lambdas
+        if (sym->type->kind != PP_TK_Function && sym->type->kind != PP_TK_Lambda) continue;
+        LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, sym->type);
+        if (!llvm_type) continue;
+        LLVMValueRef fn = LLVMAddFunction(cg->mod, name, llvm_type);
+        if (!fn) continue;
+        LLVMSetLinkage(fn, LLVMExternalLinkage);
+        if (!pp_environment_backend_push_val_map(cg->global_env_b, sym, fn)) { goto error_cleanup; }
+    }
+
     for (unsigned int i = 0; i < cg->program->program.decl_count; i++) {
         const PP_AST_Node* statement = cg->program->program.decls[i];
         NULL_POINTER_ERROR_HANDLE(statement);

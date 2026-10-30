@@ -55,6 +55,8 @@ typedef enum {
     PP_AST_NewtypeDeclarationNode,
     PP_AST_FunctionDeclarationNode,
     PP_AST_LambdaDeclarationNode,
+    PP_AST_ExternFunctionDeclarationNode,
+    PP_AST_ExternLambdaDeclarationNode,
     PP_AST_StatementListNode,
     PP_AST_BinaryExpressionNode,
     PP_AST_UnaryExpressionNode,
@@ -172,6 +174,22 @@ struct PP_AST_Node {
             PP_AST_Node* return_type;
             PP_AST_Node* body; /* StatementList */
         } function_declaration;
+
+        struct { /* ExternFunctionDeclaration */
+            const char* name;
+            PP_AST_Node** params; /* ParamDeclaration nodes */
+            unsigned int param_count;
+            unsigned int param_capacity;
+            PP_AST_Node* return_type;
+        } extern_function_declaration;
+
+        struct { /* ExternLambdaDeclaration */
+            const char* name;
+            PP_AST_Node** params; /* ParamDeclaration nodes */
+            unsigned int param_count;
+            unsigned int param_capacity;
+            PP_AST_Node* return_type;
+        } extern_lambda_declaration;
 
         struct { /* StatementList */
             PP_AST_Node** stmts;

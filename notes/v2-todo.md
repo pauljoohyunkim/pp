@@ -1,0 +1,122 @@
+# PP V1 → V2 TODO
+
+## High-level goals after V1 merge
+* Multi-file linking / module support
+* Function forward declaration
+* Strings implementation
+* List operations as operators
+* User-defined operators
+* Hardening & DX improvements
+
+## Linking / multi-file support
+- [ ] Define module / import syntax in grammar and notes/bnf.md
+- [ ] Lexer support for import/include directives
+- [ ] Parser: import statements, module AST nodes
+- [ ] Symbol table: cross-module resolution, separate `pp_symbol_table` per module with global linker map
+- [ ] Semantic analyzer: resolve symbols across modules, detect duplicate definitions
+- [ ] Code generator: emit object files per module, link via LLVM linker
+- [ ] Linker offload: implement `src/pp_linker_offload.c` multi-file linking API
+- [ ] Driver `src/pplang.c`: CLI flags for multiple input files, `--link`, output .o/.exe
+- [ ] Tests: `tests/linkertest.cpp` with two-module integration
+- [ ] Docs: docs/15-modules-linking.md
+
+## Function forward declaration
+- [ ] Grammar: allow `fn foo(...);` prototype at global scope
+- [ ] Parser: prototype AST node, differentiate declaration vs definition
+- [ ] Semantic analyzer: register forward-declared symbols, defer body checking
+- [ ] Type checker: allow calls to forward-declared functions
+- [ ] Code generator: emit external declarations, resolve at link time
+- [ ] Tests: forward declaration before use, circular declarations error cases
+- [ ] Notes update: notes/project_overview.md, notes/type_system.md
+
+## Strings
+Open decision: array vs list
+- [ ] Design decision doc: notes/string_design.md
+  - Array-backed immutable string with length prefix vs list of chars
+  - Interoperability with C strings and LLVM
+- [ ] Lexer: string literal tokenization, escape sequences
+- [ ] Type system: `String` type definition, const correctness
+- [ ] Parser / AST: string literal node, string concatenation
+- [ ] Semantic analyzer: string operations type checking
+- [ ] Code generator: LLVM string constants, `malloc` + copy, string functions
+- [ ] Ownership model update for strings
+- [ ] Tests: string literals, concat, interning
+
+## List operations as operators, no builtins
+Design principle: stay away from builtin functions, prefer operators
+- [ ] Design decision doc: notes/list_operator_design.md
+  - List type semantics – dynamic array vs linked list, ownership model
+  - Operator set instead of builtin functions
+- [ ] Length operator: `#expr`
+  - For arrays: compile-time constant where possible
+  - For lists: runtime length
+  - Lexer: `#` as unary operator token
+  - Parser: unary `#` expression
+  - Semantic analyzer: type check, array length constant folding
+  - Code generator: array -> constant / metadata, list -> runtime call
+- [ ] Indexing / access operator: `list[i]` already exists, ensure const correctness
+- [ ] Append operator: `list << value` or `list += value`
+  - Choose syntax, document in notes
+  - Parser: binary append op
+  - Semantic analyzer: type check
+  - Code generator: list append implementation
+- [ ] Pop / remove operators:
+  - `list >>` for pop back? Or `list--` ?
+  - Decision needed: postfix operators for pop, or `list - value` ?
+  - Document proposed syntax
+- [ ] Insert / push operators:
+  - `list << value` for append, `value >> list` for prepend?
+  - Need concrete operator choices
+- [ ] Equality / comparison operators already exist
+- [ ] Bitshift operators as binary operators
+  - `<<` and `>>` for bitshift
+  - Conflict with proposed list append/pop? Need disambiguation
+  - Decide precedence and overload resolution
+  - Parser: extend binary operator table
+  - Semantic analyzer: integer types only
+  - Code generator: LLVM shl/shr
+- [ ] Ownership & memory: allocation strategy, growth factor, deallocation for lists
+- [ ] Tests: `tests/listtest.cpp` covering `#`, append, pop, indexing
+- [ ] Docs: docs/08-semantics-arrays-lists.md update with operator table
+
+## User-defined operators
+Goal: define operators like functions/lambdas with signature considerations
+- [ ] Design doc: notes/operator_overloading_design.md
+  - Syntax: `op + (a, b) -> ...` or `operator +` declaration
+  - Scope: global, type-specific, or generic?
+- [ ] Signature design question:
+  - Allow via const reference for parameters or by value?
+  - Implications for ownership, mutability, performance
+  - Decision: default to const reference for non-primitive types, by value for primitives?
+- [ ] Grammar: operator definition declaration in BNF
+- [ ] Parser: operator definition AST node, operator token as identifier
+- [ ] Semantic analyzer:
+  - Validate operator signature, arity, precedence
+  - Check parameter constness / reference rules
+  - Register operator in type-specific operator table
+- [ ] Code generator: dispatch user-defined operator to function call
+- [ ] Overload resolution:
+  - Built-in vs user-defined precedence
+  - Ambiguity handling
+- [ ] Restrictions:
+  - Which operators can be overloaded? All binary/unary or subset?
+  - Prevent overloading of `#`, bitshift? Decide policy
+- [ ] Tests: user-defined `+`, `<<`, `#` for custom types
+- [ ] Docs: docs/13-expressions.md update with operator definition syntax
+
+## General hardening
+- [ ] CI pipeline: GitHub Actions for build + unit tests
+- [ ] Remove internal Pi skills from mainline or move to `.pi/` ignored in repo
+- [ ] Split monolithic V1 PR knowledge: create incremental docs for each subsystem
+- [ ] Known limitations update: docs/14-known-limitations.md
+- [ ] Error messages polish
+- [ ] Memory leak checks integrated in Makefile
+
+## Open questions
+- Strings: array vs list? Need decision before implementation.
+- List implementation: array-backed vs linked? Performance vs ownership complexity
+- Operator syntax for list append/pop vs bitshift `<<`/`>>` conflict
+- Length operator `#` precedence with unary ops
+- User-defined operators: const reference for params? By value? Mutability rules?
+- Forward declaration interaction with lambdas and generics?
+- Module system naming: `import` vs `use` vs `link`?
