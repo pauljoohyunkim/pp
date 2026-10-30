@@ -58,6 +58,7 @@ typedef enum {
     PP_TT_RETURN,
     PP_TT_FUNC,
     PP_TT_LAMBDA,
+    PP_TT_EXTERN,
     PP_TT_LET,
     PP_TT_CONST,
     PP_TT_VOID,

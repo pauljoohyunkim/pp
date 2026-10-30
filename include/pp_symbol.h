@@ -14,6 +14,7 @@ typedef struct PPSymbol {
     bool is_constexpr;
     bool is_escapable_ref;
     bool is_global;
+    bool is_definition;
 } PPSymbol;
 
 /**
@@ -23,9 +24,10 @@ typedef struct PPSymbol {
  * @param is_constexpr Whether symbol is constexpr
  * @param is_escapable_ref Whether reference is escapable
  * @param is_global Whether symbol is declared in the global scope
+ * @param is_definition Whether symbol is a definition as opposed to a forward declaration
  * @return PPSymbol* Allocated symbol on success, NULL on failure
  */
-PPSymbol* pp_symbol_create(const PPType* type, bool is_constexpr, bool is_escapable_ref, bool is_global);
+PPSymbol* pp_symbol_create(const PPType* type, bool is_constexpr, bool is_escapable_ref, bool is_global, bool is_definition);
 
 /**
  * @brief Free a PPSymbol
