@@ -6,20 +6,16 @@
 #include "pp_ast.h"
 #include "pp_code_generator.h"
 #include "pp_lexer.h"
+#include "pp_linker_offload.h"
 #include "pp_parser.h"
 #include "pp_semantic_analyzer.h"
-#include "pp_linker_offload.h"
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
         if ((ptr) == NULL) goto error_cleanup; \
     } while (0)
 
-typedef enum {
-    PP_UNKNOWN,
-    PP_SOURCE,
-    PP_OBJECT
-} PPLang_Filetype;
+typedef enum { PP_UNKNOWN, PP_SOURCE, PP_OBJECT } PPLang_Filetype;
 
 typedef struct {
     char* src_path;
@@ -33,7 +29,126 @@ typedef struct {
     unsigned int capacity;
 } PPLang_InputList;
 
+/* Static function prototypes */
+static PPLang_InputList* pplang_input_list_create(void);
+static void pplang_input_list_free(PPLang_InputList* list);
+static int pplang_input_list_push(PPLang_InputList* list, PPLang_Input input);
+static PPLang_Filetype detect_filetype(const char* path);
+static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose);
 static long get_file_size(const char* filename);
+static void print_help(void);
+
+/* Main */
+int main(int argc, char** argv) {
+    int exit_code = 0;
+
+    bool to_object = false;
+    bool verbose = false;
+    char output_filename[BUFSIZ] = {0};
+    strcpy(output_filename, "a.out");
+    PPLang_InputList* input_list = NULL;
+    int opt;
+    while ((opt = getopt(argc, argv, "hcvo:")) != -1) {
+        switch (opt) {
+            case 'h':
+                print_help();
+                return 1;
+            case 'c':
+                to_object = true;
+                break;
+            case 'v':
+                verbose = true;
+                break;
+            case 'o':
+                memset(output_filename, 0, sizeof(output_filename));
+                strncpy(output_filename, optarg, BUFSIZ - 1);
+                break;
+            default:
+                return 1;
+        }
+    }
+
+    if (optind >= argc) {
+        fprintf(stderr, "No source file given.\n");
+        return 1;
+    }
+
+    input_list = pplang_input_list_create();
+    if (!input_list) {
+        fprintf(stderr, "Failed to create input list\n");
+        return 1;
+    }
+    unsigned int source_count = 0;
+    for (int i = optind; i < argc; i++) {
+        PPLang_Input input;
+        input.src_path = strdup(argv[i]);
+        input.obj_path = NULL;
+        input.type = detect_filetype(argv[i]);
+        if (input.type == PP_SOURCE) {
+            source_count++;
+            if (to_object) {
+                input.obj_path = strdup(output_filename);
+            } else {
+                char temp_obj[L_tmpnam];
+                tmpnam(temp_obj);
+                char* obj_path = (char*)calloc(strlen(temp_obj) + 3, sizeof(char));
+                if (obj_path) {
+                    sprintf(obj_path, "%s.o", temp_obj);
+                    input.obj_path = obj_path;
+                }
+            }
+        } else {
+            input.obj_path = strdup(argv[i]);
+        }
+        if (!pplang_input_list_push(input_list, input)) {
+            fprintf(stderr, "Failed to push input\n");
+            pplang_input_list_free(input_list);
+            return 1;
+        }
+    }
+
+    if (to_object && source_count != 1) {
+        fprintf(stderr, "-c requires exactly one source file, got %u\n", source_count);
+        pplang_input_list_free(input_list);
+        return 1;
+    }
+
+    for (unsigned int i = 0; i < input_list->count; i++) {
+        PPLang_Input* inp = &input_list->inputs[i];
+        if (inp->type == PP_SOURCE && inp->obj_path) {
+            if (!compile_pp_source(inp->src_path, inp->obj_path, verbose)) {
+                fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
+                pplang_input_list_free(input_list);
+                return 1;
+            }
+        }
+    }
+
+    if (!to_object) {
+        unsigned int obj_count = 0;
+        for (unsigned int i = 0; i < input_list->count; i++) {
+            if (input_list->inputs[i].obj_path) obj_count++;
+        }
+        if (obj_count > 0) {
+            const char** obj_names = (const char**)calloc(obj_count, sizeof(char*));
+            unsigned int idx = 0;
+            for (unsigned int i = 0; i < input_list->count; i++) {
+                if (input_list->inputs[i].obj_path) { obj_names[idx++] = input_list->inputs[i].obj_path; }
+            }
+            pp_linker_offload_multi(obj_names, obj_count, output_filename);
+            free(obj_names);
+        }
+        pplang_input_list_free(input_list);
+        return exit_code;
+    }
+
+    if (to_object) {
+        pplang_input_list_free(input_list);
+        return exit_code;
+    }
+}
+
+/* Static function definitions */
 
 static PPLang_InputList* pplang_input_list_create(void) {
     PPLang_InputList* list = (PPLang_InputList*)calloc(1, sizeof(PPLang_InputList));
@@ -88,7 +203,8 @@ static PPLang_Filetype detect_filetype(const char* path) {
     const char* dot = strrchr(path, '.');
     if (dot) {
         if (strcmp(dot, ".pp") == 0) return PP_SOURCE;
-        if (strcmp(dot, ".o") == 0 || strcmp(dot, ".obj") == 0 || strcmp(dot, ".a") == 0 || strcmp(dot, ".so") == 0 || strcmp(dot, ".dylib") == 0) {
+        if (strcmp(dot, ".o") == 0 || strcmp(dot, ".obj") == 0 || strcmp(dot, ".a") == 0 || strcmp(dot, ".so") == 0 ||
+            strcmp(dot, ".dylib") == 0) {
             return PP_OBJECT;
         }
     }
@@ -99,19 +215,12 @@ static PPLang_Filetype detect_filetype(const char* path) {
     r = fread(magic, 1, 4, fp);
     if (fp) fclose(fp);
     if (r >= 4) {
-        // ELF magic
-        if (magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F') {
-            return PP_OBJECT;
-        }
-        // Mach-O 64-bit little/big endian
+        if (magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F') { return PP_OBJECT; }
         if ((magic[0] == 0xfe && magic[1] == 0xed && magic[2] == 0xfa && magic[3] == 0xed) ||
             (magic[0] == 0xce && magic[1] == 0xfa && magic[2] == 0xed && magic[3] == 0xfe)) {
             return PP_OBJECT;
         }
-        // PE/COFF DOS stub magic "MZ"
-        if (magic[0] == 0x4d && magic[1] == 0x5a) {
-            return PP_OBJECT;
-        }
+        if (magic[0] == 0x4d && magic[1] == 0x5a) { return PP_OBJECT; }
     }
     return PP_SOURCE;
 }
@@ -166,7 +275,8 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
         generate_code = false;
         for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
             PP_Error* e = &lexer->error_list->errors[i];
-            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
+                    e->column, e->message);
         }
     }
 
@@ -175,15 +285,14 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
         fprintf(stderr, "Parser creation failure\n");
         goto error_cleanup;
     }
-    if (pp_parser_parse(parser) != 1) {
-        fprintf(stderr, "Parser failed\n");
-    }
+    if (pp_parser_parse(parser) != 1) { fprintf(stderr, "Parser failed\n"); }
     if (parser->error_list && parser->error_list->n_errors > 0) {
         total_errors += parser->error_list->n_errors;
         generate_code = false;
         for (size_t i = 0; i < parser->error_list->n_errors; i++) {
             PP_Error* e = &parser->error_list->errors[i];
-            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
+                    e->column, e->message);
         }
     }
     if (verbose && parser->error_list && parser->error_list->n_errors == 0) {
@@ -196,20 +305,17 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
         fprintf(stderr, "Semantic analyzer creation failure\n");
         goto error_cleanup;
     }
-    if (pp_semantic_analyzer_analyze(sa) != 1) {
-        fprintf(stderr, "Semantic analysis failed\n");
-    }
+    if (pp_semantic_analyzer_analyze(sa) != 1) { fprintf(stderr, "Semantic analysis failed\n"); }
     if (sa->error_list && sa->error_list->n_errors > 0) {
         total_errors += sa->error_list->n_errors;
         generate_code = false;
         for (size_t i = 0; i < sa->error_list->n_errors; i++) {
             PP_Error* e = &sa->error_list->errors[i];
-            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>",
+                    e->line, e->column, e->message);
         }
     }
-    if (verbose && sa->error_list && sa->error_list->n_errors == 0) {
-        printf("Semantic analysis succeeded.\n");
-    }
+    if (verbose && sa->error_list && sa->error_list->n_errors == 0) { printf("Semantic analysis succeeded.\n"); }
 
     if (!generate_code) {
         fprintf(stderr, "Skipping code generation due to %zu errors\n", total_errors);
@@ -221,16 +327,12 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
         fprintf(stderr, "Code generator creation failure\n");
         goto error_cleanup;
     }
-    if (verbose) {
-        printf("Code generator created successfully.\n");
-    }
+    if (verbose) { printf("Code generator created successfully.\n"); }
     if (!pp_code_generator_generate(cg)) {
         fprintf(stderr, "Code generation failure\n");
         goto error_cleanup;
     }
-    if (verbose) {
-        printf("Code generation succeeded.\n");
-    }
+    if (verbose) { printf("Code generation succeeded.\n"); }
     if (!pp_code_generator_emit_object_file(cg->mod, obj_path)) {
         fprintf(stderr, "Could not write object file to %s\n", obj_path);
         goto error_cleanup;
@@ -270,124 +372,4 @@ static void print_help(void) {
     printf("-v\t\t\t\tShow verbose output\n");
     printf("-c\t\t\t\tCompile to object file.\n");
     printf("-o filename\t\tOutput filename (default: a.out)\n");
-}
-
-int main(int argc, char** argv) {
-    int exit_code = 0;
-
-    bool to_object = false;
-    bool verbose = false;
-    char output_filename[BUFSIZ] = { 0 };
-    strcpy(output_filename, "a.out");
-    PPLang_InputList* input_list = NULL;
-    int opt;
-    while ((opt = getopt(argc, argv, "hcvo:")) != -1) {
-        switch (opt) {
-            case 'h':
-                print_help();
-                return 1;
-            case 'c':
-                to_object = true;
-                break;
-            case 'v':
-                verbose = true;
-                break;
-            case 'o':
-                memset(output_filename, 0, sizeof(output_filename));
-                strncpy(output_filename, optarg, BUFSIZ-1);
-                break;
-            default:
-                return 1;
-        }
-    }
-
-    if (optind >= argc) {
-        fprintf(stderr, "No source file given.\n");
-        return 1;
-    }
-
-    input_list = pplang_input_list_create();
-    if (!input_list) {
-        fprintf(stderr, "Failed to create input list\n");
-        return 1;
-    }
-    unsigned int source_count = 0;
-    for (int i = optind; i < argc; i++) {
-        PPLang_Input input;
-        input.src_path = strdup(argv[i]);
-        input.obj_path = NULL;
-        input.type = detect_filetype(argv[i]);
-        if (input.type == PP_SOURCE) {
-            source_count++;
-            if (to_object) {
-                // -c mode: use user-specified output filename directly
-                input.obj_path = strdup(output_filename);
-            } else {
-                // Generate temporary object filename for source
-                char temp_obj[L_tmpnam];
-                tmpnam(temp_obj);
-                // Append .o extension
-                char* obj_path = (char*)calloc(strlen(temp_obj) + 3, sizeof(char));
-                if (obj_path) {
-                    sprintf(obj_path, "%s.o", temp_obj);
-                    input.obj_path = obj_path;
-                }
-            }
-        } else {
-            input.obj_path = strdup(argv[i]);
-        }
-        if (!pplang_input_list_push(input_list, input)) {
-            fprintf(stderr, "Failed to push input\n");
-            pplang_input_list_free(input_list);
-            return 1;
-        }
-    }
-
-    if (to_object && source_count != 1) {
-        fprintf(stderr, "-c requires exactly one source file, got %u\n", source_count);
-        pplang_input_list_free(input_list);
-        return 1;
-    }
-
-    // Compile all source files to their temporary object files
-    for (unsigned int i = 0; i < input_list->count; i++) {
-        PPLang_Input* inp = &input_list->inputs[i];
-        if (inp->type == PP_SOURCE && inp->obj_path) {
-            if (!compile_pp_source(inp->src_path, inp->obj_path, verbose)) {
-                fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
-                pplang_input_list_free(input_list);
-                return 1;
-            }
-        }
-    }
-
-    if (!to_object) {
-        // Multi-file linking mode: collect object files
-        unsigned int obj_count = 0;
-        for (unsigned int i = 0; i < input_list->count; i++) {
-            if (input_list->inputs[i].obj_path) obj_count++;
-        }
-        if (obj_count > 0) {
-            const char** obj_names = (const char**)calloc(obj_count, sizeof(char*));
-            unsigned int idx = 0;
-            for (unsigned int i = 0; i < input_list->count; i++) {
-                if (input_list->inputs[i].obj_path) {
-                    obj_names[idx++] = input_list->inputs[i].obj_path;
-                }
-            }
-            pp_linker_offload_multi(obj_names, obj_count, output_filename);
-            free(obj_names);
-        }
-        pplang_input_list_free(input_list);
-        return exit_code;
-    }
-
-    // For -c mode, the compile helper already emitted the object file.
-    // Keep existing single-file path for compatibility if needed.
-    if (to_object) {
-        // Nothing more to do; object already written by compile_pp_source
-        pplang_input_list_free(input_list);
-        return exit_code;
-    }
-
 }
