@@ -42,6 +42,39 @@ make clean && make unittest CC=gcc CXX=clang++
 ```
 You should find the unit test binary at `bin/unittest`.
 
+## Quickstart
+
+```bash
+# Build
+make && make -j
+
+# Compile a single source to an executable
+./bin/pplang -o hello hello.pp
+./hello
+
+# Compile to object file
+./bin/pplang -c -o hello.o hello.pp
+
+# Link multiple sources
+./bin/pplang a.pp b.pp -o program
+./program
+
+# Verbose output
+./bin/pplang -v source.pp -o out
+```
+
+Options:
+* `-h` Show help
+* `-v` Verbose output
+* `-c` Compile to object file, requires `-o`
+* `-o <file>` Output filename
+
+Example files:
+```bash
+./bin/pplang pp_test_code.pp module_test_code.pp -o test_out
+./test_out   # prints exit code 45
+```
+
 ### Language guide
 Look into [docs](docs/) for simple documentation.
 
