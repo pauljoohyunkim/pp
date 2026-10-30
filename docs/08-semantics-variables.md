@@ -1,4 +1,4 @@
-# 06 – Semantics: Variables
+# 08 – Semantics: Variables
 
 ## Global variables
 Scope: file scope.

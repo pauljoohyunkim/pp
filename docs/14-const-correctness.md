@@ -1,4 +1,4 @@
-# 12 – Semantics: Const Correctness
+# 14 – Semantics: Const Correctness
 
 ## Const qualifier
 `const T` means immutable value.

@@ -1,4 +1,4 @@
-# 08 – Semantics: Arrays & Lists
+# 10 – Semantics: Arrays & Lists
 
 ## Arrays
 Fixed size, size known at compile time.
