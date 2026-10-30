@@ -35,7 +35,7 @@ int pp_linker_offload_multi(const char** object_filenames, unsigned int count, c
         wait(NULL);
     } else {
         // Build argv for cc: cc obj1 obj2 ... -o out
-        unsigned int argc = count + 3;
+        unsigned int argc = count + 3 + 1;
         char** argv = (char**)calloc(argc, sizeof(char*));
         if (!argv) _exit(1);
         argv[0] = "cc";
@@ -44,6 +44,7 @@ int pp_linker_offload_multi(const char** object_filenames, unsigned int count, c
         }
         argv[count + 1] = "-o";
         argv[count + 2] = (char*)output_filename;
+        argv[count + 3] = NULL;
         execvp("cc", argv);
         free(argv);
         _exit(1);
