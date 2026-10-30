@@ -743,6 +743,50 @@ int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_
     return 1;
 }
 
+int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf) {
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+
+    char* target_triple = LLVMGetDefaultTargetTriple();
+    LLVMSetTarget(module, target_triple);
+
+    LLVMTargetRef target;
+    char* error = NULL;
+    if (LLVMGetTargetFromTriple(target_triple, &target, &error)) {
+        fprintf(stderr, "LLVM Target Error: %s\n", error);
+        LLVMDisposeMessage(error);
+        LLVMDisposeMessage(target_triple);
+        return 0;
+    }
+
+    LLVMTargetMachineRef target_machine =
+        LLVMCreateTargetMachine(target, target_triple, "generic", "", LLVMCodeGenLevelDefault, LLVMRelocPIC,
+                                LLVMCodeModelDefault);
+
+    LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(target_machine);
+    LLVMSetModuleDataLayout(module, data_layout);
+
+    LLVMMemoryBufferRef buf = NULL;
+    if (LLVMTargetMachineEmitToMemoryBuffer(target_machine, module, LLVMObjectFile, &error, &buf)) {
+        fprintf(stderr, "Failed to emit object to buffer: %s\n", error);
+        LLVMDisposeMessage(error);
+        LLVMDisposeTargetData(data_layout);
+        LLVMDisposeTargetMachine(target_machine);
+        LLVMDisposeMessage(target_triple);
+        return 0;
+    }
+
+    LLVMDisposeTargetData(data_layout);
+    LLVMDisposeTargetMachine(target_machine);
+    LLVMDisposeMessage(target_triple);
+
+    if (out_buf) *out_buf = buf;
+    else {
+        LLVMDisposeMemoryBuffer(buf);
+    }
+    return 1;
+}
+
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
     PP_Environment_Backend* body_env_b = NULL;

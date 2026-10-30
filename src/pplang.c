@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 
 #include "pp_ast.h"
 #include "pp_code_generator.h"
@@ -20,6 +21,7 @@ typedef enum { PP_UNKNOWN, PP_SOURCE, PP_OBJECT } PPLang_Filetype;
 typedef struct {
     char* src_path;
     char* obj_path;
+    LLVMMemoryBufferRef obj_buf;
     PPLang_Filetype type;
 } PPLang_Input;
 
@@ -35,6 +37,7 @@ static void pplang_input_list_free(PPLang_InputList* list);
 static int pplang_input_list_push(PPLang_InputList* list, PPLang_Input input);
 static PPLang_Filetype detect_filetype(const char* path);
 static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose);
+static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose);
 static long get_file_size(const char* filename);
 static void print_help(void);
 
@@ -83,22 +86,20 @@ int main(int argc, char** argv) {
         PPLang_Input input;
         input.src_path = strdup(argv[i]);
         input.obj_path = NULL;
+        input.obj_buf = NULL;
         input.type = detect_filetype(argv[i]);
         if (input.type == PP_SOURCE) {
             source_count++;
             if (to_object) {
                 input.obj_path = strdup(output_filename);
             } else {
-                char temp_obj[L_tmpnam];
-                tmpnam(temp_obj);
-                char* obj_path = (char*)calloc(strlen(temp_obj) + 3, sizeof(char));
-                if (obj_path) {
-                    sprintf(obj_path, "%s.o", temp_obj);
-                    input.obj_path = obj_path;
-                }
+                /* Object will be materialised later via mkstemp */
+                input.obj_path = NULL;
+                input.obj_buf = NULL;
             }
         } else {
             input.obj_path = strdup(argv[i]);
+            input.obj_buf = NULL;
         }
         if (!pplang_input_list_push(input_list, input)) {
             fprintf(stderr, "Failed to push input\n");
@@ -115,25 +116,87 @@ int main(int argc, char** argv) {
 
     for (unsigned int i = 0; i < input_list->count; i++) {
         PPLang_Input* inp = &input_list->inputs[i];
-        if (inp->type == PP_SOURCE && inp->obj_path) {
-            if (!compile_pp_source(inp->src_path, inp->obj_path, verbose)) {
-                fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
-                pplang_input_list_free(input_list);
-                return 1;
+        if (inp->type == PP_SOURCE) {
+            if (to_object) {
+                if (inp->obj_path) {
+                    if (!compile_pp_source(inp->src_path, inp->obj_path, verbose)) {
+                        fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
+                        pplang_input_list_free(input_list);
+                        return 1;
+                    }
+                }
+            } else {
+                LLVMMemoryBufferRef buf = NULL;
+                if (!compile_pp_source_to_buffer(inp->src_path, &buf, verbose)) {
+                    fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
+                    pplang_input_list_free(input_list);
+                    return 1;
+                }
+                inp->obj_buf = buf;
             }
         }
     }
 
     if (!to_object) {
+        /* Materialise in-memory objects to safe temp files for linking */
         unsigned int obj_count = 0;
         for (unsigned int i = 0; i < input_list->count; i++) {
-            if (input_list->inputs[i].obj_path) obj_count++;
+            if (input_list->inputs[i].type == PP_OBJECT) {
+                obj_count++;
+            } else if (input_list->inputs[i].type == PP_SOURCE && input_list->inputs[i].obj_buf) {
+                obj_count++;
+            }
         }
         if (obj_count > 0) {
             const char** obj_names = (const char**)calloc(obj_count, sizeof(char*));
             unsigned int idx = 0;
             for (unsigned int i = 0; i < input_list->count; i++) {
-                if (input_list->inputs[i].obj_path) { obj_names[idx++] = input_list->inputs[i].obj_path; }
+                PPLang_Input* inp = &input_list->inputs[i];
+                if (inp->type == PP_OBJECT) {
+                    obj_names[idx++] = inp->obj_path;
+                } else if (inp->type == PP_SOURCE && inp->obj_buf) {
+                    char tmpl[] = "/tmp/pplang-XXXXXX";
+                    int fd = mkstemp(tmpl);
+                    if (fd < 0) {
+                        fprintf(stderr, "Failed to create temp object file\n");
+                        free(obj_names);
+                        pplang_input_list_free(input_list);
+                        return 1;
+                    }
+                    size_t sz = LLVMGetBufferSize(inp->obj_buf);
+                    const char* data = LLVMGetBufferStart(inp->obj_buf);
+                    ssize_t written = 0;
+                    size_t to_write = sz;
+                    while (to_write > 0) {
+                        ssize_t w = write(fd, data + written, to_write);
+                        if (w <= 0) {
+                            close(fd);
+                            unlink(tmpl);
+                            free(obj_names);
+                            pplang_input_list_free(input_list);
+                            return 1;
+                        }
+                        written += w;
+                        to_write -= w;
+                    }
+                    close(fd);
+                    /* Append .o extension for linker */
+                    char obj_path_buf[PATH_MAX];
+                    snprintf(obj_path_buf, sizeof(obj_path_buf), "%s.o", tmpl);
+                    /* Rename temp file to have .o extension */
+                    if (rename(tmpl, obj_path_buf) != 0) {
+                        unlink(tmpl);
+                        fprintf(stderr, "Failed to rename temp object file\n");
+                        free(obj_names);
+                        pplang_input_list_free(input_list);
+                        return 1;
+                    }
+                    inp->obj_path = strdup(obj_path_buf);
+                    obj_names[idx++] = inp->obj_path;
+                    /* Buffer can be freed now; temp file holds the object */
+                    LLVMDisposeMemoryBuffer(inp->obj_buf);
+                    inp->obj_buf = NULL;
+                }
             }
             pp_linker_offload_multi(obj_names, obj_count, output_filename);
             free(obj_names);
@@ -168,7 +231,16 @@ static void pplang_input_list_free(PPLang_InputList* list) {
     if (list->inputs) {
         for (unsigned int i = 0; i < list->count; i++) {
             if (list->inputs[i].src_path) free(list->inputs[i].src_path);
-            if (list->inputs[i].obj_path) free(list->inputs[i].obj_path);
+            if (list->inputs[i].obj_path) {
+                /* Unlink temporary object files if they exist */
+                if (strncmp(list->inputs[i].obj_path, "/tmp/pplang-", 11) == 0) {
+                    unlink(list->inputs[i].obj_path);
+                }
+                free(list->inputs[i].obj_path);
+            }
+            if (list->inputs[i].obj_buf) {
+                LLVMDisposeMemoryBuffer(list->inputs[i].obj_buf);
+            }
         }
         free(list->inputs);
     }
@@ -343,6 +415,139 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
 
 error_cleanup:
     exit_code = 0;
+
+cleanup:
+    if (cg) pp_code_generator_free(cg);
+    if (sa) pp_semantic_analyzer_free(sa);
+    if (parser) pp_parser_free(parser);
+    if (lexer) pp_lexer_free(lexer);
+    if (code) free(code);
+    if (fp) fclose(fp);
+    return exit_code;
+}
+
+static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose) {
+    FILE* fp = NULL;
+    char* code = NULL;
+    PP_Lexer* lexer = NULL;
+    PP_Parser* parser = NULL;
+    PP_SemanticAnalyzer* sa = NULL;
+    PP_CodeGenerator* cg = NULL;
+    long filesize = 0;
+    int exit_code = 0;
+    size_t total_errors = 0;
+    bool generate_code = true;
+
+    if (!src_path || !out_buf) return 0;
+
+    filesize = get_file_size(src_path);
+    if (filesize < 0) {
+        fprintf(stderr, "Could not open %s\n", src_path);
+        return 0;
+    }
+
+    fp = fopen(src_path, "r");
+    if (!fp) {
+        fprintf(stderr, "Could not open %s\n", src_path);
+        return 0;
+    }
+    code = (char*)calloc(filesize + 1, sizeof(char));
+    if (!code) {
+        fprintf(stderr, "Could not allocate memory for code.\n");
+        goto error_cleanup;
+    }
+    fread(code, sizeof(char), filesize, fp);
+    fclose(fp);
+    fp = NULL;
+
+    lexer = pp_lexer_create(code, src_path);
+    free(code);
+    code = NULL;
+    if (!lexer) {
+        fprintf(stderr, "Lexer creation failure\n");
+        goto error_cleanup;
+    }
+    if (!pp_lexer_analyze(lexer)) {
+        fprintf(stderr, "Lexer analyze failure\n");
+        goto error_cleanup;
+    }
+    if (lexer->error_list && lexer->error_list->n_errors > 0) {
+        total_errors += lexer->error_list->n_errors;
+        generate_code = false;
+        for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
+            PP_Error* e = &lexer->error_list->errors[i];
+            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+        }
+    }
+
+    parser = pp_parser_create(lexer);
+    if (!parser) {
+        fprintf(stderr, "Parser creation failure\n");
+        goto error_cleanup;
+    }
+    if (pp_parser_parse(parser) != 1) { fprintf(stderr, "Parser failed\n"); }
+    if (parser->error_list && parser->error_list->n_errors > 0) {
+        total_errors += parser->error_list->n_errors;
+        generate_code = false;
+        for (size_t i = 0; i < parser->error_list->n_errors; i++) {
+            PP_Error* e = &parser->error_list->errors[i];
+            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+        }
+    }
+    if (verbose && parser->error_list && parser->error_list->n_errors == 0) {
+        printf("Parse succeeded. AST:\n");
+        pp_ast_root_print(parser->program, 0);
+    }
+
+    sa = pp_semantic_analyzer_create(parser);
+    if (!sa) {
+        fprintf(stderr, "Semantic analyzer creation failure\n");
+        goto error_cleanup;
+    }
+    if (pp_semantic_analyzer_analyze(sa) != 1) { fprintf(stderr, "Semantic analysis failed\n"); }
+    if (sa->error_list && sa->error_list->n_errors > 0) {
+        total_errors += sa->error_list->n_errors;
+        generate_code = false;
+        for (size_t i = 0; i < sa->error_list->n_errors; i++) {
+            PP_Error* e = &sa->error_list->errors[i];
+            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line, e->column, e->message);
+        }
+    }
+    if (verbose && sa->error_list && sa->error_list->n_errors == 0) { printf("Semantic analysis succeeded.\n"); }
+
+    if (!generate_code) {
+        fprintf(stderr, "Skipping code generation due to %zu errors\n", total_errors);
+        goto error_cleanup;
+    }
+
+    cg = pp_code_generator_create(sa);
+    if (!cg) {
+        fprintf(stderr, "Code generator creation failure\n");
+        goto error_cleanup;
+    }
+    if (verbose) { printf("Code generator created successfully.\n"); }
+    if (!pp_code_generator_generate(cg)) {
+        fprintf(stderr, "Code generation failure\n");
+        goto error_cleanup;
+    }
+    if (verbose) { printf("Code generation succeeded.\n"); }
+    
+    LLVMMemoryBufferRef buf = NULL;
+    if (!pp_code_generator_emit_object_to_buffer(cg->mod, &buf)) {
+        fprintf(stderr, "Could not emit object to buffer for %s\n", src_path);
+        goto error_cleanup;
+    }
+    *out_buf = buf;
+
+    exit_code = 1;
+    goto cleanup;
+
+error_cleanup:
+    exit_code = 0;
+    if (out_buf && *out_buf) {
+        LLVMDisposeMemoryBuffer(*out_buf);
+        *out_buf = NULL;
+    }
 
 cleanup:
     if (cg) pp_code_generator_free(cg);
