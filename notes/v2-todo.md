@@ -6,6 +6,7 @@
 * Strings implementation
 * List operations as operators
 * User-defined operators
+* LLVM optimization passes
 * Hardening & DX improvements
 
 ## Linking / multi-file support
@@ -14,11 +15,18 @@
 - [ ] Parser: import statements, module AST nodes
 - [ ] Symbol table: cross-module resolution, separate `pp_symbol_table` per module with global linker map
 - [ ] Semantic analyzer: resolve symbols across modules, detect duplicate definitions
-- [ ] Code generator: emit object files per module, link via LLVM linker
-- [ ] Linker offload: implement `src/pp_linker_offload.c` multi-file linking API
-- [ ] Driver `src/pplang.c`: CLI flags for multiple input files, `--link`, output .o/.exe
+- [x] Code generator: emit object files per module, link via LLVM linker
+- [x] Linker offload: implement `src/pp_linker_offload.c` multi-file linking API
+- [x] Driver `src/pplang.c`: CLI flags for multiple input files, output .o/.exe
 - [ ] Tests: `tests/linkertest.cpp` with two-module integration
 - [ ] Docs: docs/15-modules-linking.md
+
+### Module interface design decision
+**Open decision: textual #include preprocessor vs compiler-generated interface files**
+- Preprocessor option: unified source buffer + source location mapping before lexer. Pros: familiar C-style includes. Cons: no type checking across files, requires line map for diagnostics, duplicates C header problems.
+- Interface file option: compiler emits `.ppi` with exported declarations, imported via semantic analysis, with mangling as link-time backstop. Pros: compile-time type/purity checking, good diagnostics, aligns with PP safety goals. Cons: moderate implementation cost.
+- Current leaning: prefer interface file approach for PP-to-PP, keep `extern "C"` unmangled escape hatch for foreign code. Textual `#include` deferred unless needed for non-code assets.
+- Action: create design doc `notes/module_interface_design.md` comparing both approaches, choose syntax, decide on mangling scheme, and update BNF/notes accordingly.
 
 ## Function forward declaration
 - [ ] Grammar: allow `fn foo(...);` prototype at global scope
@@ -111,6 +119,7 @@ Goal: define operators like functions/lambdas with signature considerations
 - [ ] Known limitations update: docs/14-known-limitations.md
 - [ ] Error messages polish
 - [ ] Memory leak checks integrated in Makefile
+- [ ] LLVM optimization passes: enable and configure LLVM pass pipeline in code generator, add `-O0/-O1/-O2/-O3` flags to driver, document behavior
 
 ## Open questions
 - Strings: array vs list? Need decision before implementation.
@@ -120,3 +129,4 @@ Goal: define operators like functions/lambdas with signature considerations
 - User-defined operators: const reference for params? By value? Mutability rules?
 - Forward declaration interaction with lambdas and generics?
 - Module system naming: `import` vs `use` vs `link`?
+- Module system design: textual `#include` preprocessor with source map vs compiler-generated interface files `.ppi` with mangling? See Module interface design decision above.
