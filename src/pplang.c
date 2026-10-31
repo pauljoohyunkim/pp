@@ -51,8 +51,9 @@ int main(int argc, char** argv) {
     char output_filename[BUFSIZ] = {0};
     strcpy(output_filename, "a.out");
     PPLang_InputList* input_list = NULL;
+    char optimization_mode =  '\0';
     int opt;
-    while ((opt = getopt(argc, argv, "hcvo:")) != -1) {
+    while ((opt = getopt(argc, argv, "hcvo:O:")) != -1) {
         switch (opt) {
             case 'h':
                 print_help();
@@ -67,6 +68,9 @@ int main(int argc, char** argv) {
                 memset(output_filename, 0, sizeof(output_filename));
                 strncpy(output_filename, optarg, BUFSIZ - 1);
                 break;
+            case 'O':
+                optimization_mode = optarg[0];
+                break;
             default:
                 return 1;
         }
@@ -75,6 +79,21 @@ int main(int argc, char** argv) {
     if (optind >= argc) {
         fprintf(stderr, "No source file given.\n");
         return 1;
+    }
+
+    if (optimization_mode != '\0') {
+        switch (optimization_mode) {
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case 's':
+            case 'z':
+                break;
+            default:
+                fprintf(stderr, "Invalid optimization mode. Allowed modes are -O0, -O1, -O2, -O3, -Os, and -Oz\n");
+                return 1;
+        }
     }
 
     input_list = pplang_input_list_create();
