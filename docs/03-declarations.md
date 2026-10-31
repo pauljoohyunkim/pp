@@ -5,6 +5,7 @@ Allowed at file scope:
 - Variable: `let name :: type = initializer;`
 - Function: `func name :: (params) -> return_type { body }`
 - Lambda: `lambda name :: (params) -> return_type { body }`
+- Extern function/lambda: `extern func name :: (params) -> return_type;`
 - Struct: `struct Name { members }`
 - Typedef: `typedef base Name;`
 - Newtype: `newtype base Name;`

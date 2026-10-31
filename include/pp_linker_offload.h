@@ -9,7 +9,6 @@ int pp_linker_offload(const char* input_object_filename, const char* output_file
 
 int pp_linker_offload_multi(const char** object_filenames, unsigned int count, const char* output_filename);
 
-
 #ifdef __cplusplus
 }
 #endif

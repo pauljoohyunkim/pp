@@ -27,7 +27,7 @@ func main :: () -> int32 {
 - User types: `typedef`, `newtype`, `struct`
 - Control flow: `if`, `while`, `for`
 - Expressions with full operator precedence
-- Forward declarations supported for functions and structs
+- Forward declarations supported for functions and structs via `extern func` / `extern lambda`
 - Multi-file compilation: `pplang a.pp b.pp -o prog`
 - Object output via `-c` flag and in-memory emission path
 - Temporary files use `mkstemp` (no `tmpnam`)

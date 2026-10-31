@@ -6,6 +6,8 @@ Functions are global.
 ```pp
 func name :: (params) -> return_type { body }
 lambda name :: (params) -> return_type { body }
+extern func name :: (params) -> return_type;
+extern lambda name :: (params) -> return_type;
 ```
 
 Rules:

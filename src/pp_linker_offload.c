@@ -1,11 +1,10 @@
-#include <unistd.h>
-#include <sys/wait.h>
-#include <stdlib.h>
-
 #include "pp_linker_offload.h"
 
-int pp_linker_offload(const char* input_object_filename, const char* output_filename) {
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
+int pp_linker_offload(const char* input_object_filename, const char* output_filename) {
     // Subprocess
     pid_t pid = fork();
 
@@ -17,7 +16,7 @@ int pp_linker_offload(const char* input_object_filename, const char* output_file
     } else {
         // Child
 
-        char* command[] = { "cc", input_object_filename, "-o", output_filename, NULL };
+        char* command[] = {"cc", input_object_filename, "-o", output_filename, NULL};
         execvp("cc", command);
 
         return 0;
@@ -39,9 +38,7 @@ int pp_linker_offload_multi(const char** object_filenames, unsigned int count, c
         char** argv = (char**)calloc(argc, sizeof(char*));
         if (!argv) _exit(1);
         argv[0] = "cc";
-        for (unsigned int i = 0; i < count; i++) {
-            argv[i + 1] = (char*)object_filenames[i];
-        }
+        for (unsigned int i = 0; i < count; i++) { argv[i + 1] = (char*)object_filenames[i]; }
         argv[count + 1] = "-o";
         argv[count + 2] = (char*)output_filename;
         argv[count + 3] = NULL;
