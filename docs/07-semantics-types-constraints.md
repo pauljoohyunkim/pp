@@ -1,4 +1,4 @@
-# 05 – Semantics: Types & Constraints
+# 07 – Semantics: Types & Constraints
 
 ## Type construction
 Types are built by stacking modifiers on a base.

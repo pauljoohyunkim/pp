@@ -1,4 +1,4 @@
-# 10 – Semantics: Functions & Lambdas
+# 12 – Semantics: Functions & Lambdas
 
 ## Declaration
 Functions are global.
@@ -6,6 +6,8 @@ Functions are global.
 ```pp
 func name :: (params) -> return_type { body }
 lambda name :: (params) -> return_type { body }
+extern func name :: (params) -> return_type;
+extern lambda name :: (params) -> return_type;
 ```
 
 Rules:
@@ -15,6 +17,7 @@ Rules:
 - Return type must be defined.
 - If return type is non-void, all control paths must return a value.
 - Parameter count in AST must match type.
+- Forward declarations are permitted with matching signature at definition.
 
 ## Parameters
 - Local scope created for parameters.
@@ -40,5 +43,5 @@ Errors:
 
 ## Calls
 - Argument types must match parameter types after decay.
-- Function must be defined before use.
+- Function may be forward-declared; definition must match declaration signature.
 - Return value type is determined by function type.

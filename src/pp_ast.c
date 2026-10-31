@@ -332,7 +332,8 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             break;
         case PP_AST_ExternFunctionDeclarationNode:
         case PP_AST_ExternLambdaDeclarationNode:
-            printf("Extern Function %s\n", node->extern_function_declaration.name ? node->extern_function_declaration.name : "");
+            printf("Extern Function %s\n",
+                   node->extern_function_declaration.name ? node->extern_function_declaration.name : "");
             for (unsigned int i = 0; i < node->extern_function_declaration.param_count; i++)
                 pp_ast_root_print(node->extern_function_declaration.params[i], depth + 1);
             if (node->extern_function_declaration.return_type)

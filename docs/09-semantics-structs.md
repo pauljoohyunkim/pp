@@ -1,4 +1,4 @@
-# 07 – Semantics: Structs
+# 09 – Semantics: Structs
 
 ## Declaration
 ```pp

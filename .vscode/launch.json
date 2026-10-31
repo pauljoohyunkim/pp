@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/bin/pplang",
-            "args": ["pp_test_code.pp"],
+            "args": ["-o", "prog", "pp_test_code.pp", "module_test_code.pp"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

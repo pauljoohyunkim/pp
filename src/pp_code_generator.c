@@ -705,7 +705,8 @@ error_cleanup:
     return 0;
 }
 
-int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename) {
+static int pp_code_generator_emit_object_internal(LLVMModuleRef module, const char* output_filename,
+                                                  LLVMMemoryBufferRef* out_buf) {
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
 
@@ -715,7 +716,7 @@ int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_
     LLVMTargetRef target;
     char* error = NULL;
     if (LLVMGetTargetFromTriple(target_triple, &target, &error)) {
-        fprintf(stderr, "LLVM Target Error: %s\\n", error);
+        fprintf(stderr, "LLVM Target Error: %s\n", error);
         LLVMDisposeMessage(error);
         LLVMDisposeMessage(target_triple);
         return 0;
@@ -728,19 +729,41 @@ int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_
     LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(target_machine);
     LLVMSetModuleDataLayout(module, data_layout);
 
-    if (LLVMTargetMachineEmitToFile(target_machine, module, (char*)output_filename, LLVMObjectFile, &error)) {
-        fprintf(stderr, "Failed to emit object file: %s\\n", error);
-        LLVMDisposeMessage(error);
-        LLVMDisposeTargetData(data_layout);
-        LLVMDisposeTargetMachine(target_machine);
-        LLVMDisposeMessage(target_triple);
-        return 0;
+    int result = 1;
+    if (output_filename) {
+        if (LLVMTargetMachineEmitToFile(target_machine, module, (char*)output_filename, LLVMObjectFile, &error)) {
+            fprintf(stderr, "Failed to emit object file: %s\n", error);
+            LLVMDisposeMessage(error);
+            result = 0;
+        }
+    } else if (out_buf) {
+        LLVMMemoryBufferRef buf = NULL;
+        if (LLVMTargetMachineEmitToMemoryBuffer(target_machine, module, LLVMObjectFile, &error, &buf)) {
+            fprintf(stderr, "Failed to emit object to buffer: %s\n", error);
+            LLVMDisposeMessage(error);
+            result = 0;
+        } else {
+            if (out_buf)
+                *out_buf = buf;
+            else
+                LLVMDisposeMemoryBuffer(buf);
+        }
+    } else {
+        result = 0;
     }
 
     LLVMDisposeTargetData(data_layout);
     LLVMDisposeTargetMachine(target_machine);
     LLVMDisposeMessage(target_triple);
-    return 1;
+    return result;
+}
+
+int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename) {
+    return pp_code_generator_emit_object_internal(module, output_filename, NULL);
+}
+
+int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf) {
+    return pp_code_generator_emit_object_internal(module, NULL, out_buf);
 }
 
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,

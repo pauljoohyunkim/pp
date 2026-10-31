@@ -1,4 +1,4 @@
-# 13 – Semantics: Expressions
+# 15 – Semantics: Expressions
 
 ## Operator compatibility
 Binary and unary operators require compatible operand types.

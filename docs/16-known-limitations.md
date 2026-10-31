@@ -1,4 +1,4 @@
-# 14 – Known Limitations & Temporary Restrictions
+# 16 – Known Limitations & Temporary Restrictions
 
 These items are emitted as `#warning` during build and affect current user-visible semantics.
 
@@ -11,5 +11,7 @@ These items are emitted as `#warning` during build and affect current user-visib
 
 ## General
 * Warnings about const/reference qualifier discards are compiler warnings, not user errors.
+* Temporary file handling uses `mkstemp`; `tmpnam` is no longer used.
+* Multi-file linking and `-c` object emission are now supported; in-memory emission path is implemented.
 
 These limitations will be lifted in future releases.

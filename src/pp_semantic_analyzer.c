@@ -119,7 +119,8 @@ static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PP
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
 static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
-static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_SemanticAnalyzer* sa,
+                                                                        const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
@@ -805,7 +806,8 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
                 // Duplicate definition
                 pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                          "Symbol '%s' is previously defined.",
-                                         node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+                                         node->function_declaration.name ? node->function_declaration.name
+                                                                         : "<unknown>");
                 goto error_cleanup;
             }
             // Existing is a forward declaration, identical type → allow upgrade
@@ -901,13 +903,16 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     if (existing) {
         if (existing->type == lambda_type) {
             if (existing->is_definition) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Symbol '%s' is previously defined.",
-                                     node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Symbol '%s' is previously defined.",
+                                         node->function_declaration.name ? node->function_declaration.name
+                                                                         : "<unknown>");
                 goto error_cleanup;
             }
             return 1;
         } else {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Conflicting types for symbol '%s'",
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Conflicting types for symbol '%s'",
                                      node->function_declaration.name ? node->function_declaration.name : "<unknown>");
             goto error_cleanup;
         }
@@ -939,7 +944,8 @@ error_cleanup:
 }
 
 /* Pass 1 - Extern Function Declaration Checklist: */
-static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_SemanticAnalyzer* sa,
+                                                                        const PP_AST_Node* node) {
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_ExternFunctionDeclarationNode);
@@ -958,7 +964,8 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
     if (!return_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Invalid return type for function '%s'",
-                                 node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+                                 node->extern_function_declaration.name ? node->extern_function_declaration.name
+                                                                        : "<unknown>");
         goto error_cleanup;
     }
 
@@ -970,7 +977,8 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
         if (!param_type) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Invalid parameter type for function '%s'",
-                                     node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+                                     node->extern_function_declaration.name ? node->extern_function_declaration.name
+                                                                            : "<unknown>");
             goto error_cleanup;
         }
         if (!pp_type_push_param(tmp_func, param_type)) { goto error_cleanup; }
@@ -980,7 +988,8 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
     if (!func_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to intern function type for function '%s'",
-                                 node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+                                 node->extern_function_declaration.name ? node->extern_function_declaration.name
+                                                                        : "<unknown>");
         goto error_cleanup;
     }
     tmp_func = NULL;
@@ -993,7 +1002,8 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
         } else {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Conflicting types for symbol '%s'",
-                                     node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+                                     node->extern_function_declaration.name ? node->extern_function_declaration.name
+                                                                            : "<unknown>");
             goto error_cleanup;
         }
     }
@@ -1002,14 +1012,16 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to allocate symbol for function '%s'",
-                                 node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+                                 node->extern_function_declaration.name ? node->extern_function_declaration.name
+                                                                        : "<unknown>");
         goto error_cleanup;
     }
 
     if (!pp_symbol_table_push(sa->gst, node->extern_function_declaration.name, func_symbol)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to register function '%s'",
-                                 node->extern_function_declaration.name ? node->extern_function_declaration.name : "<unknown>");
+                                 node->extern_function_declaration.name ? node->extern_function_declaration.name
+                                                                        : "<unknown>");
         goto error_cleanup;
     }
     func_symbol = NULL;
@@ -1023,7 +1035,8 @@ error_cleanup:
 }
 
 /* Pass 1 - Extern Lambda Declaration Checklist: */
-static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_SemanticAnalyzer* sa,
+                                                                      const PP_AST_Node* node) {
     assert(sa);
     assert(node);
     assert(node->node_type == PP_AST_ExternLambdaDeclarationNode);
@@ -1052,7 +1065,8 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
         if (!param_type) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Invalid parameter type for lambda '%s'",
-                                     node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
+                                     node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name
+                                                                          : "<unknown>");
             goto error_cleanup;
         }
         if (!pp_type_push_param(tmp_lambda, param_type)) { goto error_cleanup; }
@@ -1062,7 +1076,8 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
     if (!lambda_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to intern lambda type for lambda '%s'",
-                                 node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
+                                 node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name
+                                                                      : "<unknown>");
         goto error_cleanup;
     }
     tmp_lambda = NULL;
@@ -1073,8 +1088,10 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
         if (existing->type == lambda_type) {
             return 1;
         } else {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Conflicting types for symbol '%s'",
-                                     node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Conflicting types for symbol '%s'",
+                                     node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name
+                                                                          : "<unknown>");
             goto error_cleanup;
         }
     }
@@ -1083,13 +1100,15 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
     if (!lambda_symbol) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Failed to allocate symbol for lambda '%s'",
-                                 node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
+                                 node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name
+                                                                      : "<unknown>");
         goto error_cleanup;
     }
 
     if (!pp_symbol_table_push(sa->gst, node->extern_lambda_declaration.name, lambda_symbol)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register lambda '%s'",
-                                 node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name : "<unknown>");
+                                 node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name
+                                                                      : "<unknown>");
         goto error_cleanup;
     }
     lambda_symbol = NULL;

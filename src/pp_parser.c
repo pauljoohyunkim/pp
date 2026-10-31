@@ -65,7 +65,9 @@ static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_global_variable_declaration(PP_Parser* parser);
 static int pp_parser_parse_param_list(PP_Parser* parser, PP_AST_Node*** out_params, unsigned int* out_count,
                                       unsigned int* out_capacity);
-static int pp_parser_parse_signature(PP_Parser* parser, const char** out_name, PP_AST_Node*** out_params, unsigned int* out_param_count, unsigned int* out_param_capacity, PP_AST_Node** out_return_type);
+static int pp_parser_parse_signature(PP_Parser* parser, const char** out_name, PP_AST_Node*** out_params,
+                                     unsigned int* out_param_count, unsigned int* out_param_capacity,
+                                     PP_AST_Node** out_return_type);
 
 PP_Parser* pp_parser_create(PP_Lexer* lexer) {
     PP_Parser* parser = NULL;
@@ -1074,9 +1076,8 @@ static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser) {
 
     // init (optional)
     if (pp_parser_peek_token_type(parser, 0) != PP_TT_SEMICOLON) {
-        init = pp_parser_peek_token_type(parser, 0) == PP_TT_LET
-            ? pp_parser_create_variable_decl(parser)
-            : pp_parser_create_expression_or_assignment(parser);
+        init = pp_parser_peek_token_type(parser, 0) == PP_TT_LET ? pp_parser_create_variable_decl(parser)
+                                                                 : pp_parser_create_expression_or_assignment(parser);
         NULL_POINTER_ERROR_HANDLE(init);
     }
 
@@ -1236,7 +1237,9 @@ static PP_AST_Node* pp_parser_create_function_declaration(PP_Parser* parser) {
         func_tok = pp_parser_consume_token(parser, PP_TT_FUNC);
         NULL_POINTER_ERROR_HANDLE(func_tok);
     }
-    if (!pp_parser_parse_signature(parser, &name, &params, &param_count, &param_capacity, &return_type)) { goto error_cleanup; }
+    if (!pp_parser_parse_signature(parser, &name, &params, &param_count, &param_capacity, &return_type)) {
+        goto error_cleanup;
+    }
     body = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(body);
     node = pp_ast_node_create(PP_AST_FunctionDeclarationNode, func_tok->line, func_tok->column);
@@ -1275,7 +1278,9 @@ static PP_AST_Node* pp_parser_create_lambda_declaration(PP_Parser* parser) {
         lambda_tok = pp_parser_consume_token(parser, PP_TT_LAMBDA);
         NULL_POINTER_ERROR_HANDLE(lambda_tok);
     }
-    if (!pp_parser_parse_signature(parser, &name, &params, &param_count, &param_capacity, &return_type)) { goto error_cleanup; }
+    if (!pp_parser_parse_signature(parser, &name, &params, &param_count, &param_capacity, &return_type)) {
+        goto error_cleanup;
+    }
     body = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(body);
     node = pp_ast_node_create(PP_AST_LambdaDeclarationNode, lambda_tok->line, lambda_tok->column);
@@ -1313,7 +1318,9 @@ static PP_AST_Node* pp_parser_create_extern_function_declaration(PP_Parser* pars
         func_tok = pp_parser_consume_token(parser, PP_TT_FUNC);
         NULL_POINTER_ERROR_HANDLE(func_tok);
     }
-    if (!pp_parser_parse_signature(parser, &name, &params, &param_count, &param_capacity, &return_type)) { goto error_cleanup; }
+    if (!pp_parser_parse_signature(parser, &name, &params, &param_count, &param_capacity, &return_type)) {
+        goto error_cleanup;
+    }
     {
         PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
         NULL_POINTER_ERROR_HANDLE(semi_tok);
@@ -1350,7 +1357,9 @@ static PP_AST_Node* pp_parser_create_extern_lambda_declaration(PP_Parser* parser
         lambda_tok = pp_parser_consume_token(parser, PP_TT_LAMBDA);
         NULL_POINTER_ERROR_HANDLE(lambda_tok);
     }
-    if (!pp_parser_parse_signature(parser, &name, &params, &param_count, &param_capacity, &return_type)) { goto error_cleanup; }
+    if (!pp_parser_parse_signature(parser, &name, &params, &param_count, &param_capacity, &return_type)) {
+        goto error_cleanup;
+    }
     {
         PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
         NULL_POINTER_ERROR_HANDLE(semi_tok);
@@ -1771,7 +1780,9 @@ error_cleanup:
     return 0;
 }
 
-static int pp_parser_parse_signature(PP_Parser* parser, const char** out_name, PP_AST_Node*** out_params, unsigned int* out_param_count, unsigned int* out_param_capacity, PP_AST_Node** out_return_type) {
+static int pp_parser_parse_signature(PP_Parser* parser, const char** out_name, PP_AST_Node*** out_params,
+                                     unsigned int* out_param_count, unsigned int* out_param_capacity,
+                                     PP_AST_Node** out_return_type) {
     PP_Token* name_tok = NULL;
     PP_Token* colon_colon_tok = NULL;
     PP_Token* left_paren_tok = NULL;

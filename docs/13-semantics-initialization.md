@@ -1,4 +1,4 @@
-# 11 – Semantics: Initialization
+# 13 – Semantics: Initialization
 
 ## Compile-time constants
 Global initializers and struct default initializers must be constexpr.

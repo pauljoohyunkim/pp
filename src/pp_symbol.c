@@ -10,7 +10,8 @@
 /**
  * @brief Create a PPSymbol
  */
-PPSymbol* pp_symbol_create(const PPType* type, bool is_constexpr, bool is_escapable_ref, bool is_global, bool is_definition) {
+PPSymbol* pp_symbol_create(const PPType* type, bool is_constexpr, bool is_escapable_ref, bool is_global,
+                           bool is_definition) {
     PPSymbol* symbol = NULL;
 
     symbol = (PPSymbol*)calloc(1, sizeof(PPSymbol));
