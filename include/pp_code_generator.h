@@ -127,6 +127,20 @@ int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_
  */
 int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf);
 
+/**
+ * @brief Create a default native target machine for the given module.
+ * @param module LLVM module whose target triple will be set.
+ * @param out_tm Output target machine, caller must free with pp_code_generator_target_machine_free.
+ * @return 1 on success, 0 on failure.
+ */
+int pp_code_generator_target_machine_create_default(LLVMModuleRef module, LLVMTargetMachineRef *out_tm);
+
+/**
+ * @brief Free a target machine created by pp_code_generator_target_machine_create_default.
+ * @param tm Target machine to free.
+ */
+void pp_code_generator_target_machine_free(LLVMTargetMachineRef tm);
+
 #ifdef __cplusplus
 }
 #endif
