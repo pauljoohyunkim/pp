@@ -29,9 +29,11 @@ int pp_optimize_module(LLVMModuleRef mod, LLVMTargetMachineRef target_machine, c
             pipeline_str = "default<O3>";
             break;
         case 's':
+            /* TODO: size optimisation not yet supported in current LLVM version, should be revisited */
             pipeline_str = "default<Os>";
             break;
         case 'z':
+            /* TODO: size optimisation not yet supported in current LLVM version, should be revisited */
             pipeline_str = "default<Oz>";
             break;
         default:

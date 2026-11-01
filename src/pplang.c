@@ -89,8 +89,11 @@ int main(int argc, char** argv) {
             case '1':
             case '2':
             case '3':
+                break;
             case 's':
             case 'z':
+                fprintf(stderr, "Warning: -O%c not supported yet, size optimization TODO\n", optimization_mode);
+                optimization_mode = '\0';
                 break;
             default:
                 fprintf(stderr, "Invalid optimization mode. Allowed modes are -O0, -O1, -O2, -O3, -Os, and -Oz\n");
@@ -234,7 +237,7 @@ int main(int argc, char** argv) {
                     inp->obj_buf = NULL;
                 }
             }
-            pp_linker_offload_multi(obj_names, obj_count, output_filename);
+            pp_linker_offload_multi(obj_names, obj_count, output_filename, optimization_mode);
             free(obj_names);
         }
         pplang_input_list_free(input_list);
@@ -501,10 +504,10 @@ static long get_file_size(const char* filename) {
 }
 
 static void print_help(void) {
-    printf("Usage: pplang [-h] [-v] [-c] [-o filename] [-O 0123sz] src.pp\n");
+    printf("Usage: pplang [-h] [-v] [-c] [-o filename] [-O 0123] src.pp\n");
     printf("-h\t\t\t\tShow this help menu\n");
     printf("-v\t\t\t\tShow verbose output\n");
     printf("-c\t\t\t\tCompile to object file.\n");
     printf("-o filename\t\t\tOutput filename (default: a.out)\n");
-    printf("-O level\t\t\tOptimization level: 0=no opt, 1=less, 2=default, 3=aggressive, s=size, z=size aggressive\n");
+    printf("-O level\t\t\tOptimization level: 0=no opt, 1=less, 2=default, 3=aggressive. Size optimisation (-Os, -Oz) TODO\n");
 }
