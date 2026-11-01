@@ -2375,3 +2375,38 @@ static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerato
 
     return llvm_val;
 }
+
+int pp_code_generator_target_machine_create_default(LLVMModuleRef module, LLVMTargetMachineRef *out_tm) {
+    if (!out_tm) return 0;
+    *out_tm = NULL;
+
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+
+    char *triple = LLVMGetDefaultTargetTriple();
+    if (!triple) return 0;
+
+    LLVMSetTarget(module, triple);
+
+    LLVMTargetRef target;
+    char *err = NULL;
+    if (LLVMGetTargetFromTriple(triple, &target, &err)) {
+        if (err) LLVMDisposeMessage(err);
+        LLVMDisposeMessage(triple);
+        return 0;
+    }
+
+    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(
+        target, triple, "generic", "", LLVMCodeGenLevelDefault,
+        LLVMRelocPIC, LLVMCodeModelDefault
+    );
+    LLVMDisposeMessage(triple);
+
+    if (!tm) return 0;
+    *out_tm = tm;
+    return 1;
+}
+
+void pp_code_generator_target_machine_free(LLVMTargetMachineRef tm) {
+    if (tm) LLVMDisposeTargetMachine(tm);
+}

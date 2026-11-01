@@ -6,6 +6,7 @@
 
 #include "pp_ast.h"
 #include "pp_code_generator.h"
+#include "pp_code_optimization.h"
 #include "pp_lexer.h"
 #include "pp_linker_offload.h"
 #include "pp_parser.h"
@@ -29,6 +30,7 @@ typedef struct {
     PPLang_Input* inputs;
     unsigned int count;
     unsigned int capacity;
+    LLVMTargetMachineRef target_machine;
 } PPLang_InputList;
 
 /* Static function prototypes */
@@ -36,8 +38,8 @@ static PPLang_InputList* pplang_input_list_create(void);
 static void pplang_input_list_free(PPLang_InputList* list);
 static int pplang_input_list_push(PPLang_InputList* list, PPLang_Input input);
 static PPLang_Filetype detect_filetype(const char* path);
-static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose);
-static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose);
+static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose, char optimization_mode, LLVMTargetMachineRef tm);
+static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose, char optimization_mode, LLVMTargetMachineRef tm);
 static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGenerator** out_cg);
 static long get_file_size(const char* filename);
 static void print_help(void);
@@ -51,8 +53,9 @@ int main(int argc, char** argv) {
     char output_filename[BUFSIZ] = {0};
     strcpy(output_filename, "a.out");
     PPLang_InputList* input_list = NULL;
+    char optimization_mode =  '\0';
     int opt;
-    while ((opt = getopt(argc, argv, "hcvo:")) != -1) {
+    while ((opt = getopt(argc, argv, "hcvo:O:")) != -1) {
         switch (opt) {
             case 'h':
                 print_help();
@@ -67,6 +70,9 @@ int main(int argc, char** argv) {
                 memset(output_filename, 0, sizeof(output_filename));
                 strncpy(output_filename, optarg, BUFSIZ - 1);
                 break;
+            case 'O':
+                optimization_mode = optarg[0];
+                break;
             default:
                 return 1;
         }
@@ -75,6 +81,24 @@ int main(int argc, char** argv) {
     if (optind >= argc) {
         fprintf(stderr, "No source file given.\n");
         return 1;
+    }
+
+    if (optimization_mode != '\0') {
+        switch (optimization_mode) {
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+                break;
+            case 's':
+            case 'z':
+                fprintf(stderr, "Warning: -O%c not supported yet, size optimization TODO\n", optimization_mode);
+                optimization_mode = '\0';
+                break;
+            default:
+                fprintf(stderr, "Invalid optimization mode. Allowed modes are -O0, -O1, -O2, -O3, -Os, and -Oz\n");
+                return 1;
+        }
     }
 
     input_list = pplang_input_list_create();
@@ -115,12 +139,26 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (optimization_mode != '\0') {
+        LLVMContextRef tmp_ctx = LLVMContextCreate();
+        LLVMModuleRef tmp_mod = LLVMModuleCreateWithNameInContext("tmp", tmp_ctx);
+        if (!pp_code_generator_target_machine_create_default(tmp_mod, &input_list->target_machine)) {
+            fprintf(stderr, "Failed to create target machine for optimization\n");
+            LLVMDisposeModule(tmp_mod);
+            LLVMContextDispose(tmp_ctx);
+            pplang_input_list_free(input_list);
+            return 1;
+        }
+        LLVMDisposeModule(tmp_mod);
+        LLVMContextDispose(tmp_ctx);
+    }
+
     for (unsigned int i = 0; i < input_list->count; i++) {
         PPLang_Input* inp = &input_list->inputs[i];
         if (inp->type == PP_SOURCE) {
             if (to_object) {
                 if (inp->obj_path) {
-                    if (!compile_pp_source(inp->src_path, inp->obj_path, verbose)) {
+                    if (!compile_pp_source(inp->src_path, inp->obj_path, verbose, optimization_mode, input_list->target_machine)) {
                         fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
                         pplang_input_list_free(input_list);
                         return 1;
@@ -128,7 +166,7 @@ int main(int argc, char** argv) {
                 }
             } else {
                 LLVMMemoryBufferRef buf = NULL;
-                if (!compile_pp_source_to_buffer(inp->src_path, &buf, verbose)) {
+                if (!compile_pp_source_to_buffer(inp->src_path, &buf, verbose, optimization_mode, input_list->target_machine)) {
                     fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
                     pplang_input_list_free(input_list);
                     return 1;
@@ -199,7 +237,7 @@ int main(int argc, char** argv) {
                     inp->obj_buf = NULL;
                 }
             }
-            pp_linker_offload_multi(obj_names, obj_count, output_filename);
+            pp_linker_offload_multi(obj_names, obj_count, output_filename, optimization_mode);
             free(obj_names);
         }
         pplang_input_list_free(input_list);
@@ -240,6 +278,9 @@ static void pplang_input_list_free(PPLang_InputList* list) {
             if (list->inputs[i].obj_buf) { LLVMDisposeMemoryBuffer(list->inputs[i].obj_buf); }
         }
         free(list->inputs);
+    }
+    if (list->target_machine) {
+        pp_code_generator_target_machine_free(list->target_machine);
     }
     free(list);
 }
@@ -413,18 +454,33 @@ error_cleanup:
     return 0;
 }
 
-static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose) {
+static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose, char optimization_mode, LLVMTargetMachineRef tm) {
     PP_CodeGenerator* cg = NULL;
     if (!compile_pp_source_core(src_path, verbose, &cg)) return 0;
-    int ok = pp_code_generator_emit_object_file(cg->mod, obj_path);
+    int ok = 0;
+    if (optimization_mode != '\0' && tm != NULL) {
+        if (!pp_optimize_module(cg->mod, tm, optimization_mode)) {
+            fprintf(stderr, "Optimization failed\n");
+            pp_code_generator_free(cg);
+            return 0;
+        }
+    }
+    ok = pp_code_generator_emit_object_file(cg->mod, obj_path);
     pp_code_generator_free(cg);
     return ok;
 }
 
-static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose) {
+static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose, char optimization_mode, LLVMTargetMachineRef tm) {
     if (!out_buf) return 0;
     PP_CodeGenerator* cg = NULL;
     if (!compile_pp_source_core(src_path, verbose, &cg)) return 0;
+    if (optimization_mode != '\0' && tm != NULL) {
+        if (!pp_optimize_module(cg->mod, tm, optimization_mode)) {
+            fprintf(stderr, "Optimization failed\n");
+            pp_code_generator_free(cg);
+            return 0;
+        }
+    }
     LLVMMemoryBufferRef buf = NULL;
     if (!pp_code_generator_emit_object_to_buffer(cg->mod, &buf)) {
         pp_code_generator_free(cg);
@@ -448,9 +504,10 @@ static long get_file_size(const char* filename) {
 }
 
 static void print_help(void) {
-    printf("Usage: pplang [-h] [-v] [-c] [-o filename] src.pp\n");
+    printf("Usage: pplang [-h] [-v] [-c] [-o filename] [-O 0123] src.pp\n");
     printf("-h\t\t\t\tShow this help menu\n");
     printf("-v\t\t\t\tShow verbose output\n");
     printf("-c\t\t\t\tCompile to object file.\n");
-    printf("-o filename\t\tOutput filename (default: a.out)\n");
+    printf("-o filename\t\t\tOutput filename (default: a.out)\n");
+    printf("-O level\t\t\tOptimization level: 0=no opt, 1=less, 2=default, 3=aggressive. Size optimisation (-Os, -Oz) TODO\n");
 }
