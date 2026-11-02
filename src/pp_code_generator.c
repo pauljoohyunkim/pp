@@ -1025,6 +1025,22 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
             case PP_TT_CARET_EQUAL:
                 llvm_val = LLVMBuildXor(cg->builder, llvm_lhs_val, llvm_rhs, "xortmp");
                 break;
+            case PP_TT_LESS_LESS_EQUAL:
+            case PP_TT_GREATER_GREATER_EQUAL:
+                if (lhs_type->kind == PP_TK_UInt32) {
+                    // Left-shift overflow defined.
+                    LLVMValueRef shift_limit = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 32, false);
+                    LLVMValueRef cmp_ge = LLVMBuildICmp(cg->builder, LLVMIntUGE, llvm_rhs, shift_limit, "sh_ge32");
+                    LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(llvm_lhs_val));
+                    LLVMValueRef sh_val;
+                    if (stmt->assignment.op == PP_TT_LESS_LESS_EQUAL) {
+                        sh_val = LLVMBuildShl(cg->builder, llvm_lhs_val, llvm_rhs, "shltmp");
+                    } else {
+                        sh_val = LLVMBuildLShr(cg->builder, llvm_lhs_val, llvm_rhs, "shrttmp");
+                    }
+                    llvm_val = LLVMBuildSelect(cg->builder, cmp_ge, zero, sh_val, "shl_sel");
+                }
+                break;
             default:
                 abort();
         }
@@ -1871,6 +1887,27 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
         case PP_TT_CARET:
             if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
                 llvm_val = LLVMBuildXor(cg->builder, llvm_lhs, llvm_rhs, "xortmp");
+            }
+            break;
+        case PP_TT_LESS_LESS:
+        case PP_TT_GREATER_GREATER:
+            if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
+                const PPType* lhs_decayed_type =
+                    pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
+                assert(lhs_decayed_type);
+                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                    // Left-shift overflow defined.
+                    LLVMValueRef shift_limit = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 32, false);
+                    LLVMValueRef cmp_ge = LLVMBuildICmp(cg->builder, LLVMIntUGE, llvm_rhs, shift_limit, "sh_ge32");
+                    LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(llvm_lhs));
+                    LLVMValueRef shl_val;
+                    if (node->binary_expression.op == PP_TT_LESS_LESS) {
+                        shl_val = LLVMBuildShl(cg->builder, llvm_lhs, llvm_rhs, "shltmp");
+                    } else {
+                        shl_val = LLVMBuildLShr(cg->builder, llvm_lhs, llvm_rhs, "shrttmp");
+                    }
+                    llvm_val = LLVMBuildSelect(cg->builder, cmp_ge, zero, shl_val, "shl_sel");
+                }
             }
             break;
         case PP_TT_GREATER:

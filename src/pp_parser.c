@@ -21,12 +21,13 @@ typedef enum {
     PP_PRECEDENCE_BITWISE_OR = 50,
     PP_PRECEDENCE_BITWISE_XOR = 60,
     PP_PRECEDENCE_BITWISE_AND = 70,
-    PP_PRECEDENCE_ADDITIVE = 80,
-    PP_PRECEDENCE_MULTIPLICATIVE = 90,
-    PP_PRECEDENCE_CAST = 100,
-    PP_PRECEDENCE_UNARY = 110,
-    PP_PRECEDENCE_CALL_ACCESS = 120,
-    PP_PRECEDENCE_PRIMARY = 130
+    PP_PRECEDENCE_BITSHIFT = 80,
+    PP_PRECEDENCE_ADDITIVE = 90,
+    PP_PRECEDENCE_MULTIPLICATIVE = 100,
+    PP_PRECEDENCE_CAST = 110,
+    PP_PRECEDENCE_UNARY = 120,
+    PP_PRECEDENCE_CALL_ACCESS = 130,
+    PP_PRECEDENCE_PRIMARY = 140
 } PP_Precedence;
 
 static inline unsigned int pp_parser_get_line(const PP_Parser* parser);
@@ -168,6 +169,11 @@ static int pp_parser_infix_binding_power(PP_TokenType token_type, unsigned char*
         case PP_TT_AMPERSAND:
             lb = PP_PRECEDENCE_BITWISE_AND;
             rb = PP_PRECEDENCE_BITWISE_AND + 1;
+            break;
+        case PP_TT_LESS_LESS:
+        case PP_TT_GREATER_GREATER:
+            lb = PP_PRECEDENCE_BITSHIFT;
+            rb = PP_PRECEDENCE_BITSHIFT + 1;
             break;
         case PP_TT_PLUS:
         case PP_TT_MINUS:
@@ -598,32 +604,21 @@ static PP_AST_Node* pp_parser_create_expression_or_assignment(PP_Parser* parser)
     lhs = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
     NULL_POINTER_ERROR_HANDLE(lhs);
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
-    switch (tt) {
-        case PP_TT_EQUAL:
-        case PP_TT_PLUS_EQUAL:
-        case PP_TT_MINUS_EQUAL:
-        case PP_TT_STAR_EQUAL:
-        case PP_TT_SLASH_EQUAL:
-        case PP_TT_PERCENT_EQUAL:
-        case PP_TT_AMPERSAND_EQUAL:
-        case PP_TT_BAR_EQUAL:
-        case PP_TT_CARET_EQUAL: {
-            op_tok = pp_parser_consume_token(parser, tt);
-            NULL_POINTER_ERROR_HANDLE(op_tok);
-            rhs = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
-            NULL_POINTER_ERROR_HANDLE(rhs);
-            node = pp_ast_node_create(PP_AST_AssignmentNode, op_tok->line, op_tok->column);
-            NULL_POINTER_ERROR_HANDLE(node);
-            node->assignment.lhs = lhs;
-            node->assignment.op = tt;
-            node->assignment.rhs = rhs;
-            lhs = NULL;
-            rhs = NULL;
-            return node;
-        }
-        default:
-            return lhs;
+    if (!pp_token_type_is_assignment(tt)) {
+        return lhs;
     }
+    op_tok = pp_parser_consume_token(parser, tt);
+    NULL_POINTER_ERROR_HANDLE(op_tok);
+    rhs = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
+    NULL_POINTER_ERROR_HANDLE(rhs);
+    node = pp_ast_node_create(PP_AST_AssignmentNode, op_tok->line, op_tok->column);
+    NULL_POINTER_ERROR_HANDLE(node);
+    node->assignment.lhs = lhs;
+    node->assignment.op = tt;
+    node->assignment.rhs = rhs;
+    lhs = NULL;
+    rhs = NULL;
+    return node;
 error_cleanup:
     pp_ast_root_free(lhs);
     pp_ast_root_free(rhs);

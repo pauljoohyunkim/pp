@@ -14,6 +14,8 @@ bool pp_token_type_is_assignment(PP_TokenType token_type) {
         case PP_TT_AMPERSAND_EQUAL:
         case PP_TT_BAR_EQUAL:
         case PP_TT_CARET_EQUAL:
+        case PP_TT_LESS_LESS_EQUAL:
+        case PP_TT_GREATER_GREATER_EQUAL:
             return true;
         default:
             return false;
@@ -100,6 +102,14 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "&&";
         case PP_TT_BAR_BAR:
             return "||";
+        case PP_TT_LESS_LESS:
+            return "<<";
+        case PP_TT_GREATER_GREATER:
+            return ">>";
+        case PP_TT_LESS_LESS_EQUAL:
+            return "<<=";
+        case PP_TT_GREATER_GREATER_EQUAL:
+            return ">>=";
 
         // Keywords / Types
         case PP_TT_FOR:

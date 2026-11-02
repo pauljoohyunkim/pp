@@ -6,6 +6,7 @@ Binary and unary operators require compatible operand types.
 Rules:
 - Arithmetic `+ - * / %` require numeric types.
 - Bitwise `& | ^` require integer types.
+- Bitshift `<< >>` require `uint32` operands, result `uint32`. Shift amount `>= 32` is defined to yield `0`; otherwise the shift is logical and the result is truncated to 32 bits. Compound forms `<<=` `>>=` are allowed only for `uint32`.
 - Comparison `== != < > <= >=` require comparable types, result `bool`.
 - Logical `&& ||` require `bool` operands.
 - Assignment requires left-hand side l-value.

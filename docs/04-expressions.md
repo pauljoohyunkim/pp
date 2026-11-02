@@ -1,12 +1,13 @@
 # 04 – Expressions & Statements
 
 ## Precedence
-`logical_or` → `logical_and` → `equality` → `relational` → `bitwise_or` → `bitwise_xor` → `bitwise_and` → `additive` → `multiplicative` → `cast` → `unary` → `postfix`
+`logical_or` → `logical_and` → `equality` → `relational` → `bitwise_or` → `bitwise_xor` → `bitwise_and` → `bitshift` → `additive` → `multiplicative` → `cast` → `unary` → `postfix`
 
 ## Operations
 - Arithmetic: `+ - * / %`
-- Assignment: `= += -= *= /= %= &= |= ^=`
+- Assignment: `= += -= *= /= %= &= |= ^= <<= >>=`
 - Bitwise: `& | ^`
+- Bitshift: `<< >>` – defined only for `uint32`. Shift amount is checked at runtime; if the shift amount is ≥ 32 the result is defined to be `0`. Otherwise the operation is performed as a logical shift and the result is truncated to 32 bits.
 - Comparison: `== != < > <= >=`
 - Logical: `&& ||`
 - Casting: `expr as type`
