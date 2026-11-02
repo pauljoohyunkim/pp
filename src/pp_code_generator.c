@@ -2255,9 +2255,15 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
             return result;
         }
     } else if (coll_type->kind == PP_TK_List) {
-#warning "List initializer is runtime-only; globals not supported yet"
         if (!cg->current_function_type) {
-            assert(0 && "List initializer not supported at global scope");
+            if (node->collection_initializer.element_count == 0) {
+                // Empty list can be represented as a constant zeroed handle at global scope
+                LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, coll_type);
+                assert(llvm_list_type);
+                LLVMValueRef empty_list = LLVMConstNull(llvm_list_type);
+                return empty_list;
+            }
+            assert(0 && "Non-empty list initializer not supported at global scope");
             return NULL;
         }
         const PPType* elem_type = coll_type->type.pp_type_list.element_type;

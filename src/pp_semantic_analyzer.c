@@ -2029,6 +2029,12 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         // Require constexpr
         const PP_AST_Decoration* decor = pp_ast_get_decoration(node->variable_declaration.initializer);
         NULL_POINTER_ERROR_HANDLE(decor);
+        // Explicitly reject non-empty list initializers at global scope
+        if (variable_symbol->type->kind == PP_TK_List && node->variable_declaration.initializer->node_type == PP_AST_CollectionInitializerNode && node->variable_declaration.initializer->collection_initializer.element_count > 0) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Global list initialization with non-empty initializer is not allowed; only empty list is permitted at global scope.");
+            goto error_cleanup;
+        }
         if (!decor->is_constexpr) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Global variable \"%s\" has a non constexpr initializer.",
@@ -3902,7 +3908,11 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
     }
 
     bool is_constexpr = is_array && all_constexpr;
-    // Lists are never constexpr per language design
+    // Empty list is constexpr; non-empty lists remain non-constexpr
+    if (!is_array && expr->collection_initializer.element_count == 0) {
+        is_constexpr = true;
+    }
+    // Lists are never constexpr per language design except empty
     decoration = pp_ast_decoration_create(coll_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr, false);
     if (!decoration) goto error_cleanup;
     expr->collection_initializer.decoration = decoration;

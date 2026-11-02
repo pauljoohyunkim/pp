@@ -55,6 +55,9 @@ Design principle: stay away from builtin functions, prefer operators
 - [ ] Design decision doc: notes/list_operator_design.md
   - List type semantics – dynamic array vs linked list, ownership model
   - Operator set instead of builtin functions
+- [x] Global list initialization policy: allow empty list as constexpr, reject non-empty list at global scope
+  - Semantic analyzer marks empty list constexpr, explicit error for non-empty global list
+  - Code generator emits constant zeroed handle for empty global list
 - [ ] Length operator: `#expr`
   - For arrays: compile-time constant where possible
   - For lists: runtime length
