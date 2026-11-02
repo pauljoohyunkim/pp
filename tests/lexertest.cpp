@@ -258,7 +258,7 @@ TEST(Lexer, OperatorCombinations) {
     auto lexer_h = pp_lexer_create("++ -- ** &&|| ==!= <=>= <<>> !!", nullptr);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
-    ASSERT_EQ(lexer->n_tokens, 19);
+    ASSERT_EQ(lexer->n_tokens, 17);
     ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_PLUS);
     ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_PLUS);
     ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_MINUS);
@@ -271,13 +271,11 @@ TEST(Lexer, OperatorCombinations) {
     ASSERT_EQ(lexer->tokens[9].token_type, PP_TT_EXCLAMATION_EQUAL);
     ASSERT_EQ(lexer->tokens[10].token_type, PP_TT_LESS_EQUAL);
     ASSERT_EQ(lexer->tokens[11].token_type, PP_TT_GREATER_EQUAL);
-    ASSERT_EQ(lexer->tokens[12].token_type, PP_TT_LESS);
-    ASSERT_EQ(lexer->tokens[13].token_type, PP_TT_LESS);
-    ASSERT_EQ(lexer->tokens[14].token_type, PP_TT_GREATER);
-    ASSERT_EQ(lexer->tokens[15].token_type, PP_TT_GREATER);
-    ASSERT_EQ(lexer->tokens[16].token_type, PP_TT_EXCLAMATION);
-    ASSERT_EQ(lexer->tokens[17].token_type, PP_TT_EXCLAMATION);
-    ASSERT_EQ(lexer->tokens[18].token_type, PP_TT_EOF);
+    ASSERT_EQ(lexer->tokens[12].token_type, PP_TT_LESS_LESS);
+    ASSERT_EQ(lexer->tokens[13].token_type, PP_TT_GREATER_GREATER);
+    ASSERT_EQ(lexer->tokens[14].token_type, PP_TT_EXCLAMATION);
+    ASSERT_EQ(lexer->tokens[15].token_type, PP_TT_EXCLAMATION);
+    ASSERT_EQ(lexer->tokens[16].token_type, PP_TT_EOF);
 }
 
 TEST(Lexer, MixedWhitespaceAndComments) {

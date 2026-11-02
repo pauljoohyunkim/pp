@@ -49,6 +49,12 @@ typedef enum {
     PP_TT_COLON_COLON,
     PP_TT_AMPERSAND_AMPERSAND,
     PP_TT_BAR_BAR,
+    PP_TT_LESS_LESS,
+    PP_TT_GREATER_GREATER,
+
+    // Triple-letter
+    PP_TT_LESS_LESS_EQUAL,
+    PP_TT_GREATER_GREATER_EQUAL,
 
     // Others
     PP_TT_FOR,

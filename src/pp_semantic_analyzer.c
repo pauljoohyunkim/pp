@@ -427,12 +427,14 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                 case PP_TT_STAR:
                 case PP_TT_SLASH:
                 case PP_TT_PERCENT:
+                case PP_TT_LESS_LESS:
+                case PP_TT_GREATER_GREATER:
                     break;
                 default:
                     pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
                                              simple_expr_node->col,
                                              "The only binary operator allowed in array size are \'+\', \'*\', \'/\', "
-                                             "and \'%\'");
+                                             "\'%\', \'<<\', and \'>>\'");
                     goto error_cleanup;
             }
 
@@ -478,8 +480,26 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                     }
                     *val = left_val % right_val;
                     break;
+                case PP_TT_LESS_LESS:
+                    if (right_val >= sizeof(size_t) * 8) {
+                        pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
+                                                 simple_expr_node->col, "Shift amount too large in array size expression");
+                        goto error_cleanup;
+                    }
+                    *val = left_val << right_val;
+                    break;
+                case PP_TT_GREATER_GREATER:
+                    if (right_val >= sizeof(size_t) * 8) {
+                        pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
+                                                 simple_expr_node->col, "Shift amount too large in array size expression");
+                        goto error_cleanup;
+                    }
+                    *val = left_val >> right_val;
+                    break;
                 default:
-                    abort();
+                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
+                                             simple_expr_node->col, "Unsupported operator in array size expression");
+                    goto error_cleanup;
             }
             return 1;
         } break;
@@ -2460,6 +2480,16 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 goto error_cleanup;
             }
             break;
+        case PP_TT_LESS_LESS_EQUAL:
+        case PP_TT_GREATER_GREATER_EQUAL:
+            if (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) {
+                // Valid
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "<<= / >>= only defined for uint32.");
+                goto error_cleanup;
+            }
+            break;
         default:
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Unknown assignment operator.");
@@ -3035,8 +3065,15 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
                 binary_type = pp_type_create(decayed_lhs_type->kind);
             }
             break;
+        case PP_TT_LESS_LESS:
+        case PP_TT_GREATER_GREATER:
+            if (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) {
+                binary_type = pp_type_create(PP_TK_UInt32);
+            }
+            break;
         default:
-            abort();
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Unsupported binary operator");
+            goto error_cleanup;
     }
     if (!binary_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
