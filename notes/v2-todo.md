@@ -123,6 +123,7 @@ Goal: define operators like functions/lambdas with signature considerations
 - [ ] Error messages polish
 - [ ] Memory leak checks integrated in Makefile
 - [x] LLVM optimization passes: enable and configure LLVM pass pipeline in code generator, add `-O0/-O1/-O2/-O3` flags to driver, document behavior
+- [ ] Debug build support: `-g` flag in driver, LLVM DIBuilder emission for functions/variables, source location mapping from AST, DWARF output
 
 ## Open questions
 - Strings: array vs list? Need decision before implementation.
