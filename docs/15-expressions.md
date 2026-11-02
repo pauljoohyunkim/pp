@@ -13,7 +13,7 @@ Rules:
 
 ## Literals
 - Numeric literals must use unsigned suffix for array sizes.
-- `TRUE` / `FALSE` are boolean literals.
+- `true` / `false` are boolean literals.
 
 ## Identifiers
 - Must be in scope.

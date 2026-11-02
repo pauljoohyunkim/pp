@@ -10,11 +10,11 @@
 * Hardening & DX improvements
 
 ## Linking / multi-file support
-- [ ] Define module / import syntax in grammar and notes/bnf.md
-- [ ] Lexer support for import/include directives
-- [ ] Parser: import statements, module AST nodes
-- [ ] Symbol table: cross-module resolution, separate `pp_symbol_table` per module with global linker map
-- [ ] Semantic analyzer: resolve symbols across modules, detect duplicate definitions
+- [x] Define module / import syntax in grammar and notes/bnf.md
+- [x] Lexer support for import/include directives
+- [x] Parser: import statements, module AST nodes
+- [x] Symbol table: cross-module resolution, separate `pp_symbol_table` per module with global linker map
+- [x] Semantic analyzer: resolve symbols across modules, detect duplicate definitions
 - [x] Code generator: emit object files per module, link via LLVM linker
 - [x] Linker offload: implement `src/pp_linker_offload.c` multi-file linking API
 - [x] Driver `src/pplang.c`: CLI flags for multiple input files, output .o/.exe
@@ -29,13 +29,13 @@
 - Action: create design doc `notes/module_interface_design.md` comparing both approaches, choose syntax, decide on mangling scheme, and update BNF/notes accordingly.
 
 ## Function forward declaration
-- [ ] Grammar: allow `fn foo(...);` prototype at global scope
-- [ ] Parser: prototype AST node, differentiate declaration vs definition
-- [ ] Semantic analyzer: register forward-declared symbols, defer body checking
-- [ ] Type checker: allow calls to forward-declared functions
-- [ ] Code generator: emit external declarations, resolve at link time
-- [ ] Tests: forward declaration before use, circular declarations error cases
-- [ ] Notes update: notes/project_overview.md, notes/type_system.md
+- [x] Grammar: allow `fn foo(...);` prototype at global scope
+- [x] Parser: prototype AST node, differentiate declaration vs definition
+- [x] Semantic analyzer: register forward-declared symbols, defer body checking
+- [x] Type checker: allow calls to forward-declared functions
+- [x] Code generator: emit external declarations, resolve at link time
+- [x] Tests: forward declaration before use, circular declarations error cases
+- [x] Notes update: notes/project_overview.md, notes/type_system.md
 
 ## Strings
 Open decision: array vs list
@@ -122,7 +122,7 @@ Goal: define operators like functions/lambdas with signature considerations
 - [ ] Known limitations update: docs/14-known-limitations.md
 - [ ] Error messages polish
 - [ ] Memory leak checks integrated in Makefile
-- [ ] LLVM optimization passes: enable and configure LLVM pass pipeline in code generator, add `-O0/-O1/-O2/-O3` flags to driver, document behavior
+- [x] LLVM optimization passes: enable and configure LLVM pass pipeline in code generator, add `-O0/-O1/-O2/-O3` flags to driver, document behavior
 
 ## Open questions
 - Strings: array vs list? Need decision before implementation.
