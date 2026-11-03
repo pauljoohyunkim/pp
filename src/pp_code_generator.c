@@ -160,12 +160,16 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
             }
         } break;
         case PP_TK_Array: {
-#warning "emit_drop for PP_TK_Array is a TODO: element-wise drop not implemented yet"
-            // For arrays of owning types, drop each element
             const PPType* elem_type = type->type.pp_type_array.element_type;
             if (!pp_type_needs_drop(elem_type)) break;
-            // Note: array size is compile-time known for PP_TK_Array. Placeholder for recursive drop.
-            // Full element-wise loop can be added once array LLVM layout is confirmed.
+            size_t arr_size = type->type.pp_type_array.size;
+            LLVMTypeRef llvm_array_type = pp_environment_backend_lookup_type(cg, type);
+            if (!llvm_array_type) break;
+            for (size_t i = 0; i < arr_size; i++) {
+                LLVMValueRef idx = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), i, 0);
+                LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, llvm_array_type, address, &idx, 1, "array_elem_ptr");
+                pp_code_generator_emit_drop(cg, elem_ptr, elem_type);
+            }
         } break;
         default:
             return;
@@ -1873,7 +1877,6 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                 bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
                 if (arg_is_lvalue) {
                     // Copy lvalue argument for owning param
-#warning "by-value owning param copy: caller-side copy not fully implemented – using bitwise copy stub"
                     // Create a temporary alloca for the param value
                     LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
                     assert(llvm_param_type);

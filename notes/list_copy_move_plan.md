@@ -23,7 +23,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [ ] Implement `drop_T` generation, cached per `PPType*`
   - [x] `PP_TK_List` → free data pointer
   - [x] `PP_TK_Struct` → iterate fields, recurse if `type_needs_drop`
-  - [ ] `PP_TK_Array` → recurse per element if needed
+  - [x] `PP_TK_Array` → recurse per element if needed
   - [x] `PP_TK_Newtype` → delegate to underlying
   - [x] `PP_TK_Const` → unwrap
 - [x] Remove `#warning "emit_drop currently only handles direct List types..."`
