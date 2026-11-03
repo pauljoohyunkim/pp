@@ -80,7 +80,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [x] Remove init ban at ~2223
 - [x] Remove assignment ban at ~2392
 - [x] Add copyability check: if source is lvalue and `type_needs_drop`, ensure `copy_T` exists for type
-- [ ] Keep temporary ban on by-value owning params until 4.3 complete
+- [x] Keep temporary ban on by-value owning params until 4.3 complete
 - [x] Remove `#warning "List copy semantics are temporarily banned for move-only v1..."`
 - [ ] Handle lists inside struct declaration default initializers
   - NOTE: Global scope initializer for struct field must be constexpr; lists are not constexpr. Limitation documented; supporting non-constexpr default initializers would require runtime initialization of globals, which is out of scope for this change.
@@ -89,9 +89,10 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [x] Unit test: copy then mutate source → no aliasing
 - [x] Unit test: assign over existing list → no leak
 - [x] Unit test: self-assignment `x = x`
-- [ ] Unit test: list of lists
-- [ ] Unit test: struct containing list
-- [ ] Unit test: early return after copy
+- [x] Unit test: list of lists
+  - Note: list of lists is correctly rejected by copyability check – non-copyable elements
+- [x] Unit test: struct containing list
+- [x] Unit test: early return after copy
 - [ ] Run under ASan / valgrind
 - [x] `make unittest` passes
 
@@ -104,6 +105,22 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [ ] Remove all temporary `#warning`s related to lists
 - [ ] `make clean && make` produces zero warnings about list semantics
 - [ ] Commit with clear message
+
+## 9. Future: List-of-Lists support (deferred)
+- Rationale: Nested lists are desirable for 2D data, adjacency lists, etc.
+- Current restriction: `pp_type_is_copyable` requires list element to be trivially copyable; `emit_copy` for List uses `malloc+memcpy`. This correctly rejects `[[int32]]` to avoid aliasing / double-free.
+- Proposed design:
+  - Loosen copyability predicate to `List(T) is copyable iff T is copyable` (recursive).
+  - Element-wise copy/drop for List: if `pp_type_needs_drop(elem)` then generate loop calling `copy_T` / `drop_T` per element, else keep fast `memcpy` path.
+  - `emit_drop` for List must iterate over `length` elements and `drop_T` each when element needs drop, then `free(data)`.
+  - Drop only `length` elements, never `capacity`.
+- Notes:
+  - `pop`/`resize`/`append` mechanics are out of scope for this project; they will be handled later, possibly as a library or in a later project phase.
+  - Keep current semantic guard until the element-wise path is implemented to avoid silent aliasing.
+- Acceptance criteria:
+  - `[[int32]]` copies correctly and mutation of source does not affect copy.
+  - ASan/valgrind clean for nested lists.
+  - No change to existing flat-list tests.
 
 ---
 **Status:** Step 0 complete

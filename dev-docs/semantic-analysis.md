@@ -34,5 +34,16 @@
 - Cast expressions
 - Collection initializer
 
+### Copyability / Move Semantics
+- `pp_type_needs_drop` identifies owning types: List, Struct containing owning fields, Array of owning elements, Newtype wrappers.
+- `pp_type_is_copyable` determines whether a type can be deep-copied:
+  - Trivially copyable types are copyable.
+  - `List(T)` is copyable iff `T` is copyable and currently required to be trivially copyable for the fast-path `malloc+memcpy` implementation.
+  - `Struct` is copyable iff all fields are copyable.
+- Semantic checks:
+  - Variable initialization: if initializer is lvalue and target type needs drop, require `pp_type_is_copyable` else error "Cannot copy initialize … type is move-only or contains non-copyable elements".
+  - Assignment: if RHS is lvalue and LHS type needs drop, require `pp_type_is_copyable` else error "Cannot assign from lvalue: type is move-only or contains non-copyable elements".
+- These checks prevent silent shallow copies that would alias buffers and cause double-free.
+
 ## Errors
 Reported via `pp_error_list_push_error` with file/line/col.
