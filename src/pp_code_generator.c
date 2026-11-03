@@ -1752,7 +1752,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
             assert(llvm_lhs);
             const PP_AST_Decoration* lhs_decoration = pp_ast_get_decoration(node->binary_expression.left);
             assert(lhs_decoration);
-            LLVMTypeRef llvm_lhs_type = pp_environment_backend_lookup_type(cg, lhs_decoration->resolved_type);
+            const PPType* lhs_dec_type = pp_type_decay_cg(cg->gtt, lhs_decoration->resolved_type);
+            assert(lhs_dec_type);
+            LLVMTypeRef llvm_lhs_type = pp_environment_backend_lookup_type(cg, lhs_dec_type);
             assert(llvm_lhs_type);
             /* Expect i1 */
             LLVMValueRef cur_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder));
@@ -1813,9 +1815,14 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
     const PP_AST_Decoration* rhs_decoration = pp_ast_get_decoration(node->binary_expression.right);
     assert(rhs_decoration);
 
-    LLVMTypeRef llvm_lhs_type = pp_environment_backend_lookup_type(cg, lhs_decoration->resolved_type);
+    const PPType* lhs_type = pp_type_decay_cg(cg->gtt, lhs_decoration->resolved_type);
+    assert(lhs_type);
+    const PPType* rhs_type = pp_type_decay_cg(cg->gtt, rhs_decoration->resolved_type);
+    assert(rhs_type);
+
+    LLVMTypeRef llvm_lhs_type = pp_environment_backend_lookup_type(cg, lhs_type);
     assert(llvm_lhs_type);
-    LLVMTypeRef llvm_rhs_type = pp_environment_backend_lookup_type(cg, rhs_decoration->resolved_type);
+    LLVMTypeRef llvm_rhs_type = pp_environment_backend_lookup_type(cg, rhs_type);
     assert(llvm_rhs_type);
 
     LLVMTypeKind llvm_lhs_type_kind = LLVMGetTypeKind(llvm_lhs_type);
@@ -2055,9 +2062,14 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
     const PP_AST_Decoration* cast_decoration = pp_ast_get_decoration(node);
     assert(cast_decoration);
 
-    LLVMTypeRef llvm_src_type = pp_environment_backend_lookup_type(cg, expr_decoration->resolved_type);
+    const PPType* src_type = pp_type_decay_cg(cg->gtt, expr_decoration->resolved_type);
+    assert(src_type);
+    const PPType* dest_type = pp_type_decay_cg(cg->gtt, cast_decoration->resolved_type);
+    assert(dest_type);
+
+    LLVMTypeRef llvm_src_type = pp_environment_backend_lookup_type(cg, src_type);
     assert(llvm_src_type);
-    LLVMTypeRef llvm_dest_type = pp_environment_backend_lookup_type(cg, cast_decoration->resolved_type);
+    LLVMTypeRef llvm_dest_type = pp_environment_backend_lookup_type(cg, dest_type);
     assert(llvm_dest_type);
 
     if (llvm_src_type == llvm_dest_type) {
