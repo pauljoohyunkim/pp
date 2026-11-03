@@ -84,7 +84,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [x] Remove `#warning "List copy semantics are temporarily banned for move-only v1..."`
 
 ## 6. Tests & validation
-- [ ] Unit test: copy then mutate source → no aliasing
+- [x] Unit test: copy then mutate source → no aliasing
 - [ ] Unit test: assign over existing list → no leak
 - [ ] Unit test: self-assignment `x = x`
 - [ ] Unit test: list of lists
