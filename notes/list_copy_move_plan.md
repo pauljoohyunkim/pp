@@ -91,7 +91,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [ ] Unit test: struct containing list
 - [ ] Unit test: early return after copy
 - [ ] Run under ASan / valgrind
-- [ ] `make unittest` passes
+- [x] `make unittest` passes
 
 ## 7. Documentation
 - [ ] Update `docs/10-semantics-arrays-lists.md` with copy/move rules

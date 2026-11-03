@@ -432,6 +432,13 @@ static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGen
         goto error_cleanup;
     }
     if (verbose) { printf("Code generation succeeded.\n"); }
+    if (verbose) {
+        char* ir_str = LLVMPrintModuleToString(cg->mod);
+        if (ir_str) {
+            printf("--- Generated LLVM IR ---\n%s--- End LLVM IR ---\n", ir_str);
+            LLVMDisposeMessage(ir_str);
+        }
+    }
 
     *out_cg = cg;
     cg = NULL;

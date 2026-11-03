@@ -116,6 +116,7 @@ static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merg
 }
 
 static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
+    /* TODO: Defer per-type drop_T / copy_T generation caching. Current implementation inlines emit_drop/emit_copy. Caching per PPType* would reduce code bloat and improve consistency. */
     if (cg == NULL || address == NULL || type == NULL) return;
     if (pp_type_is_reference(type)) return;
 
