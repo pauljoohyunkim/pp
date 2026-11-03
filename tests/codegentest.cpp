@@ -1010,3 +1010,42 @@ TEST(CodeGenTest, ListCopyNoAliasing) {
     assert_ir_contains(cg.get(), "list_copy_nonempty");
 }
 
+TEST(CodeGenTest, ListAssignDropsOld) {
+    const char* source =
+        "func test_list_assign_drop :: () -> int32 { let a :: [int32] = [int32; 1, 2, 3]; let b :: [int32] = [int32; 4, 5]; b = a; return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_list_assign_drop");
+    assert_ir_contains(cg.get(), "%pp.list");
+    assert_ir_contains(cg.get(), "call ptr @malloc");
+    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "call void @free");
+}
+
+TEST(CodeGenTest, StructContainingListDrop) {
+    const char* source =
+        "struct S { lst :: [int32]; }\n"
+        "func test_struct_list :: () -> int32 { let s :: S = S { .lst = [int32; 1, 2] }; return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_struct_list");
+    assert_ir_contains(cg.get(), "%S");
+    assert_ir_contains(cg.get(), "%pp.list");
+    assert_ir_contains(cg.get(), "call ptr @malloc");
+    assert_ir_contains(cg.get(), "call void @free");
+}
+

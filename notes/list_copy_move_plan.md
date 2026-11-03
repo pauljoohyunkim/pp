@@ -27,7 +27,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
   - [x] `PP_TK_Newtype` → delegate to underlying
   - [x] `PP_TK_Const` → unwrap
 - [x] Remove `#warning "emit_drop currently only handles direct List types..."`
-- [ ] Verify struct containing List is freed correctly in scope exit
+- [x] Verify struct containing List is freed correctly in scope exit
 
 ## 2. Default-initialize owning variables
 **Files:** `src/pp_code_generator.c` – alloca emission
@@ -36,7 +36,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
   - [x] List → `{null, 0, 0}`
   - [x] Struct → initialize owning fields recursively
 - [x] Remove `#warning "List access currently assumes data is allocated..."`
-- [ ] Ensure no segfault on uninitialized list access
+- [x] Ensure no segfault on uninitialized list access
 
 ## 3. Per-type copy generation
 **Files:** `src/pp_code_generator.c`, `include/pp_code_generator.h`
@@ -85,7 +85,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 
 ## 6. Tests & validation
 - [x] Unit test: copy then mutate source → no aliasing
-- [ ] Unit test: assign over existing list → no leak
+- [x] Unit test: assign over existing list → no leak
 - [ ] Unit test: self-assignment `x = x`
 - [ ] Unit test: list of lists
 - [ ] Unit test: struct containing list

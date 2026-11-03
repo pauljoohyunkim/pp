@@ -1116,10 +1116,9 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
 
     if (pp_environment_backend_push_val_map(env_b, var_symbol, llvm_var_alloca) != 1) { return 0; }
 
-    // Push onto scope drop stack if needed (List with trivially droppable elements)
+    // Push onto scope drop stack if needed
     if (!pp_type_is_reference(var_type) && pp_type_needs_drop(var_type)) {
-        // For v1, only handle List variables with trivially droppable elements; skip references
-        if (var_type->kind == PP_TK_List) { pp_code_generator_push_drop(cg, llvm_var_alloca, var_type); }
+        pp_code_generator_push_drop(cg, llvm_var_alloca, var_type);
     }
 
     return 1;
