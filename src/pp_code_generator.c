@@ -1089,8 +1089,12 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
             // Copy from lvalue source
             LLVMValueRef src_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
             assert(src_ptr);
-            // Drop old value to avoid leak. Self-assignment safety not yet handled.
-#warning "assignment copy for owning types: old LHS is dropped before copy – self-assignment unsafe"
+            // Self-assignment guard
+            if (src_ptr == llvm_lhs) {
+                // No-op for self-assignment
+                return 1;
+            }
+            // Drop old value to avoid leak
             pp_code_generator_emit_drop(cg, llvm_lhs, lhs_type);
             pp_code_generator_emit_copy(cg, llvm_lhs, src_ptr, lhs_type);
             return 1;
