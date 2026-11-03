@@ -132,21 +132,59 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
 
     switch (type->kind) {
         case PP_TK_List: {
-            // Load the list handle from alloca
+            const PPType* elem_type = type->type.pp_type_list.element_type;
             LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, type);
             if (!llvm_list_type) return;
-            LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_list_type, address, "load_list");
-            // Extract data pointer at index 0
-            LLVMValueRef data_ptr = LLVMBuildExtractValue(cg->builder, loaded, 0, "list_data");
-            // Cast to i8* for free
-            LLVMValueRef data_ptr_i8 =
-                LLVMBuildBitCast(cg->builder, data_ptr, LLVMPointerTypeInContext(cg->ctx, 0), "list_data_i8");
+            // Get pointers to fields
+            LLVMValueRef data_ptr_ptr = LLVMBuildStructGEP2(cg->builder, llvm_list_type, address, 0, "list_data_ptr");
+            LLVMValueRef len_ptr = LLVMBuildStructGEP2(cg->builder, llvm_list_type, address, 1, "list_len_ptr");
+            LLVMValueRef data_ptr = LLVMBuildLoad2(cg->builder, LLVMPointerTypeInContext(cg->ctx, 0), data_ptr_ptr, "list_data");
+            LLVMValueRef len = LLVMBuildLoad2(cg->builder, LLVMInt64TypeInContext(cg->ctx), len_ptr, "list_len");
+            // If data is null, nothing to drop
+            LLVMValueRef is_null = LLVMBuildICmp(cg->builder, LLVMIntEQ, data_ptr, LLVMConstNull(LLVMPointerTypeInContext(cg->ctx, 0)), "list_data_is_null");
+            LLVMBasicBlockRef then_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "list_drop_null");
+            LLVMBasicBlockRef else_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "list_drop_nonnull");
+            LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "list_drop_merge");
+            LLVMBuildCondBr(cg->builder, is_null, then_bb, else_bb);
+            LLVMPositionBuilderAtEnd(cg->builder, then_bb);
+            LLVMBuildBr(cg->builder, merge_bb);
+            LLVMPositionBuilderAtEnd(cg->builder, else_bb);
+            // If element needs drop, drop each element
+            if (pp_type_needs_drop(elem_type)) {
+                // Loop over elements
+                LLVMBasicBlockRef loop_cond_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "list_drop_loop_cond");
+                LLVMBasicBlockRef loop_body_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "list_drop_loop_body");
+                LLVMBasicBlockRef loop_after_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "list_drop_loop_after");
+                // i = 0
+                LLVMValueRef i_alloca = LLVMBuildAlloca(cg->builder, LLVMInt64TypeInContext(cg->ctx), "list_drop_i");
+                LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), i_alloca);
+                LLVMBuildBr(cg->builder, loop_cond_bb);
+                LLVMPositionBuilderAtEnd(cg->builder, loop_cond_bb);
+                LLVMValueRef i_val = LLVMBuildLoad2(cg->builder, LLVMInt64TypeInContext(cg->ctx), i_alloca, "list_drop_i_val");
+                LLVMValueRef cond = LLVMBuildICmp(cg->builder, LLVMIntSLT, i_val, len, "list_drop_loop_cond");
+                LLVMBuildCondBr(cg->builder, cond, loop_body_bb, loop_after_bb);
+                LLVMPositionBuilderAtEnd(cg->builder, loop_body_bb);
+                // elem_ptr = data + i
+                LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, LLVMPointerType(elem_type ? pp_environment_backend_lookup_type(cg, elem_type) : LLVMInt8TypeInContext(cg->ctx), 0), data, &i_val, 1, "list_drop_elem_ptr");
+                // Drop element
+                pp_code_generator_emit_drop(cg, elem_ptr, elem_type);
+                // i++
+                LLVMValueRef i_next = LLVMBuildAdd(cg->builder, i_val, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 1, 0), "list_drop_i_next");
+                LLVMBuildStore(cg->builder, i_next, i_alloca);
+                LLVMBuildBr(cg->builder, loop_cond_bb);
+                LLVMPositionBuilderAtEnd(cg->builder, loop_after_bb);
+            }
+            // Free data buffer
+            LLVMValueRef data_ptr_i8 = LLVMBuildBitCast(cg->builder, data_ptr, LLVMPointerTypeInContext(cg->ctx, 0), "list_data_i8");
             LLVMValueRef free_fn = LLVMGetNamedFunction(cg->mod, "free");
-            if (!free_fn) return;
-            LLVMValueRef args[1] = {data_ptr_i8};
-            LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx),
-                                                     (LLVMTypeRef[]){LLVMPointerTypeInContext(cg->ctx, 0)}, 1, 0);
-            LLVMBuildCall2(cg->builder, free_type, free_fn, args, 1, "");
+            if (free_fn) {
+                LLVMValueRef args[1] = {data_ptr_i8};
+                LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx),
+                                                         (LLVMTypeRef[]){LLVMPointerTypeInContext(cg->ctx, 0)}, 1, 0);
+                LLVMBuildCall2(cg->builder, free_type, free_fn, args, 1, "");
+            }
+            LLVMBuildBr(cg->builder, merge_bb);
+            LLVMPositionBuilderAtEnd(cg->builder, merge_bb);
         } break;
         case PP_TK_Struct: {
             const PP_StructLayout* layout = type->type.pp_type_struct.layout;
