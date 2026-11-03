@@ -48,7 +48,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
   - [x] Newtype → delegate
 - [x] Generate `copy_T` on demand, cached per `PPType*`
   - [x] Trivial types → bitwise load/store stub
-  - [x] `List(T)` → handle stub, bitwise copy for now
+  - [x] `List(T)` → deep copy via malloc + memcpy for trivial elements
   - [x] `Struct` → field-by-field recursive copy
   - [x] `Newtype` → delegate to underlying
   - [x] `Const` → transparent unwrap

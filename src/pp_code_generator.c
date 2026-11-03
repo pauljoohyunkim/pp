@@ -173,7 +173,6 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
 }
 
 static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, const PPType* type) {
-#warning "pp_code_generator_emit_copy is a stub: List deep copy not implemented yet, memcpy size placeholder used for trivial types"
     if (cg == NULL || dst == NULL || src == NULL || type == NULL) return;
     if (pp_type_is_reference(type)) return;
 
@@ -205,12 +204,65 @@ static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, 
     // Non-trivial types: dispatch per kind
     switch (type->kind) {
         case PP_TK_List: {
-            // For now, stub: move semantics only. Full deep copy to be implemented.
-            // Copy handle bitwise as fallback
+            const PPType* elem_type = type->type.pp_type_list.element_type;
             LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, type);
             if (!llvm_list_type) return;
-            LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_list_type, src, "copy_list_src");
-            LLVMBuildStore(cg->builder, loaded, dst);
+            // Get src fields pointers
+            LLVMValueRef src_data_ptr_ptr = LLVMBuildStructGEP2(cg->builder, llvm_list_type, src, 0, "src_data_ptr");
+            LLVMValueRef src_len_ptr = LLVMBuildStructGEP2(cg->builder, llvm_list_type, src, 1, "src_len");
+            LLVMValueRef src_cap_ptr = LLVMBuildStructGEP2(cg->builder, llvm_list_type, src, 2, "src_cap");
+            LLVMValueRef dst_data_ptr_ptr = LLVMBuildStructGEP2(cg->builder, llvm_list_type, dst, 0, "dst_data_ptr");
+            LLVMValueRef dst_len_ptr = LLVMBuildStructGEP2(cg->builder, llvm_list_type, dst, 1, "dst_len");
+            LLVMValueRef dst_cap_ptr = LLVMBuildStructGEP2(cg->builder, llvm_list_type, dst, 2, "dst_cap");
+
+            LLVMValueRef src_data = LLVMBuildLoad2(cg->builder, LLVMPointerTypeInContext(cg->ctx, 0), src_data_ptr_ptr, "src_data");
+            LLVMValueRef src_len = LLVMBuildLoad2(cg->builder, LLVMInt64TypeInContext(cg->ctx), src_len_ptr, "src_len_val");
+            LLVMValueRef src_cap = LLVMBuildLoad2(cg->builder, LLVMInt64TypeInContext(cg->ctx), src_cap_ptr, "src_cap_val");
+
+            // If src is empty, set dst empty
+            LLVMValueRef is_empty = LLVMBuildICmp(cg->builder, LLVMIntEQ, src_len, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), "list_is_empty");
+            // Zero init dst
+            LLVMValueRef null_ptr = LLVMConstNull(LLVMPointerTypeInContext(cg->ctx, 0));
+            // Branch
+            LLVMBasicBlockRef then_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "list_copy_empty");
+            LLVMBasicBlockRef else_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "list_copy_nonempty");
+            LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "list_copy_merge");
+            LLVMBuildCondBr(cg->builder, is_empty, then_bb, else_bb);
+
+            LLVMPositionBuilderAtEnd(cg->builder, then_bb);
+            LLVMBuildStore(cg->builder, null_ptr, dst_data_ptr_ptr);
+            LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), dst_len_ptr);
+            LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), dst_cap_ptr);
+            LLVMBuildBr(cg->builder, merge_bb);
+
+            LLVMPositionBuilderAtEnd(cg->builder, else_bb);
+            // Compute size
+            LLVMTypeRef elem_llvm_type = pp_environment_backend_lookup_type(cg, elem_type);
+            const char* data_layout_str = LLVMGetDataLayout(cg->mod);
+            LLVMTargetDataRef target_data = LLVMCreateTargetData(data_layout_str);
+            unsigned elem_size = LLVMABISizeOfType(target_data, elem_llvm_type);
+            LLVMDisposeTargetData(target_data);
+            LLVMValueRef elem_size_val = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), elem_size, 0);
+            LLVMValueRef bytes = LLVMBuildMul(cg->builder, src_len, elem_size_val, "list_copy_bytes");
+            LLVMValueRef malloc_fn = LLVMGetNamedFunction(cg->mod, "malloc");
+            LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
+            LLVMTypeRef i8ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
+            LLVMTypeRef malloc_type = LLVMFunctionType(i8ptr_type, &i64_type, 1, 0);
+            LLVMValueRef new_data_raw = LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &bytes, 1, "list_new_data");
+            LLVMValueRef new_data = LLVMBuildBitCast(cg->builder, new_data_raw, LLVMPointerType( elem_llvm_type, 0 ), "list_new_data_cast");
+            // memcpy
+            LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
+            LLVMTypeRef memcpy_type = LLVMFunctionType(i8ptr_type, (LLVMTypeRef[3]){i8ptr_type, i8ptr_type, i64_type}, 3, 0);
+            LLVMValueRef src_data_i8 = LLVMBuildBitCast(cg->builder, src_data, i8ptr_type, "src_data_i8");
+            LLVMValueRef dst_data_i8 = LLVMBuildBitCast(cg->builder, new_data, i8ptr_type, "dst_data_i8");
+            LLVMValueRef memcpy_args[3] = {dst_data_i8, src_data_i8, bytes};
+            LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, memcpy_args, 3, "list_memcpy");
+            LLVMBuildStore(cg->builder, new_data, dst_data_ptr_ptr);
+            LLVMBuildStore(cg->builder, src_len, dst_len_ptr);
+            LLVMBuildStore(cg->builder, src_cap, dst_cap_ptr);
+            LLVMBuildBr(cg->builder, merge_bb);
+
+            LLVMPositionBuilderAtEnd(cg->builder, merge_bb);
             break;
         }
         case PP_TK_Struct: {
@@ -577,6 +629,10 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
         LLVMTypeRef free_param = i8ptr_type;
         LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), &free_param, 1, 0);
         if (!LLVMGetNamedFunction(cg->mod, "free")) LLVMAddFunction(cg->mod, "free", free_type);
+
+        LLVMTypeRef memcpy_params[3] = {i8ptr_type, i8ptr_type, i64_type};
+        LLVMTypeRef memcpy_type = LLVMFunctionType(i8ptr_type, memcpy_params, 3, 0);
+        if (!LLVMGetNamedFunction(cg->mod, "memcpy")) LLVMAddFunction(cg->mod, "memcpy", memcpy_type);
     }
 
     return cg;
