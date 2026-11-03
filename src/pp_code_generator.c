@@ -116,26 +116,59 @@ static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merg
 }
 
 static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
-#warning \
-    "emit_drop currently only handles direct List types. Structs containing List are not recursively dropped yet. Add per-type drop_T generation before allowing structs with lists."
     if (cg == NULL || address == NULL || type == NULL) return;
-    if (type->kind != PP_TK_List) return;
     if (pp_type_is_reference(type)) return;
-    // Load the list handle from alloca
-    LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, type);
-    if (!llvm_list_type) return;
-    LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_list_type, address, "load_list");
-    // Extract data pointer at index 0
-    LLVMValueRef data_ptr = LLVMBuildExtractValue(cg->builder, loaded, 0, "list_data");
-    // Cast to i8* for free
-    LLVMValueRef data_ptr_i8 =
-        LLVMBuildBitCast(cg->builder, data_ptr, LLVMPointerTypeInContext(cg->ctx, 0), "list_data_i8");
-    LLVMValueRef free_fn = LLVMGetNamedFunction(cg->mod, "free");
-    if (!free_fn) return;
-    LLVMValueRef args[1] = {data_ptr_i8};
-    LLVMTypeRef free_type =
-        LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), (LLVMTypeRef[]){LLVMPointerTypeInContext(cg->ctx, 0)}, 1, 0);
-    LLVMBuildCall2(cg->builder, free_type, free_fn, args, 1, "");
+
+    // Unwrap const and newtype transparently
+    if (type->kind == PP_TK_Const) {
+        pp_code_generator_emit_drop(cg, address, type->type.pp_type_const.const_of);
+        return;
+    }
+    if (type->kind == PP_TK_Newtype) {
+        pp_code_generator_emit_drop(cg, address, type->type.pp_type_newtype.underlying);
+        return;
+    }
+
+    switch (type->kind) {
+        case PP_TK_List: {
+            // Load the list handle from alloca
+            LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, type);
+            if (!llvm_list_type) return;
+            LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_list_type, address, "load_list");
+            // Extract data pointer at index 0
+            LLVMValueRef data_ptr = LLVMBuildExtractValue(cg->builder, loaded, 0, "list_data");
+            // Cast to i8* for free
+            LLVMValueRef data_ptr_i8 =
+                LLVMBuildBitCast(cg->builder, data_ptr, LLVMPointerTypeInContext(cg->ctx, 0), "list_data_i8");
+            LLVMValueRef free_fn = LLVMGetNamedFunction(cg->mod, "free");
+            if (!free_fn) return;
+            LLVMValueRef args[1] = {data_ptr_i8};
+            LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx),
+                                                     (LLVMTypeRef[]){LLVMPointerTypeInContext(cg->ctx, 0)}, 1, 0);
+            LLVMBuildCall2(cg->builder, free_type, free_fn, args, 1, "");
+        } break;
+        case PP_TK_Struct: {
+            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+            if (!layout) return;
+            LLVMTypeRef llvm_struct_type = pp_environment_backend_lookup_type(cg, type);
+            if (!llvm_struct_type) return;
+            for (size_t i = 0; i < layout->field_count; i++) {
+                const PPType* field_type = layout->fields[i].field_type;
+                if (!pp_type_needs_drop(field_type)) continue;
+                LLVMValueRef field_ptr = LLVMBuildStructGEP2(cg->builder, llvm_struct_type, address, i, "");
+                pp_code_generator_emit_drop(cg, field_ptr, field_type);
+            }
+        } break;
+        case PP_TK_Array: {
+            // For arrays of owning types, drop each element
+            const PPType* elem_type = type->type.pp_type_array.element_type;
+            if (!pp_type_needs_drop(elem_type)) break;
+            // Note: array size is compile-time known for PP_TK_Array. Placeholder for recursive drop.
+            // Full element-wise loop can be added once array LLVM layout is confirmed.
+        } break;
+        default:
+            return;
+    }
 }
 
 static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg) {
@@ -2431,30 +2464,28 @@ static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerato
     return llvm_val;
 }
 
-int pp_code_generator_target_machine_create_default(LLVMModuleRef module, LLVMTargetMachineRef *out_tm) {
+int pp_code_generator_target_machine_create_default(LLVMModuleRef module, LLVMTargetMachineRef* out_tm) {
     if (!out_tm) return 0;
     *out_tm = NULL;
 
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
 
-    char *triple = LLVMGetDefaultTargetTriple();
+    char* triple = LLVMGetDefaultTargetTriple();
     if (!triple) return 0;
 
     LLVMSetTarget(module, triple);
 
     LLVMTargetRef target;
-    char *err = NULL;
+    char* err = NULL;
     if (LLVMGetTargetFromTriple(triple, &target, &err)) {
         if (err) LLVMDisposeMessage(err);
         LLVMDisposeMessage(triple);
         return 0;
     }
 
-    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(
-        target, triple, "generic", "", LLVMCodeGenLevelDefault,
-        LLVMRelocPIC, LLVMCodeModelDefault
-    );
+    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(target, triple, "generic", "", LLVMCodeGenLevelDefault,
+                                                      LLVMRelocPIC, LLVMCodeModelDefault);
     LLVMDisposeMessage(triple);
 
     if (!tm) return 0;
