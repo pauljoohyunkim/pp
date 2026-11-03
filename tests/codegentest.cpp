@@ -1049,3 +1049,24 @@ TEST(CodeGenTest, StructContainingListDrop) {
     assert_ir_contains(cg.get(), "call void @free");
 }
 
+TEST(CodeGenTest, StructInitCopy) {
+    const char* source =
+        "struct S { lst :: [int32]; }\n"
+        "func test_struct_init_copy :: () -> int32 { let a :: S = S { .lst = [int32; 1, 2] }; let b :: S = a; return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_struct_init_copy");
+    assert_ir_contains(cg.get(), "%S");
+    assert_ir_contains(cg.get(), "%pp.list");
+    assert_ir_contains(cg.get(), "call ptr @malloc");
+    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "call void @free");
+}
+

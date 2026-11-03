@@ -72,7 +72,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [x] Keep semantic ban on by-value owning params until wired, then lift
 
 ### 4.4 Whole-struct init/assign
-- [ ] Verify struct init/assign uses generated `copy_T`/`drop_T` automatically
+- [x] Verify struct init/assign uses generated `copy_T`/`drop_T` automatically
 
 ## 5. Update semantic analysis
 **File:** `src/pp_semantic_analyzer.c`
