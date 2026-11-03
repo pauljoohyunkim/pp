@@ -1,10 +1,6 @@
-extern lambda relu :: (x :: float) -> float;
-extern lambda fibo :: (x :: uint32) -> uint32;
-
-lambda relu_int32 :: (x :: int32) -> int32 {
-    return relu(x as float) as int32;
-}
-
-func main :: () -> int32 {
-    return fibo(6u) as int32;
+func main :: (argc :: int32) -> int32 {
+let x :: int32 = argc;
+let y :: int32& = x;
+y = y +1;
+    return x;
 }
