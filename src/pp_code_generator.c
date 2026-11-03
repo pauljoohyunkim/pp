@@ -1070,6 +1070,33 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
 
     LLVMValueRef llvm_lhs = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, stmt->assignment.lhs);
     assert(llvm_lhs);
+
+    const PP_AST_Decoration* lhs_decor = pp_ast_get_decoration(stmt->assignment.lhs);
+    assert(lhs_decor);
+    const PPType* lhs_type = lhs_decor->resolved_type;
+    assert(lhs_type);
+
+    if (stmt->assignment.op == PP_TT_EQUAL) {
+        const PP_AST_Decoration* rhs_decor = pp_ast_get_decoration(stmt->assignment.rhs);
+        assert(rhs_decor);
+        bool rhs_is_lvalue = rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+        bool needs_drop = pp_type_needs_drop(lhs_type) && !pp_type_is_reference(lhs_type);
+        if (needs_drop && rhs_is_lvalue) {
+            // Copy from lvalue source
+            LLVMValueRef src_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
+            assert(src_ptr);
+            // TODO: drop old LHS before overwrite to avoid leak
+#warning "assignment copy for owning types drops old LHS before copy – not yet implemented"
+            pp_code_generator_emit_copy(cg, llvm_lhs, src_ptr, lhs_type);
+            return 1;
+        }
+        // Normal rvalue or trivial copy
+        LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
+        assert(llvm_rhs);
+        LLVMBuildStore(cg->builder, llvm_rhs, llvm_lhs);
+        return 1;
+    }
+
     LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
     assert(llvm_rhs);
 

@@ -62,8 +62,8 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [x] If rvalue → move as before
 
 ### 4.2 Assignment
-- [ ] Evaluate RHS to temp
-- [ ] If LHS needs drop and RHS is lvalue → `copy_T(rhs_temp, lhs_addr)` then `drop_T(old lhs)`
+- [x] Evaluate RHS to temp
+- [x] If LHS needs drop and RHS is lvalue → `copy_T(rhs_temp, lhs_addr)` then `drop_T(old lhs)`
 - [ ] Handle self-assignment safely: copy-first ordering
 
 ### 4.3 By-value parameters
