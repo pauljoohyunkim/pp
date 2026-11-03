@@ -205,10 +205,10 @@ bool pp_type_is_copyable(const PPType* type) {
     switch (type->kind) {
         case PP_TK_List: {
             const PPType* elem = type->type.pp_type_list.element_type;
-            // Currently deep copy for lists only supports trivially copyable elements
-            // Non-trivial elements would require per-element copy_T which is not implemented
-            if (!pp_type_is_trivially_copyable(elem)) return false;
-            return pp_type_is_copyable(elem);
+            // List is copyable if its element type is copyable
+            // Element-wise copy will be implemented in codegen
+            if (!pp_type_is_copyable(elem)) return false;
+            return true;
         }
         case PP_TK_Struct: {
             const PP_StructLayout* layout = type->type.pp_type_struct.layout;
