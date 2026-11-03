@@ -1070,3 +1070,21 @@ TEST(CodeGenTest, StructInitCopy) {
     assert_ir_contains(cg.get(), "call void @free");
 }
 
+TEST(CodeGenTest, SelfAssignmentNoop) {
+    const char* source =
+        "func test_self_assign :: () -> int32 { let a :: [int32] = [int32; 1, 2, 3]; a = a; return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_self_assign");
+    assert_ir_contains(cg.get(), "%pp.list");
+    // Self-assignment should be a no-op: no memcpy for the self-assign
+    assert_ir_not_contains(cg.get(), "list_copy_nonempty");
+}
+

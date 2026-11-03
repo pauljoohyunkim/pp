@@ -82,11 +82,12 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [ ] Add copyability check: if source is lvalue and `type_needs_drop`, ensure `copy_T` exists for type
 - [ ] Keep temporary ban on by-value owning params until 4.3 complete
 - [x] Remove `#warning "List copy semantics are temporarily banned for move-only v1..."`
+- [ ] Handle lists inside struct declaration default initializers
 
 ## 6. Tests & validation
 - [x] Unit test: copy then mutate source → no aliasing
 - [x] Unit test: assign over existing list → no leak
-- [ ] Unit test: self-assignment `x = x`
+- [x] Unit test: self-assignment `x = x`
 - [ ] Unit test: list of lists
 - [ ] Unit test: struct containing list
 - [ ] Unit test: early return after copy
