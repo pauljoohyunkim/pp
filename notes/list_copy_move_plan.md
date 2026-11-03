@@ -69,7 +69,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 ### 4.3 By-value parameters
 - [x] Caller side: if arg is lvalue and `type_needs_drop(param)` → `copy_T(arg, param)`
 - [x] Callee side: push param onto drop stack
-- [ ] Keep semantic ban on by-value owning params until wired, then lift
+- [x] Keep semantic ban on by-value owning params until wired, then lift
 
 ### 4.4 Whole-struct init/assign
 - [ ] Verify struct init/assign uses generated `copy_T`/`drop_T` automatically

@@ -1619,15 +1619,16 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
         NULL_POINTER_ERROR_HANDLE(param_type);
 
         // Move-only list check v1: disallow by-value List parameters
-        {
-            const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
-            if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
-                                         node->function_declaration.params[i]->col,
-                                         "By-value List parameter is not allowed in move-only v1; use a reference");
-                goto error_cleanup;
-            }
-        }
+        // NOTE: lifted – copy semantics now handled by codegen
+        // {
+        //     const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+        //     if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
+        //         pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
+        //                                  node->function_declaration.params[i]->col,
+        //                                  "By-value List parameter is not allowed in move-only v1; use a reference");
+        //         goto error_cleanup;
+        //     }
+        // }
 
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
         if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
@@ -1750,15 +1751,16 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
         NULL_POINTER_ERROR_HANDLE(param_type);
 
         // Move-only list check v1: disallow by-value List parameters
-        {
-            const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
-            if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
-                                         node->function_declaration.params[i]->col,
-                                         "By-value List parameter is not allowed in move-only v1; use a reference");
-                goto error_cleanup;
-            }
-        }
+        // NOTE: lifted – copy semantics now handled by codegen
+        // {
+        //     const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+        //     if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
+        //         pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
+        //                                  node->function_declaration.params[i]->col,
+        //                                  "By-value List parameter is not allowed in move-only v1; use a reference");
+        //         goto error_cleanup;
+        //     }
+        // }
 
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
         if (!pp_symbol_table_push(lambda_param_symbol_table, param_name, param_symbol)) {
