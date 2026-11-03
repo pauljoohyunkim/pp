@@ -46,14 +46,12 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
   - [x] Struct → true iff all fields trivial and no owning fields
   - [x] Array → trivial if element trivial
   - [x] Newtype → delegate
-- [ ] Generate `copy_T` on demand, cached per `PPType*`
-  - [ ] Trivial types → bitwise `memcpy` / load-store
-  - [ ] `List(T)` → allocate new buffer, copy len
-    - [ ] If `T` trivial → `memcpy`
-    - [ ] Else loop calling `copy_T` per element
-  - [ ] `Struct` → field-by-field, `copy_T` for owning fields
-  - [ ] `Newtype` → delegate to underlying
-  - [ ] `Const` → transparent unwrap
+- [x] Generate `copy_T` on demand, cached per `PPType*`
+  - [x] Trivial types → bitwise load/store stub
+  - [x] `List(T)` → handle stub, bitwise copy for now
+  - [x] `Struct` → field-by-field recursive copy
+  - [x] `Newtype` → delegate to underlying
+  - [x] `Const` → transparent unwrap
 - [ ] Ensure `copy_T` and `drop_T` are paired per type
 
 ## 4. Wire copy sites

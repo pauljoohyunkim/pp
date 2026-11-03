@@ -160,6 +160,7 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
             }
         } break;
         case PP_TK_Array: {
+#warning "emit_drop for PP_TK_Array is a TODO: element-wise drop not implemented yet"
             // For arrays of owning types, drop each element
             const PPType* elem_type = type->type.pp_type_array.element_type;
             if (!pp_type_needs_drop(elem_type)) break;
@@ -168,6 +169,70 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
         } break;
         default:
             return;
+    }
+}
+
+static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, const PPType* type) {
+#warning "pp_code_generator_emit_copy is a stub: List deep copy not implemented yet, memcpy size placeholder used for trivial types"
+    if (cg == NULL || dst == NULL || src == NULL || type == NULL) return;
+    if (pp_type_is_reference(type)) return;
+
+    // Unwrap const and newtype
+    if (type->kind == PP_TK_Const) {
+        pp_code_generator_emit_copy(cg, dst, src, type->type.pp_type_const.const_of);
+        return;
+    }
+    if (type->kind == PP_TK_Newtype) {
+        pp_code_generator_emit_copy(cg, dst, src, type->type.pp_type_newtype.underlying);
+        return;
+    }
+
+    if (pp_type_is_trivially_copyable(type)) {
+        // Bitwise copy for trivial types
+        LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, type);
+        if (!llvm_type) return;
+        // Use memcpy for simplicity
+        LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
+        if (!memcpy_fn) return;
+        // memcpy(dst, src, sizeof(type), align)
+        // Placeholder: assume size 1 for now – full implementation needs type size
+        // For now emit a store/load for trivial scalars
+        LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_type, src, "copy_src");
+        LLVMBuildStore(cg->builder, loaded, dst);
+        return;
+    }
+
+    // Non-trivial types: dispatch per kind
+    switch (type->kind) {
+        case PP_TK_List: {
+            // For now, stub: move semantics only. Full deep copy to be implemented.
+            // Copy handle bitwise as fallback
+            LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, type);
+            if (!llvm_list_type) return;
+            LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_list_type, src, "copy_list_src");
+            LLVMBuildStore(cg->builder, loaded, dst);
+            break;
+        }
+        case PP_TK_Struct: {
+            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+            if (!layout) return;
+            LLVMTypeRef llvm_struct_type = pp_environment_backend_lookup_type(cg, type);
+            if (!llvm_struct_type) return;
+            for (size_t i = 0; i < layout->field_count; i++) {
+                const PPType* field_type = layout->fields[i].field_type;
+                LLVMValueRef field_dst = LLVMBuildStructGEP2(cg->builder, llvm_struct_type, dst, i, "");
+                LLVMValueRef field_src = LLVMBuildStructGEP2(cg->builder, llvm_struct_type, src, i, "");
+                pp_code_generator_emit_copy(cg, field_dst, field_src, field_type);
+            }
+            break;
+        }
+        default:
+            // Fallback bitwise
+            LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, type);
+            if (!llvm_type) return;
+            LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_type, src, "copy_src");
+            LLVMBuildStore(cg->builder, loaded, dst);
+            break;
     }
 }
 
