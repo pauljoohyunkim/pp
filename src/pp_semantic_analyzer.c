@@ -7,9 +7,6 @@
 #include <string.h>
 #include <sys/types.h>
 
-#warning \
-    "List copy semantics are temporarily banned for move-only v1. Remove this ban and implement copy/drop when value semantics are desired."
-
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
 #define SCOPE_LEVEL_FUNC_BODY (2)

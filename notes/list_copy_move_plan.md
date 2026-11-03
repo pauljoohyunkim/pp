@@ -67,8 +67,8 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [ ] Handle self-assignment safely: copy-first ordering
 
 ### 4.3 By-value parameters
-- [ ] Caller side: if arg is lvalue and `type_needs_drop(param)` → `copy_T(arg, param)`
-- [ ] Callee side: push param onto drop stack
+- [x] Caller side: if arg is lvalue and `type_needs_drop(param)` → `copy_T(arg, param)`
+- [x] Callee side: push param onto drop stack
 - [ ] Keep semantic ban on by-value owning params until wired, then lift
 
 ### 4.4 Whole-struct init/assign
@@ -81,7 +81,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [x] Remove assignment ban at ~2392
 - [ ] Add copyability check: if source is lvalue and `type_needs_drop`, ensure `copy_T` exists for type
 - [ ] Keep temporary ban on by-value owning params until 4.3 complete
-- [ ] Remove `#warning "List copy semantics are temporarily banned for move-only v1..."`
+- [x] Remove `#warning "List copy semantics are temporarily banned for move-only v1..."`
 
 ## 6. Tests & validation
 - [ ] Unit test: copy then mutate source → no aliasing

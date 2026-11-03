@@ -921,6 +921,10 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
         LLVMBuildStore(cg->builder, llvm_param_val, llvm_alloca_slot);
 
         if (!pp_environment_backend_push_val_map(body_env_b, param_symbol, llvm_alloca_slot)) { goto error_cleanup; }
+        
+        if (!pp_type_is_reference(param_type) && pp_type_needs_drop(param_type)) {
+            pp_code_generator_push_drop(cg, llvm_alloca_slot, param_type);
+        }
     }
 
     size_t stmt_count = stmt->function_declaration.body->statement_list.stmt_count;
@@ -1085,8 +1089,9 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
             // Copy from lvalue source
             LLVMValueRef src_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
             assert(src_ptr);
-            // TODO: drop old LHS before overwrite to avoid leak
-#warning "assignment copy for owning types drops old LHS before copy – not yet implemented"
+            // Drop old value to avoid leak. Self-assignment safety not yet handled.
+#warning "assignment copy for owning types: old LHS is dropped before copy – self-assignment unsafe"
+            pp_code_generator_emit_drop(cg, llvm_lhs, lhs_type);
             pp_code_generator_emit_copy(cg, llvm_lhs, src_ptr, lhs_type);
             return 1;
         }
@@ -1803,6 +1808,24 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
             if (pp_type_is_reference(param_type)) {
                 llvm_args[i] =
                     pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+            } else if (pp_type_needs_drop(param_type)) {
+                const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(node->function_call.arguments[i]);
+                bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+                if (arg_is_lvalue) {
+                    // Copy lvalue argument for owning param
+#warning "by-value owning param copy: caller-side copy not fully implemented – using bitwise copy stub"
+                    // Create a temporary alloca for the param value
+                    LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
+                    assert(llvm_param_type);
+                    LLVMValueRef tmp_alloca = LLVMBuildAlloca(cg->builder, llvm_param_type, "param_tmp");
+                    LLVMValueRef src_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                    pp_code_generator_emit_copy(cg, tmp_alloca, src_ptr, param_type);
+                    LLVMValueRef tmp_val = LLVMBuildLoad2(cg->builder, llvm_param_type, tmp_alloca, "param_tmp_val");
+                    llvm_args[i] = tmp_val;
+                } else {
+                    llvm_args[i] =
+                        pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                }
             } else {
                 llvm_args[i] =
                     pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
