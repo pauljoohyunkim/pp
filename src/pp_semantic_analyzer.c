@@ -2219,14 +2219,15 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
             goto error_cleanup;
         }
 
-        // Move-only list check v1: disallow copying List from lvalue initializer
-        // NOTE: lifted – copy semantics now handled by codegen
-        // if (decayed_symbol_type->kind == PP_TK_List && initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
-        //     pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-        //                              "List initialization from lvalue is not allowed in move-only v1; use an rvalue "
-        //                              "initializer or a reference");
-        //     goto error_cleanup;
-        // }
+        // Copyability check: if source is lvalue and type needs drop, ensure type is copyable
+        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE &&
+            pp_type_needs_drop(decayed_symbol_type) &&
+            !pp_type_is_copyable(decayed_symbol_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Cannot copy initialize variable \"%s\": type is move-only or contains non-copyable elements",
+                                     symbol_name);
+            goto error_cleanup;
+        }
 
         // Create symbol
         // is_constexpr: variable has to be constant, and initializer should also be constexpr (so the value that
@@ -2389,14 +2390,14 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
         goto error_cleanup;
     }
 
-    // Move-only list check v1: disallow copying List from lvalue RHS
-    // NOTE: lifted – copy semantics now handled by codegen
-    // if (decayed_lhs_type->kind == PP_TK_List && rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
-    //     pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-    //                              "List assignment from lvalue is not allowed in move-only v1; use an rvalue "
-    //                              "initializer or a reference");
-    //     goto error_cleanup;
-    // }
+    // Copyability check: if RHS is lvalue and LHS type needs drop, ensure type is copyable
+    if (rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE &&
+        pp_type_needs_drop(decayed_lhs_type) &&
+        !pp_type_is_copyable(decayed_lhs_type)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Cannot assign from lvalue: type is move-only or contains non-copyable elements");
+        goto error_cleanup;
+    }
 
     // Validate compound assignment operators against allowed primitive combinations
     switch (node->assignment.op) {

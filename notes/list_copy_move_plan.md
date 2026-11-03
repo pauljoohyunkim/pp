@@ -79,10 +79,11 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 
 - [x] Remove init ban at ~2223
 - [x] Remove assignment ban at ~2392
-- [ ] Add copyability check: if source is lvalue and `type_needs_drop`, ensure `copy_T` exists for type
+- [x] Add copyability check: if source is lvalue and `type_needs_drop`, ensure `copy_T` exists for type
 - [ ] Keep temporary ban on by-value owning params until 4.3 complete
 - [x] Remove `#warning "List copy semantics are temporarily banned for move-only v1..."`
 - [ ] Handle lists inside struct declaration default initializers
+  - NOTE: Global scope initializer for struct field must be constexpr; lists are not constexpr. Limitation documented; supporting non-constexpr default initializers would require runtime initialization of globals, which is out of scope for this change.
 
 ## 6. Tests & validation
 - [x] Unit test: copy then mutate source → no aliasing
