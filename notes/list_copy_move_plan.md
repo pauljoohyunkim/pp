@@ -77,8 +77,8 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 ## 5. Update semantic analysis
 **File:** `src/pp_semantic_analyzer.c`
 
-- [ ] Remove init ban at ~2223
-- [ ] Remove assignment ban at ~2392
+- [x] Remove init ban at ~2223
+- [x] Remove assignment ban at ~2392
 - [ ] Add copyability check: if source is lvalue and `type_needs_drop`, ensure `copy_T` exists for type
 - [ ] Keep temporary ban on by-value owning params until 4.3 complete
 - [ ] Remove `#warning "List copy semantics are temporarily banned for move-only v1..."`

@@ -2221,12 +2221,13 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         }
 
         // Move-only list check v1: disallow copying List from lvalue initializer
-        if (decayed_symbol_type->kind == PP_TK_List && initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                     "List initialization from lvalue is not allowed in move-only v1; use an rvalue "
-                                     "initializer or a reference");
-            goto error_cleanup;
-        }
+        // NOTE: lifted – copy semantics now handled by codegen
+        // if (decayed_symbol_type->kind == PP_TK_List && initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
+        //     pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        //                              "List initialization from lvalue is not allowed in move-only v1; use an rvalue "
+        //                              "initializer or a reference");
+        //     goto error_cleanup;
+        // }
 
         // Create symbol
         // is_constexpr: variable has to be constant, and initializer should also be constexpr (so the value that
@@ -2390,12 +2391,13 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     }
 
     // Move-only list check v1: disallow copying List from lvalue RHS
-    if (decayed_lhs_type->kind == PP_TK_List && rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                 "List assignment from lvalue is not allowed in move-only v1; use an rvalue "
-                                 "initializer or a reference");
-        goto error_cleanup;
-    }
+    // NOTE: lifted – copy semantics now handled by codegen
+    // if (decayed_lhs_type->kind == PP_TK_List && rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
+    //     pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+    //                              "List assignment from lvalue is not allowed in move-only v1; use an rvalue "
+    //                              "initializer or a reference");
+    //     goto error_cleanup;
+    // }
 
     // Validate compound assignment operators against allowed primitive combinations
     switch (node->assignment.op) {
