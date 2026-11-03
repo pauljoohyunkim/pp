@@ -3887,7 +3887,7 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
     bool all_constexpr = true;
     for (unsigned int i = 0; i < expr->collection_initializer.element_count; i++) {
         PP_AST_Node* elem = expr->collection_initializer.elements[i];
-        if (!elem) continue;
+        assert(elem);
         if (!pp_semantic_analyzer_check_expression(sa, symbol_table, elem)) { goto error_cleanup; }
         const PP_AST_Decoration* elem_dec = pp_ast_get_decoration(elem);
         assert(elem_dec);
@@ -3905,7 +3905,6 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
         assert(!pp_type_contains_reference(elem_type) && "Collection element type must not contain a reference");
         if (!elem_dec->is_constexpr) {
             all_constexpr = false;
-            break;
         }
     }
 
