@@ -1033,9 +1033,19 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
         if (initializer_node == NULL) {
             LLVMBuildStore(cg->builder, LLVMConstNull(llvm_var_type), llvm_var_alloca);
         } else {
-            LLVMValueRef var_initializer = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, initializer_node);
-            assert(var_initializer);
-            LLVMBuildStore(cg->builder, var_initializer, llvm_var_alloca);
+            const PP_AST_Decoration* init_decor = pp_ast_get_decoration(initializer_node);
+            assert(init_decor);
+            bool is_lvalue = init_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+            if (!pp_type_needs_drop(var_type) || !is_lvalue) {
+                LLVMValueRef var_initializer = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, initializer_node);
+                assert(var_initializer);
+                LLVMBuildStore(cg->builder, var_initializer, llvm_var_alloca);
+            } else {
+                // Lvalue source for owning type → copy
+                LLVMValueRef src_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, initializer_node);
+                assert(src_ptr);
+                pp_code_generator_emit_copy(cg, llvm_var_alloca, src_ptr, var_type);
+            }
         }
     }
 

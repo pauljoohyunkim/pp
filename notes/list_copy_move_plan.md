@@ -58,8 +58,8 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 **Files:** `src/pp_code_generator.c`
 
 ### 4.1 Variable initialization
-- [ ] If initializer value category is lvalue and `type_needs_drop` → emit `copy_T(src, dst)`
-- [ ] If rvalue → move as before
+- [x] If initializer value category is lvalue and `type_needs_drop` → emit `copy_T(src, dst)`
+- [x] If rvalue → move as before
 
 ### 4.2 Assignment
 - [ ] Evaluate RHS to temp
