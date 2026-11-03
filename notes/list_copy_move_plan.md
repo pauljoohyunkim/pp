@@ -19,33 +19,33 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 ## 1. Make drop recursive and per-type
 **Files:** `src/pp_code_generator.c`, `include/pp_code_generator.h`
 
-- [ ] Replace List-only `pp_code_generator_emit_drop` with dispatcher to generated `drop_T`
+- [x] Replace List-only `pp_code_generator_emit_drop` with dispatcher to generated `drop_T`
 - [ ] Implement `drop_T` generation, cached per `PPType*`
-  - [ ] `PP_TK_List` → free data pointer
-  - [ ] `PP_TK_Struct` → iterate fields, recurse if `type_needs_drop`
+  - [x] `PP_TK_List` → free data pointer
+  - [x] `PP_TK_Struct` → iterate fields, recurse if `type_needs_drop`
   - [ ] `PP_TK_Array` → recurse per element if needed
-  - [ ] `PP_TK_Newtype` → delegate to underlying
-  - [ ] `PP_TK_Const` → unwrap
-- [ ] Remove `#warning "emit_drop currently only handles direct List types..."`
+  - [x] `PP_TK_Newtype` → delegate to underlying
+  - [x] `PP_TK_Const` → unwrap
+- [x] Remove `#warning "emit_drop currently only handles direct List types..."`
 - [ ] Verify struct containing List is freed correctly in scope exit
 
 ## 2. Default-initialize owning variables
 **Files:** `src/pp_code_generator.c` – alloca emission
 
-- [ ] On alloca for type where `pp_type_needs_drop` → emit initializer
-  - [ ] List → `{null, 0, 0}`
-  - [ ] Struct → initialize owning fields recursively
-- [ ] Remove `#warning "List access currently assumes data is allocated..."`
+- [x] On alloca for type where `pp_type_needs_drop` → emit initializer
+  - [x] List → `{null, 0, 0}`
+  - [x] Struct → initialize owning fields recursively
+- [x] Remove `#warning "List access currently assumes data is allocated..."`
 - [ ] Ensure no segfault on uninitialized list access
 
 ## 3. Per-type copy generation
 **Files:** `src/pp_code_generator.c`, `include/pp_code_generator.h`
 
-- [ ] Add `type_is_trivially_copyable(T)` helper
-  - [ ] Primitives → true
-  - [ ] Struct → true iff all fields trivial and no owning fields
-  - [ ] Array → trivial if element trivial
-  - [ ] Newtype → delegate
+- [x] Add `type_is_trivially_copyable(T)` helper
+  - [x] Primitives → true
+  - [x] Struct → true iff all fields trivial and no owning fields
+  - [x] Array → trivial if element trivial
+  - [x] Newtype → delegate
 - [ ] Generate `copy_T` on demand, cached per `PPType*`
   - [ ] Trivial types → bitwise `memcpy` / load-store
   - [ ] `List(T)` → allocate new buffer, copy len

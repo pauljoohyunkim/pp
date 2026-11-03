@@ -1448,7 +1448,6 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
     assert(env_b);
     assert(node);
     assert(node->node_type == PP_AST_ArrayListAccessNode);
-#warning "List access currently assumes data is allocated; uninitialized lists will segfault"
 
     const PP_AST_Decoration* object_decoration = pp_ast_get_decoration(node->array_list_access.expr);
     assert(object_decoration);
