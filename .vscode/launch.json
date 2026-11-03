@@ -34,7 +34,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/bin/pplang",
-            "args": ["pp_test_code.pp"],
+            "args": ["-c", "pp_test_code.pp", "-o", "/tmp/test.o"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
