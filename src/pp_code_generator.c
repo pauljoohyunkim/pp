@@ -52,6 +52,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
 
 static PP_TypeCacheEntry* pp_code_generator_find_cache_entry(PP_CodeGenerator* cg, const PPType* type);
 static PP_TypeCacheEntry* pp_code_generator_get_or_create_cache_entry(PP_CodeGenerator* cg, const PPType* type);
+static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_TypeCacheEntry* entry);
+static LLVMValueRef pp_code_generator_ensure_drop_fn(PP_CodeGenerator* cg, PP_TypeCacheEntry* entry);
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_CodeGenerator* cg,
                                                                            PPSymbolTable* symbol_table,
                                                                            PP_Environment_Backend* env_b,
@@ -229,6 +231,14 @@ static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, 
     }
     if (type->kind == PP_TK_Newtype) {
         pp_code_generator_emit_copy(cg, dst, src, type->type.pp_type_newtype.underlying);
+        return;
+    }
+
+    PP_TypeCacheEntry* entry = pp_code_generator_get_or_create_cache_entry(cg, type);
+    LLVMValueRef copy_fn = pp_code_generator_ensure_copy_fn(cg, entry);
+    if (copy_fn) {
+        LLVMValueRef args[2] = {dst, src};
+        LLVMBuildCall2(cg->builder, LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), (LLVMTypeRef[2]){LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0), LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0)}, 2, 0), copy_fn, args, 2, "");
         return;
     }
 
@@ -2776,5 +2786,51 @@ static PP_TypeCacheEntry* pp_code_generator_get_or_create_cache_entry(PP_CodeGen
     entry->copy_fn = NULL;
     entry->drop_fn = NULL;
     return entry;
+}
+
+static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_TypeCacheEntry* entry) {
+    if (!cg || !entry) return NULL;
+    if (entry->copy_fn) return entry->copy_fn;
+    const PPType* type = entry->type;
+    if (!type) return NULL;
+    // Only generate for trivially copyable types in this incremental step
+    if (!pp_type_is_trivially_copyable(type)) {
+        // Non-trivial types will be handled later; fall back to inline for now
+        return NULL;
+    }
+    // Build function name with dot to avoid collisions
+    char name_buf[128];
+    snprintf(name_buf, sizeof(name_buf), "pp.copy.%p", (void*)type);
+    LLVMTypeRef param_types[2] = { LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0), LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0) };
+    LLVMTypeRef func_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), param_types, 2, 0);
+    LLVMValueRef func = LLVMAddFunction(cg->mod, name_buf, func_type);
+    LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "entry");
+    LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
+    LLVMValueRef args[2];
+    args[0] = LLVMGetParam(func, 0);
+    args[1] = LLVMGetParam(func, 1);
+    // Get type size
+    LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, type);
+    if (!llvm_type) {
+        LLVMDeleteFunction(func);
+        return NULL;
+    }
+    const char* data_layout_str = LLVMGetDataLayout(cg->mod);
+    LLVMTargetDataRef td = LLVMCreateTargetData(data_layout_str);
+    unsigned size = LLVMABISizeOfType(td, llvm_type);
+    LLVMDisposeTargetData(td);
+    LLVMValueRef size_val = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), size, 0);
+    LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
+    if (!memcpy_fn) {
+        LLVMDeleteFunction(func);
+        return NULL;
+    }
+    LLVMTypeRef memcpy_type = LLVMFunctionType(LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0),
+        (LLVMTypeRef[3]){ LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0), LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0), LLVMInt64TypeInContext(cg->ctx) }, 3, 0);
+    LLVMValueRef memcpy_args[3] = { args[0], args[1], size_val };
+    LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, memcpy_args, 3, "");
+    LLVMBuildRetVoid(cg->builder);
+    entry->copy_fn = func;
+    return func;
 }
 
