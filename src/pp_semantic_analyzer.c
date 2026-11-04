@@ -480,7 +480,8 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                 case PP_TT_LESS_LESS:
                     if (right_val >= sizeof(size_t) * 8) {
                         pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                                 simple_expr_node->col, "Shift amount too large in array size expression");
+                                                 simple_expr_node->col,
+                                                 "Shift amount too large in array size expression");
                         goto error_cleanup;
                     }
                     *val = left_val << right_val;
@@ -488,7 +489,8 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                 case PP_TT_GREATER_GREATER:
                     if (right_val >= sizeof(size_t) * 8) {
                         pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                                 simple_expr_node->col, "Shift amount too large in array size expression");
+                                                 simple_expr_node->col,
+                                                 "Shift amount too large in array size expression");
                         goto error_cleanup;
                     }
                     *val = left_val >> right_val;
@@ -2029,9 +2031,12 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         const PP_AST_Decoration* decor = pp_ast_get_decoration(node->variable_declaration.initializer);
         NULL_POINTER_ERROR_HANDLE(decor);
         // Explicitly reject non-empty list initializers at global scope
-        if (variable_symbol->type->kind == PP_TK_List && node->variable_declaration.initializer->node_type == PP_AST_CollectionInitializerNode && node->variable_declaration.initializer->collection_initializer.element_count > 0) {
+        if (variable_symbol->type->kind == PP_TK_List &&
+            node->variable_declaration.initializer->node_type == PP_AST_CollectionInitializerNode &&
+            node->variable_declaration.initializer->collection_initializer.element_count > 0) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                     "Global list initialization with non-empty initializer is not allowed; only empty list is permitted at global scope.");
+                                     "Global list initialization with non-empty initializer is not allowed; only empty "
+                                     "list is permitted at global scope.");
             goto error_cleanup;
         }
         if (!decor->is_constexpr) {
@@ -2220,11 +2225,11 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         }
 
         // Copyability check: if source is lvalue and type needs drop, ensure type is copyable
-        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE &&
-            pp_type_needs_drop(decayed_symbol_type) &&
+        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_symbol_type) &&
             !pp_type_is_copyable(decayed_symbol_type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                     "Cannot copy initialize variable \"%s\": type is move-only or contains non-copyable elements",
+                                     "Cannot copy initialize variable \"%s\": type is move-only or contains "
+                                     "non-copyable elements",
                                      symbol_name);
             goto error_cleanup;
         }
@@ -2391,8 +2396,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     }
 
     // Copyability check: if RHS is lvalue and LHS type needs drop, ensure type is copyable
-    if (rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE &&
-        pp_type_needs_drop(decayed_lhs_type) &&
+    if (rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_lhs_type) &&
         !pp_type_is_copyable(decayed_lhs_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Cannot assign from lvalue: type is move-only or contains non-copyable elements");
@@ -3080,7 +3084,8 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
             }
             break;
         default:
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Unsupported binary operator");
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                     "Unsupported binary operator");
             goto error_cleanup;
     }
     if (!binary_type) {
@@ -3903,16 +3908,12 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
         }
         // Collection element types must never be references – rejected at type construction
         assert(!pp_type_contains_reference(elem_type) && "Collection element type must not contain a reference");
-        if (!elem_dec->is_constexpr) {
-            all_constexpr = false;
-        }
+        if (!elem_dec->is_constexpr) { all_constexpr = false; }
     }
 
     bool is_constexpr = is_array && all_constexpr;
     // Empty list is constexpr; non-empty lists remain non-constexpr
-    if (!is_array && expr->collection_initializer.element_count == 0) {
-        is_constexpr = true;
-    }
+    if (!is_array && expr->collection_initializer.element_count == 0) { is_constexpr = true; }
     // Lists are never constexpr per language design except empty
     decoration = pp_ast_decoration_create(coll_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr, false);
     if (!decoration) goto error_cleanup;

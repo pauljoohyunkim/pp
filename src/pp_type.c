@@ -201,7 +201,7 @@ bool pp_type_is_copyable(const PPType* type) {
     // Trivially copyable types are always copyable
     if (pp_type_is_trivially_copyable(type)) return true;
     // Types that need drop must be checked for deep-copy support
-    if (!pp_type_needs_drop(type)) return true; // No ownership, trivially copyable already handled
+    if (!pp_type_needs_drop(type)) return true;  // No ownership, trivially copyable already handled
     switch (type->kind) {
         case PP_TK_List: {
             const PPType* elem = type->type.pp_type_list.element_type;

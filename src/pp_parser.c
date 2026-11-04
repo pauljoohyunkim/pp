@@ -604,9 +604,7 @@ static PP_AST_Node* pp_parser_create_expression_or_assignment(PP_Parser* parser)
     lhs = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
     NULL_POINTER_ERROR_HANDLE(lhs);
     PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
-    if (!pp_token_type_is_assignment(tt)) {
-        return lhs;
-    }
+    if (!pp_token_type_is_assignment(tt)) { return lhs; }
     op_tok = pp_parser_consume_token(parser, tt);
     NULL_POINTER_ERROR_HANDLE(op_tok);
     rhs = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);

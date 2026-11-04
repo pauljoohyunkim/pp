@@ -1129,5 +1129,55 @@ TEST(CodeGenTest, ListOfListsDeepCopy) {
     assert_ir_contains(cg.get(), "call void @free");
 }
 
+TEST(CodeGenTest, ListCopyHelperGenerated) {
+    const char* source = "func test_list_copy :: () -> void { let a :: [int32] = [int32; 1, 2, 3]; let b :: [int32] = a; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_list_copy");
+    assert_ir_contains(cg.get(), "pp.copy.");
+    assert_ir_contains(cg.get(), "list_copy_nonempty");
+    assert_ir_contains(cg.get(), "call ptr @malloc");
+}
+
+TEST(CodeGenTest, StructWithListCopyHelperGenerated) {
+    const char* source = "struct S { xs :: [int32]; v :: int32; } func test_struct_copy :: () -> void { let s1 :: S = S{ .xs = [int32; 1, 2], .v = 10 }; let s2 :: S = s1; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_struct_copy");
+    assert_ir_contains(cg.get(), "pp.copy.");
+    // Struct copy helper should recursively call list copy helper
+    assert_ir_contains(cg.get(), "call void @pp.copy.");
+}
+
+TEST(CodeGenTest, ListOfListsCopyHelperGenerated) {
+    const char* source = "func test_list_of_lists :: () -> void { let a :: [[int32]] = [[int32]; [int32; 1, 2], [int32; 3]]; let b :: [[int32]] = a; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_list_of_lists");
+    assert_ir_contains(cg.get(), "pp.copy.");
+    assert_ir_contains(cg.get(), "list_copy_loop_cond");
+}
+
 
 
