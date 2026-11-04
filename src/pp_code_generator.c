@@ -3169,12 +3169,13 @@ static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_Ty
                                   LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0)};
     LLVMTypeRef func_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), param_types, 2, 0);
     LLVMValueRef func = LLVMAddFunction(cg->mod, name_buf, func_type);
+    // Register early to allow recursive references
+    entry->copy_fn = func;
     LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "entry");
     LLVMBasicBlockRef saved = pp_cg_save_builder_insert_block(cg);
     LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
     pp_code_generator_gen_copy_body(cg, func, type);
     pp_cg_restore_builder_insert_block(cg, saved);
-    entry->copy_fn = func;
     return func;
 }
 
@@ -3193,11 +3194,12 @@ static LLVMValueRef pp_code_generator_ensure_drop_fn(PP_CodeGenerator* cg, PP_Ty
     LLVMTypeRef param_types[1] = {LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0)};
     LLVMTypeRef func_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), param_types, 1, 0);
     LLVMValueRef func = LLVMAddFunction(cg->mod, name_buf, func_type);
+    // Register early to allow recursive references
+    entry->drop_fn = func;
     LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "entry");
     LLVMBasicBlockRef saved = pp_cg_save_builder_insert_block(cg);
     LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
     pp_code_generator_gen_drop_body(cg, func, type);
     pp_cg_restore_builder_insert_block(cg, saved);
-    entry->drop_fn = func;
     return func;
 }
