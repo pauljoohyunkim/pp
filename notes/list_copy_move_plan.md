@@ -94,7 +94,7 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [x] Unit test: struct containing list
 - [x] Unit test: early return after copy
 - [-] Run under ASan – not continuing in this scope
-- [ ] Run under Valgrind
+- [x] Run under Valgrind
 - [x] `make unittest` passes
 
 ## 7. Documentation
@@ -103,9 +103,9 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 - [x] Add design note to `notes/` e.g. `notes/list_copy_move_design.md`
 
 ## 8. Final cleanup
-- [ ] Remove all temporary `#warning`s related to lists
-- [ ] `make clean && make` produces zero warnings about list semantics
-- [ ] Commit with clear message
+- [x] Remove all temporary `#warning`s related to lists
+- [x] `make clean && make` produces zero warnings about list semantics
+- [x] Commit with clear message
 
 ## 9. List-of-Lists support – Implemented
 - Rationale: Nested lists are desirable for 2D data, adjacency lists, etc.

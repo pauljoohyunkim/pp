@@ -49,6 +49,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerat
 static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                       PP_Environment_Backend* env_b,
                                                                       const PP_AST_Node* node);
+
+static PP_TypeCacheEntry* pp_code_generator_find_cache_entry(PP_CodeGenerator* cg, const PPType* type);
+static PP_TypeCacheEntry* pp_code_generator_get_or_create_cache_entry(PP_CodeGenerator* cg, const PPType* type);
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_CodeGenerator* cg,
                                                                            PPSymbolTable* symbol_table,
                                                                            PP_Environment_Backend* env_b,
@@ -727,6 +730,7 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         pp_string_pool_free(cg->sp);
         free(cg->drop_stack_addresses);
         free(cg->drop_stack_types);
+        free(cg->type_cache);
     }
     free(cg);
     LLVMShutdown();
@@ -2744,3 +2748,33 @@ int pp_code_generator_target_machine_create_default(LLVMModuleRef module, LLVMTa
 void pp_code_generator_target_machine_free(LLVMTargetMachineRef tm) {
     if (tm) LLVMDisposeTargetMachine(tm);
 }
+
+static PP_TypeCacheEntry* pp_code_generator_find_cache_entry(PP_CodeGenerator* cg, const PPType* type) {
+    if (!cg || !type) return NULL;
+    for (size_t i = 0; i < cg->type_cache_count; i++) {
+        if (cg->type_cache[i].type == type) {
+            return &cg->type_cache[i];
+        }
+    }
+    return NULL;
+}
+
+static PP_TypeCacheEntry* pp_code_generator_get_or_create_cache_entry(PP_CodeGenerator* cg, const PPType* type) {
+    if (!cg || !type) return NULL;
+    PP_TypeCacheEntry* entry = pp_code_generator_find_cache_entry(cg, type);
+    if (entry) return entry;
+    if (cg->type_cache_count == cg->type_cache_capacity) {
+        size_t new_cap = cg->type_cache_capacity ? cg->type_cache_capacity * 2 : 8;
+        PP_TypeCacheEntry* new_buf = (PP_TypeCacheEntry*)realloc(cg->type_cache, new_cap * sizeof(PP_TypeCacheEntry));
+        if (!new_buf) return NULL;
+        cg->type_cache = new_buf;
+        cg->type_cache_capacity = new_cap;
+    }
+    entry = &cg->type_cache[cg->type_cache_count];
+    cg->type_cache_count++;
+    entry->type = type;
+    entry->copy_fn = NULL;
+    entry->drop_fn = NULL;
+    return entry;
+}
+

@@ -42,6 +42,12 @@ struct PP_Environment_Backend {
 };
 
 typedef struct {
+    const PPType* type;
+    LLVMValueRef copy_fn;
+    LLVMValueRef drop_fn;
+} PP_TypeCacheEntry;
+
+typedef struct {
     LLVMContextRef ctx;
     LLVMModuleRef mod;
     LLVMBuilderRef builder;
@@ -65,6 +71,11 @@ typedef struct {
     PPType** drop_stack_types;
     size_t drop_stack_count;
     size_t drop_stack_capacity;
+
+    /* Per-type copy/drop function cache */
+    PP_TypeCacheEntry* type_cache;
+    size_t type_cache_count;
+    size_t type_cache_capacity;
 } PP_CodeGenerator;
 
 /**
