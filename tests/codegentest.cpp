@@ -48,7 +48,9 @@ static PP_CodeGenerator* run_codegen(const char* source, int& lexer_errors, int&
         codegen_result = 0;
         return nullptr;
     }
-    // sa ownership transferred to cg, so we must not free sa
+    // sa ownership transferred to cg, but cg does not free the analyzer struct itself.
+    // Free the analyzer struct now to avoid leak in the test harness.
+    pp_semantic_analyzer_free(sa_raw);
     codegen_result = pp_code_generator_generate(cg_raw);
     return cg_raw;
 }
