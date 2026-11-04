@@ -16,9 +16,9 @@ Tests pass with trivial-only caching.
 ## Checklist
 
 ### Step 1 – Design helper signatures
-- [ ] Confirm generic `void(i8*,i8*)` copy and `void(i8*)` drop signatures
-- [ ] Define dot-prefixed naming scheme `pp.copy.<hex>` / `pp.drop.<hex>`
-- [ ] Document pointer reinterpretation via bitcast inside helpers
+- [x] Confirm generic `void(i8*,i8*)` copy and `void(i8*)` drop signatures
+- [x] Define dot-prefixed naming scheme `pp.copy.<hex>` / `pp.drop.<hex>`
+- [x] Document pointer reinterpretation via bitcast inside helpers
 
 ### Step 2 – Refactor emit logic into reusable generators
 - [x] Create `pp_code_generator_gen_copy_body(cg, func, type)`
@@ -38,9 +38,9 @@ Tests pass with trivial-only caching.
 - [x] Cache helper in entry
 
 ### Step 5 – Wire emit functions
-- [ ] `pp_code_generator_emit_copy` calls ensure + emits call
-- [ ] `pp_code_generator_emit_drop` calls ensure + emits call
-- [ ] Remove inline paths for covered types
+- [x] `pp_code_generator_emit_copy` calls ensure + emits call
+- [x] `pp_code_generator_emit_drop` calls ensure + emits call
+- [x] Remove inline paths for covered types
 
 ### Step 6 – Testing
 - [x] `make && make unittest` passes
