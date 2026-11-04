@@ -1,4 +1,5 @@
 #include "pp_type.h"
+#include "pp_type_table.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -136,29 +137,96 @@ bool pp_type_is_numerical(const PPType* type) {
     }
 }
 
-bool pp_type_needs_drop(const PPType* type) {
+__thread PP_GlobalTypeTable* pp_type_current_gtt = NULL;
+
+static __thread const PPType* guard_stack[64];
+static __thread int guard_depth = 0;
+
+static ssize_t pp_type_find_index(const PPType* type) {
+    if (!pp_type_current_gtt || !type) return -1;
+    for (size_t i = 0; i < pp_type_current_gtt->type_count; i++) {
+        if (pp_type_current_gtt->types[i] == type) return (ssize_t)i;
+    }
+    return -1;
+}
+
+bool pp_type_needs_drop(const PPType* type, PP_TypeVisitState* visited) {
     if (type == NULL) return false;
 
-    switch (type->kind) {
-        case PP_TK_List:
-            return true;
-        case PP_TK_Const:
-            return pp_type_needs_drop(type->type.pp_type_const.const_of);
-        case PP_TK_Array:
-            return pp_type_needs_drop(type->type.pp_type_array.element_type);
-        case PP_TK_Newtype:
-            return pp_type_needs_drop(type->type.pp_type_newtype.underlying);
-        case PP_TK_Struct: {
-            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
-            if (!layout) return false;
-            for (size_t i = 0; i < layout->field_count; i++) {
-                if (pp_type_needs_drop(layout->fields[i].field_type)) return true;
+    if (!visited) {
+        // Cycle guard using thread-local stack
+        for (int i = 0; i < guard_depth; i++) if (guard_stack[i] == type) return false;
+        if (guard_depth < 64) guard_stack[guard_depth++] = type;
+        bool result;
+        switch (type->kind) {
+            case PP_TK_List:
+                result = true;
+                break;
+            case PP_TK_Const:
+                result = pp_type_needs_drop(type->type.pp_type_const.const_of, NULL);
+                break;
+            case PP_TK_Array:
+                result = pp_type_needs_drop(type->type.pp_type_array.element_type, NULL);
+                break;
+            case PP_TK_Newtype:
+                result = pp_type_needs_drop(type->type.pp_type_newtype.underlying, NULL);
+                break;
+            case PP_TK_Struct: {
+                const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+                if (!layout) { result = false; break; }
+                result = false;
+                for (size_t i = 0; i < layout->field_count; i++) {
+                    if (pp_type_needs_drop(layout->fields[i].field_type, NULL)) { result = true; break; }
+                }
+                break;
             }
+            default:
+                result = false;
+                break;
+        }
+        if (guard_depth > 0) guard_depth--;
+        return result;
+    }
+
+    ssize_t idx = pp_type_find_index(type);
+    if (idx >= 0) {
+        if (visited[idx] == PP_TYPE_VISIT_RESOLVING) return false;
+        if (visited[idx] == PP_TYPE_VISIT_RESOLVED) {
+            // already computed, assume false for cycle break
             return false;
         }
-        default:
-            return false;
+        visited[idx] = PP_TYPE_VISIT_RESOLVING;
     }
+
+    bool result = false;
+    switch (type->kind) {
+        case PP_TK_List:
+            result = true;
+            break;
+        case PP_TK_Const:
+            result = pp_type_needs_drop(type->type.pp_type_const.const_of, visited);
+            break;
+        case PP_TK_Array:
+            result = pp_type_needs_drop(type->type.pp_type_array.element_type, visited);
+            break;
+        case PP_TK_Newtype:
+            result = pp_type_needs_drop(type->type.pp_type_newtype.underlying, visited);
+            break;
+        case PP_TK_Struct: {
+            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+            if (!layout) { result = false; break; }
+            for (size_t i = 0; i < layout->field_count; i++) {
+                if (pp_type_needs_drop(layout->fields[i].field_type, visited)) { result = true; break; }
+            }
+            break;
+        }
+        default:
+            result = false;
+            break;
+    }
+
+    if (idx >= 0) visited[idx] = PP_TYPE_VISIT_RESOLVED;
+    return result;
 }
 
 bool pp_type_is_trivially_copyable(const PPType* type) {
@@ -183,7 +251,7 @@ bool pp_type_is_trivially_copyable(const PPType* type) {
             if (!layout) return false;
             for (size_t i = 0; i < layout->field_count; i++) {
                 if (!pp_type_is_trivially_copyable(layout->fields[i].field_type)) return false;
-                if (pp_type_needs_drop(layout->fields[i].field_type)) return false;
+                if (pp_type_needs_drop(layout->fields[i].field_type, NULL)) return false;
             }
             return true;
         }
@@ -195,39 +263,92 @@ bool pp_type_is_trivially_copyable(const PPType* type) {
     }
 }
 
-bool pp_type_is_copyable(const PPType* type) {
+bool pp_type_is_copyable(const PPType* type, PP_TypeVisitState* visited) {
     if (type == NULL) return false;
     if (pp_type_is_reference(type)) return false;
     // Trivially copyable types are always copyable
     if (pp_type_is_trivially_copyable(type)) return true;
     // Types that need drop must be checked for deep-copy support
-    if (!pp_type_needs_drop(type)) return true;  // No ownership, trivially copyable already handled
+    if (!pp_type_needs_drop(type, visited)) return true;  // No ownership, trivially copyable already handled
+
+    if (!visited) {
+        // Cycle guard using thread-local stack
+        for (int i = 0; i < guard_depth; i++) if (guard_stack[i] == type) return true;
+        if (guard_depth < 64) guard_stack[guard_depth++] = type;
+        bool result;
+        switch (type->kind) {
+            case PP_TK_List: {
+                const PPType* elem = type->type.pp_type_list.element_type;
+                result = pp_type_is_copyable(elem, NULL);
+                break;
+            }
+            case PP_TK_Struct: {
+                const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+                if (!layout) { result = false; break; }
+                result = true;
+                for (size_t i = 0; i < layout->field_count; i++) {
+                    const PPType* ft = layout->fields[i].field_type;
+                    if (!pp_type_is_copyable(ft, NULL)) { result = false; break; }
+                }
+                break;
+            }
+            case PP_TK_Newtype:
+                result = pp_type_is_copyable(type->type.pp_type_newtype.underlying, NULL);
+                break;
+            case PP_TK_Const:
+                result = pp_type_is_copyable(type->type.pp_type_const.const_of, NULL);
+                break;
+            case PP_TK_Array: {
+                result = pp_type_is_copyable(type->type.pp_type_array.element_type, NULL);
+                break;
+            }
+            default:
+                result = false;
+                break;
+        }
+        if (guard_depth > 0) guard_depth--;
+        return result;
+    }
+
+    ssize_t idx = pp_type_find_index(type);
+    if (idx >= 0) {
+        if (visited[idx] == PP_TYPE_VISIT_RESOLVING) return true;
+        if (visited[idx] == PP_TYPE_VISIT_RESOLVED) return true;
+        visited[idx] = PP_TYPE_VISIT_RESOLVING;
+    }
+
+    bool result;
     switch (type->kind) {
         case PP_TK_List: {
             const PPType* elem = type->type.pp_type_list.element_type;
-            // List is copyable if its element type is copyable
-            // Element-wise copy will be implemented in codegen
-            if (!pp_type_is_copyable(elem)) return false;
-            return true;
+            result = pp_type_is_copyable(elem, visited);
+            break;
         }
         case PP_TK_Struct: {
             const PP_StructLayout* layout = type->type.pp_type_struct.layout;
-            if (!layout) return false;
+            if (!layout) { result = false; break; }
+            result = true;
             for (size_t i = 0; i < layout->field_count; i++) {
                 const PPType* ft = layout->fields[i].field_type;
-                if (!pp_type_is_copyable(ft)) return false;
+                if (!pp_type_is_copyable(ft, visited)) { result = false; break; }
             }
-            return true;
+            break;
         }
         case PP_TK_Newtype:
-            return pp_type_is_copyable(type->type.pp_type_newtype.underlying);
+            result = pp_type_is_copyable(type->type.pp_type_newtype.underlying, visited);
+            break;
         case PP_TK_Const:
-            return pp_type_is_copyable(type->type.pp_type_const.const_of);
+            result = pp_type_is_copyable(type->type.pp_type_const.const_of, visited);
+            break;
         case PP_TK_Array: {
-            return pp_type_is_copyable(type->type.pp_type_array.element_type);
+            result = pp_type_is_copyable(type->type.pp_type_array.element_type, visited);
+            break;
         }
         default:
-            // Types that need drop but are not handled are move-only
-            return false;
+            result = false;
+            break;
     }
+
+    if (idx >= 0) visited[idx] = PP_TYPE_VISIT_RESOLVED;
+    return result;
 }

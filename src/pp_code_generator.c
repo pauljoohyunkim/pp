@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+extern __thread PP_GlobalTypeTable* pp_type_current_gtt;
+
 static PP_Environment_Backend* pp_environment_backend_enter_scope(const PP_Environment_Backend* current_env_b);
 static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
@@ -180,7 +182,7 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
             LLVMBuildBr(cg->builder, merge_bb);
             LLVMPositionBuilderAtEnd(cg->builder, else_bb);
             // If element needs drop, drop each element
-            if (pp_type_needs_drop(elem_type)) {
+            if (pp_type_needs_drop(elem_type, NULL)) {
                 // Loop over elements
                 LLVMBasicBlockRef loop_cond_bb =
                     LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)),
@@ -235,14 +237,14 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
             if (!llvm_struct_type) return;
             for (size_t i = 0; i < layout->field_count; i++) {
                 const PPType* field_type = layout->fields[i].field_type;
-                if (!pp_type_needs_drop(field_type)) continue;
+                if (!pp_type_needs_drop(field_type, NULL)) continue;
                 LLVMValueRef field_ptr = LLVMBuildStructGEP2(cg->builder, llvm_struct_type, address, i, "");
                 pp_code_generator_emit_drop(cg, field_ptr, field_type);
             }
         } break;
         case PP_TK_Array: {
             const PPType* elem_type = type->type.pp_type_array.element_type;
-            if (!pp_type_needs_drop(elem_type)) break;
+            if (!pp_type_needs_drop(elem_type, NULL)) break;
             size_t arr_size = type->type.pp_type_array.size;
             LLVMTypeRef llvm_array_type = pp_environment_backend_lookup_type(cg, type);
             if (!llvm_array_type) break;
@@ -439,7 +441,7 @@ static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg) {
         size_t idx = cg->drop_stack_count - 1;
         LLVMValueRef addr = cg->drop_stack_addresses[idx];
         const PPType* typ = cg->drop_stack_types[idx];
-        if (typ && pp_type_needs_drop(typ) && !pp_type_is_reference(typ)) {
+        if (typ && pp_type_needs_drop(typ, NULL) && !pp_type_is_reference(typ)) {
             pp_code_generator_emit_drop(cg, addr, typ);
         }
         cg->drop_stack_count--;
@@ -448,7 +450,7 @@ static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg) {
 
 static void pp_code_generator_push_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
     if (cg == NULL || address == NULL || type == NULL) return;
-    if (!pp_type_needs_drop(type)) return;
+    if (!pp_type_needs_drop(type, NULL)) return;
     if (pp_type_is_reference(type)) return;
     // Ensure capacity
     if (cg->drop_stack_capacity == 0) {
@@ -754,6 +756,19 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
     cg->sp = sa->sp;
     sa->sp = NULL;
 
+    // Allocate type visitation state for cycle-safe copy/drop checks
+    {
+        size_t gtt_size = cg->gtt ? cg->gtt->type_count : 0;
+        cg->type_visit_count = gtt_size;
+        if (gtt_size > 0) {
+            cg->type_visit = (PP_TypeVisitState*)calloc(gtt_size, sizeof(PP_TypeVisitState));
+        } else {
+            cg->type_visit = NULL;
+        }
+        // Set current type table for type predicates
+        pp_type_current_gtt = cg->gtt;
+    }
+
     assert(sa->current_function_type == NULL);
     cg->current_function_type = NULL;
 
@@ -806,6 +821,7 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         free(cg->drop_stack_addresses);
         free(cg->drop_stack_types);
         free(cg->type_cache);
+        free(cg->type_visit);
     }
     free(cg);
     LLVMShutdown();
@@ -1123,7 +1139,7 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
 
         if (!pp_environment_backend_push_val_map(body_env_b, param_symbol, llvm_alloca_slot)) { goto error_cleanup; }
 
-        if (!pp_type_is_reference(param_type) && pp_type_needs_drop(param_type)) {
+        if (!pp_type_is_reference(param_type) && pp_type_needs_drop(param_type, NULL)) {
             pp_code_generator_push_drop(cg, llvm_alloca_slot, param_type);
         }
     }
@@ -1241,7 +1257,7 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
             const PP_AST_Decoration* init_decor = pp_ast_get_decoration(initializer_node);
             assert(init_decor);
             bool is_lvalue = init_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
-            if (!pp_type_needs_drop(var_type) || !is_lvalue) {
+            if (!pp_type_needs_drop(var_type, NULL) || !is_lvalue) {
                 LLVMValueRef var_initializer =
                     pp_code_generator_generate_rvalue(cg, symbol_table, env_b, initializer_node);
                 assert(var_initializer);
@@ -1258,7 +1274,7 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
     if (pp_environment_backend_push_val_map(env_b, var_symbol, llvm_var_alloca) != 1) { return 0; }
 
     // Push onto scope drop stack if needed
-    if (!pp_type_is_reference(var_type) && pp_type_needs_drop(var_type)) {
+    if (!pp_type_is_reference(var_type) && pp_type_needs_drop(var_type, NULL)) {
         pp_code_generator_push_drop(cg, llvm_var_alloca, var_type);
     }
 
@@ -1285,7 +1301,7 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
         const PP_AST_Decoration* rhs_decor = pp_ast_get_decoration(stmt->assignment.rhs);
         assert(rhs_decor);
         bool rhs_is_lvalue = rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
-        bool needs_drop = pp_type_needs_drop(lhs_type) && !pp_type_is_reference(lhs_type);
+        bool needs_drop = pp_type_needs_drop(lhs_type, NULL) && !pp_type_is_reference(lhs_type);
         if (needs_drop && rhs_is_lvalue) {
             // Copy from lvalue source
             LLVMValueRef src_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
@@ -1437,7 +1453,7 @@ static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPS
             assert(dec);
             const PPType* ret_type = dec->resolved_type;
             assert(ret_type);
-            if (pp_type_needs_drop(ret_type) && !pp_type_is_reference(ret_type)) {
+            if (pp_type_needs_drop(ret_type, NULL) && !pp_type_is_reference(ret_type)) {
                 const PPSymbol* sym = pp_symbol_table_lookup(symbol_table, name, true);
                 assert(sym);
                 for (size_t i = 0; i < cg->drop_stack_count; i++) {
@@ -1669,7 +1685,7 @@ static int pp_code_generator_generate_block_statement(PP_CodeGenerator* cg, PPSy
         i--;
         LLVMValueRef addr = cg->drop_stack_addresses[i];
         const PPType* typ = cg->drop_stack_types[i];
-        if (typ && pp_type_needs_drop(typ) && !pp_type_is_reference(typ)) {
+        if (typ && pp_type_needs_drop(typ, NULL) && !pp_type_is_reference(typ)) {
             pp_code_generator_emit_drop(cg, addr, typ);
         }
     }
@@ -2013,7 +2029,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
             if (pp_type_is_reference(param_type)) {
                 llvm_args[i] =
                     pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
-            } else if (pp_type_needs_drop(param_type)) {
+            } else if (pp_type_needs_drop(param_type, NULL)) {
                 const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(node->function_call.arguments[i]);
                 bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
                 if (arg_is_lvalue) {
@@ -3033,7 +3049,7 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
     LLVMBasicBlockRef entry_bb = LLVMGetEntryBasicBlock(func);
     LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
     LLVMValueRef arg0 = LLVMGetParam(func, 0);
-    if (!pp_type_needs_drop(type)) {
+    if (!pp_type_needs_drop(type, NULL)) {
         LLVMBuildRetVoid(cg->builder);
         pp_cg_restore_builder_insert_block(cg, saved_bb);
         return;
@@ -3057,7 +3073,7 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
             LLVMPositionBuilderAtEnd(cg->builder, else_bb);
             LLVMBuildBr(cg->builder, merge_bb);
             LLVMPositionBuilderAtEnd(cg->builder, then_bb);
-            if (pp_type_needs_drop(elem_type)) {
+            if (pp_type_needs_drop(elem_type, NULL)) {
                 LLVMTypeRef elem_llvm_type = pp_environment_backend_lookup_type(cg, elem_type);
                 PP_TypeCacheEntry* elem_entry = pp_code_generator_get_or_create_cache_entry(cg, elem_type);
                 LLVMValueRef elem_drop_fn = pp_code_generator_ensure_drop_fn(cg, elem_entry);
@@ -3121,7 +3137,7 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
                     LLVMBuildBitCast(cg->builder, arg0, LLVMPointerType(llvm_struct_type, 0), "struct_ptr");
                 for (size_t i = 0; i < layout->field_count; i++) {
                     const PPType* field_type = layout->fields[i].field_type;
-                    if (pp_type_needs_drop(field_type)) {
+                    if (pp_type_needs_drop(field_type, NULL)) {
                         PP_TypeCacheEntry* field_entry = pp_code_generator_get_or_create_cache_entry(cg, field_type);
                         LLVMValueRef field_drop_fn = pp_code_generator_ensure_drop_fn(cg, field_entry);
                         if (field_drop_fn) {
@@ -3159,7 +3175,7 @@ static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_Ty
     if (entry->copy_fn) return entry->copy_fn;
     const PPType* type = entry->type;
     if (!type) return NULL;
-    if (!pp_type_is_copyable(type)) {
+    if (!pp_type_is_copyable(type, cg->type_visit)) {
         // Non-copyable types fall back to inline
         return NULL;
     }
@@ -3185,7 +3201,7 @@ static LLVMValueRef pp_code_generator_ensure_drop_fn(PP_CodeGenerator* cg, PP_Ty
     const PPType* type = entry->type;
     if (!type) return NULL;
     // Generate drop helper for any type; gen_drop_body handles no-op case
-    // if (pp_type_needs_drop(type)) {
+    // if (pp_type_needs_drop(type, NULL)) {
     //     // Non-trivial drops not yet handled – fall back to inline
     //     return NULL;
     // }

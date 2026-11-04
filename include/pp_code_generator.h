@@ -76,6 +76,10 @@ typedef struct {
     PP_TypeCacheEntry* type_cache;
     size_t type_cache_count;
     size_t type_cache_capacity;
+
+    /* Type visitation state for cycle-safe copy/drop checks */
+    PP_TypeVisitState* type_visit;
+    size_t type_visit_count;
 } PP_CodeGenerator;
 
 /**

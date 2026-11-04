@@ -328,41 +328,60 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
 
 static bool pp_type_contains_reference(const PPType* t) {
     if (!t) return false;
+    // Simple cycle guard using thread-local stack
+    static __thread const PPType* ref_guard[64];
+    static __thread int ref_guard_depth = 0;
+    for (int i = 0; i < ref_guard_depth; i++) if (ref_guard[i] == t) return false;
+    if (ref_guard_depth < 64) ref_guard[ref_guard_depth++] = t;
+    bool result = false;
     switch (t->kind) {
         case PP_TK_Reference:
-            return true;
+            result = true;
+            break;
         case PP_TK_Const:
-            return pp_type_contains_reference(t->type.pp_type_const.const_of);
+            result = pp_type_contains_reference(t->type.pp_type_const.const_of);
+            break;
         case PP_TK_Array:
-            return pp_type_contains_reference(t->type.pp_type_array.element_type);
+            result = pp_type_contains_reference(t->type.pp_type_array.element_type);
+            break;
         case PP_TK_List:
-            return pp_type_contains_reference(t->type.pp_type_list.element_type);
+            result = pp_type_contains_reference(t->type.pp_type_list.element_type);
+            break;
         case PP_TK_Newtype:
-            return pp_type_contains_reference(t->type.pp_type_newtype.underlying);
+            result = pp_type_contains_reference(t->type.pp_type_newtype.underlying);
+            break;
         case PP_TK_Struct:
             if (t->type.pp_type_struct.layout) {
                 for (size_t i = 0; i < t->type.pp_type_struct.layout->field_count; i++) {
                     if (pp_type_contains_reference(t->type.pp_type_struct.layout->fields[i].field_type)) {
-                        return true;
+                        result = true;
+                        break;
                     }
                 }
             }
-            return false;
+            break;
         case PP_TK_Function:
-            if (pp_type_contains_reference(t->type.pp_type_function.return_type)) return true;
-            for (size_t i = 0; i < t->type.pp_type_function.param_count; i++) {
-                if (pp_type_contains_reference(t->type.pp_type_function.param_types[i])) return true;
+            if (pp_type_contains_reference(t->type.pp_type_function.return_type)) result = true;
+            else {
+                for (size_t i = 0; i < t->type.pp_type_function.param_count; i++) {
+                    if (pp_type_contains_reference(t->type.pp_type_function.param_types[i])) { result = true; break; }
+                }
             }
-            return false;
+            break;
         case PP_TK_Lambda:
-            if (pp_type_contains_reference(t->type.pp_type_lambda.return_type)) return true;
-            for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
-                if (pp_type_contains_reference(t->type.pp_type_lambda.param_types[i])) return true;
+            if (pp_type_contains_reference(t->type.pp_type_lambda.return_type)) result = true;
+            else {
+                for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
+                    if (pp_type_contains_reference(t->type.pp_type_lambda.param_types[i])) { result = true; break; }
+                }
             }
-            return false;
+            break;
         default:
-            return false;
+            result = false;
+            break;
     }
+    if (ref_guard_depth > 0) ref_guard_depth--;
+    return result;
 }
 
 static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node) {
@@ -2225,8 +2244,8 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         }
 
         // Copyability check: if source is lvalue and type needs drop, ensure type is copyable
-        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_symbol_type) &&
-            !pp_type_is_copyable(decayed_symbol_type)) {
+        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_symbol_type, NULL) &&
+            !pp_type_is_copyable(decayed_symbol_type, NULL)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Cannot copy initialize variable \"%s\": type is move-only or contains "
                                      "non-copyable elements",
@@ -2396,8 +2415,8 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     }
 
     // Copyability check: if RHS is lvalue and LHS type needs drop, ensure type is copyable
-    if (rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_lhs_type) &&
-        !pp_type_is_copyable(decayed_lhs_type)) {
+    if (rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_lhs_type, NULL) &&
+        !pp_type_is_copyable(decayed_lhs_type, NULL)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Cannot assign from lvalue: type is move-only or contains non-copyable elements");
         goto error_cleanup;

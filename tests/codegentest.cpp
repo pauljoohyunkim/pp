@@ -1179,5 +1179,37 @@ TEST(CodeGenTest, ListOfListsCopyHelperGenerated) {
     assert_ir_contains(cg.get(), "list_copy_loop_cond");
 }
 
+TEST(CodeGenTest, RecursiveStructCopy) {
+    const char* source = "struct Node { v :: int32; kids :: [Node]; } func test_recursive_copy :: () -> void { let n1 :: Node; let n2 :: Node = n1; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_recursive_copy");
+    assert_ir_contains(cg.get(), "pp.copy.");
+    // Recursive copy helper should call itself for list element copy
+    assert_ir_contains(cg.get(), "call void @pp.copy.");
+}
+
+TEST(CodeGenTest, MutuallyRecursiveStructCopy) {
+    const char* source = "struct A { b :: [B]; } struct B { a :: [A]; } func test_mutual_copy :: () -> void { let a1 :: A; let b1 :: B; let b2 :: B = b1; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_mutual_copy");
+    assert_ir_contains(cg.get(), "pp.copy.");
+}
+
 
 

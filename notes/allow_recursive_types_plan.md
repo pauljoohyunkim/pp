@@ -17,9 +17,9 @@ Allow `struct S { s :: [S]; }` and mutually recursive structs by fixing per-type
 - [x] Ensure builder save/restore still works with forward declaration
 
 ### Step 2 – Verify codegen termination
-- [ ] Smoke test: `struct Node { v :: int32; kids :: [Node]; }` copy
-- [ ] Smoke test: mutually recursive `struct A { b :: [B]; }`, `struct B { a :: [A]; }`
-- [ ] Verify IR contains `pp.copy.Node` and recursive call to itself via cache
+- [x] Smoke test: `struct Node { v :: int32; kids :: [Node]; }` copy
+- [x] Smoke test: mutually recursive `struct A { b :: [B]; }`, `struct B { a :: [A]; }`
+- [x] Verify IR contains `pp.copy.Node` and recursive call to itself via cache
 
 ### Step 3 – Runtime semantics decision
 - [ ] Document current behavior: deep copy of cyclic owned graph may loop at runtime
@@ -27,9 +27,9 @@ Allow `struct S { s :: [S]; }` and mutually recursive structs by fixing per-type
 - [ ] Add test for tree copy 3 levels deep to ensure no leak/double free
 
 ### Step 4 – Tests
-- [ ] Add unit test `CodeGenTest.RecursiveStructCopy` 
-- [ ] Add unit test `CodeGenTest.MutuallyRecursiveStructCopy`
-- [ ] Run `make unittest`, verify pass
+- [x] Add unit test `CodeGenTest.RecursiveStructCopy` 
+- [x] Add unit test `CodeGenTest.MutuallyRecursiveStructCopy`
+- [x] Run `make unittest`, verify pass
 
 ### Step 5 – Documentation
 - [ ] Update `notes/list_copy_move_cache_plan.md` to note recursive types now supported
