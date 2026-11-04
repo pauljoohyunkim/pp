@@ -135,6 +135,14 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
         return;
     }
 
+    PP_TypeCacheEntry* entry = pp_code_generator_get_or_create_cache_entry(cg, type);
+    LLVMValueRef drop_fn = pp_code_generator_ensure_drop_fn(cg, entry);
+    if (drop_fn) {
+        LLVMValueRef args[1] = {address};
+        LLVMBuildCall2(cg->builder, LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), (LLVMTypeRef[1]){LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0)}, 1, 0), drop_fn, args, 1, "");
+        return;
+    }
+
     switch (type->kind) {
         case PP_TK_List: {
             const PPType* elem_type = type->type.pp_type_list.element_type;
@@ -2832,5 +2840,28 @@ static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_Ty
     LLVMBuildRetVoid(cg->builder);
     entry->copy_fn = func;
     return func;
+}
+
+static LLVMValueRef pp_code_generator_ensure_drop_fn(PP_CodeGenerator* cg, PP_TypeCacheEntry* entry) {
+    if (!cg || !entry) return NULL;
+    if (entry->drop_fn) return entry->drop_fn;
+    const PPType* type = entry->type;
+    if (!type) return NULL;
+    // Trivial types need no drop
+    if (!pp_type_needs_drop(type)) {
+        // Still create a no-op drop helper for uniformity
+        char name_buf[128];
+        snprintf(name_buf, sizeof(name_buf), "pp.drop.%p", (void*)type);
+        LLVMTypeRef param_types[1] = { LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0) };
+        LLVMTypeRef func_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), param_types, 1, 0);
+        LLVMValueRef func = LLVMAddFunction(cg->mod, name_buf, func_type);
+        LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "entry");
+        LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
+        LLVMBuildRetVoid(cg->builder);
+        entry->drop_fn = func;
+        return func;
+    }
+    // For non-trivial types we will generate later; for now return NULL to fall back to inline
+    return NULL;
 }
 
