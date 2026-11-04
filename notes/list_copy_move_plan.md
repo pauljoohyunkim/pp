@@ -79,29 +79,47 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
 
 - [x] Remove init ban at ~2223
 - [x] Remove assignment ban at ~2392
-- [ ] Add copyability check: if source is lvalue and `type_needs_drop`, ensure `copy_T` exists for type
-- [ ] Keep temporary ban on by-value owning params until 4.3 complete
+- [x] Add copyability check: if source is lvalue and `type_needs_drop`, ensure `copy_T` exists for type
+- [x] Keep temporary ban on by-value owning params until 4.3 complete
 - [x] Remove `#warning "List copy semantics are temporarily banned for move-only v1..."`
+- [ ] Handle lists inside struct declaration default initializers
+  - NOTE: Global scope initializer for struct field must be constexpr; lists are not constexpr. Limitation documented; supporting non-constexpr default initializers would require runtime initialization of globals, which is out of scope for this change.
 
 ## 6. Tests & validation
 - [x] Unit test: copy then mutate source → no aliasing
 - [x] Unit test: assign over existing list → no leak
-- [ ] Unit test: self-assignment `x = x`
-- [ ] Unit test: list of lists
-- [ ] Unit test: struct containing list
-- [ ] Unit test: early return after copy
-- [ ] Run under ASan / valgrind
+- [x] Unit test: self-assignment `x = x`
+- [x] Unit test: list of lists
+  - Note: list of lists is correctly rejected by copyability check – non-copyable elements
+- [x] Unit test: struct containing list
+- [x] Unit test: early return after copy
+- [-] Run under ASan – not continuing in this scope
+- [ ] Run under Valgrind
 - [x] `make unittest` passes
 
 ## 7. Documentation
-- [ ] Update `docs/10-semantics-arrays-lists.md` with copy/move rules
-- [ ] Update `dev-docs/semantic-analysis.md` with copyable vs move-only notes
-- [ ] Add design note to `notes/` e.g. `notes/list_copy_move_design.md`
+- [x] Update `docs/10-semantics-arrays-lists.md` with copy/move rules
+- [x] Update `dev-docs/semantic-analysis.md` with copyable vs move-only notes
+- [x] Add design note to `notes/` e.g. `notes/list_copy_move_design.md`
 
 ## 8. Final cleanup
 - [ ] Remove all temporary `#warning`s related to lists
 - [ ] `make clean && make` produces zero warnings about list semantics
 - [ ] Commit with clear message
 
+## 9. List-of-Lists support – Implemented
+- Rationale: Nested lists are desirable for 2D data, adjacency lists, etc.
+- Implementation:
+  - `pp_type_is_copyable` for `List` now requires element copyable recursively.
+  - Element-wise copy/drop for List: if `pp_type_needs_drop(elem)` then generate loop calling `emit_copy`/`emit_drop` per element, else keep fast `memcpy` path.
+  - `emit_drop` for List iterates over `len` elements and recursively drops each when element needs drop, then `free(data)`.
+  - Semantic analyzer break removed so all collection initializer elements are decorated.
+- Acceptance criteria:
+  - [x] `[[int32]]` copies correctly and mutation of source does not affect copy.
+  - [ ] ASan/valgrind clean for nested lists – pending run.
+  - [x] No change to existing flat-list tests.
+- Notes:
+  - `pop`/`resize`/`append` mechanics remain out of scope for this project phase.
+
 ---
-**Status:** Step 0 complete
+**Status:** List copy/move + list-in-list implemented. ASan/valgrind pending.

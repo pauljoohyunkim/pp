@@ -194,3 +194,40 @@ bool pp_type_is_trivially_copyable(const PPType* type) {
             return false;
     }
 }
+
+bool pp_type_is_copyable(const PPType* type) {
+    if (type == NULL) return false;
+    if (pp_type_is_reference(type)) return false;
+    // Trivially copyable types are always copyable
+    if (pp_type_is_trivially_copyable(type)) return true;
+    // Types that need drop must be checked for deep-copy support
+    if (!pp_type_needs_drop(type)) return true; // No ownership, trivially copyable already handled
+    switch (type->kind) {
+        case PP_TK_List: {
+            const PPType* elem = type->type.pp_type_list.element_type;
+            // List is copyable if its element type is copyable
+            // Element-wise copy will be implemented in codegen
+            if (!pp_type_is_copyable(elem)) return false;
+            return true;
+        }
+        case PP_TK_Struct: {
+            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+            if (!layout) return false;
+            for (size_t i = 0; i < layout->field_count; i++) {
+                const PPType* ft = layout->fields[i].field_type;
+                if (!pp_type_is_copyable(ft)) return false;
+            }
+            return true;
+        }
+        case PP_TK_Newtype:
+            return pp_type_is_copyable(type->type.pp_type_newtype.underlying);
+        case PP_TK_Const:
+            return pp_type_is_copyable(type->type.pp_type_const.const_of);
+        case PP_TK_Array: {
+            return pp_type_is_copyable(type->type.pp_type_array.element_type);
+        }
+        default:
+            // Types that need drop but are not handled are move-only
+            return false;
+    }
+}

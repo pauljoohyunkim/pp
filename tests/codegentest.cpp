@@ -48,7 +48,9 @@ static PP_CodeGenerator* run_codegen(const char* source, int& lexer_errors, int&
         codegen_result = 0;
         return nullptr;
     }
-    // sa ownership transferred to cg, so we must not free sa
+    // sa ownership transferred to cg, but cg does not free the analyzer struct itself.
+    // Free the analyzer struct now to avoid leak in the test harness.
+    pp_semantic_analyzer_free(sa_raw);
     codegen_result = pp_code_generator_generate(cg_raw);
     return cg_raw;
 }
@@ -1069,4 +1071,63 @@ TEST(CodeGenTest, StructInitCopy) {
     assert_ir_contains(cg.get(), "call ptr @memcpy");
     assert_ir_contains(cg.get(), "call void @free");
 }
+
+TEST(CodeGenTest, SelfAssignmentNoop) {
+    const char* source =
+        "func test_self_assign :: () -> int32 { let a :: [int32] = [int32; 1, 2, 3]; a = a; return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_self_assign");
+    assert_ir_contains(cg.get(), "%pp.list");
+    // Self-assignment should be a no-op: no memcpy for the self-assign
+    assert_ir_not_contains(cg.get(), "list_copy_nonempty");
+}
+
+TEST(CodeGenTest, EarlyReturnAfterCopy) {
+    const char* source =
+        "func test_early_return :: () -> int32 { let a :: [int32] = [int32; 1,2,3]; let b :: [int32] = a; if (true) { return b[0u]; } return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_early_return");
+    assert_ir_contains(cg.get(), "%pp.list");
+    assert_ir_contains(cg.get(), "call ptr @malloc");
+    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "call void @free");
+}
+
+TEST(CodeGenTest, ListOfListsDeepCopy) {
+    const char* source =
+        "func test_deep :: () -> int32 { let a :: [[int32]] = [[int32]; [int32; 1,2], [int32; 3,4]]; let b :: [[int32]] = a; a[0u][0u] = 99; return b[0u][0u]; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_deep");
+    assert_ir_contains(cg.get(), "%pp.list");
+    assert_ir_contains(cg.get(), "call ptr @malloc");
+    // Deep copy of list of lists should emit a loop for inner copies
+    assert_ir_contains(cg.get(), "list_copy_loop_cond");
+    assert_ir_contains(cg.get(), "call void @free");
+}
+
+
 
