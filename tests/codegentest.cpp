@@ -1107,4 +1107,25 @@ TEST(CodeGenTest, EarlyReturnAfterCopy) {
     assert_ir_contains(cg.get(), "call void @free");
 }
 
+TEST(CodeGenTest, ListOfListsDeepCopy) {
+    const char* source =
+        "func test_deep :: () -> int32 { let a :: [[int32]] = [[int32]; [int32; 1,2], [int32; 3,4]]; let b :: [[int32]] = a; a[0u][0u] = 99; return b[0u][0u]; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "@test_deep");
+    assert_ir_contains(cg.get(), "%pp.list");
+    assert_ir_contains(cg.get(), "call ptr @malloc");
+    // Deep copy of list of lists should emit a loop for inner copies
+    assert_ir_contains(cg.get(), "list_copy_loop_cond");
+    assert_ir_contains(cg.get(), "call void @free");
+}
+
+
 

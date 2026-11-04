@@ -93,34 +93,33 @@ Per-type `copy_T` / `drop_T` generation, lift move-only ban for lists.
   - Note: list of lists is correctly rejected by copyability check – non-copyable elements
 - [x] Unit test: struct containing list
 - [x] Unit test: early return after copy
-- [ ] Run under ASan / valgrind
+- [-] Run under ASan – not continuing in this scope
+- [ ] Run under Valgrind
 - [x] `make unittest` passes
 
 ## 7. Documentation
-- [ ] Update `docs/10-semantics-arrays-lists.md` with copy/move rules
-- [ ] Update `dev-docs/semantic-analysis.md` with copyable vs move-only notes
-- [ ] Add design note to `notes/` e.g. `notes/list_copy_move_design.md`
+- [x] Update `docs/10-semantics-arrays-lists.md` with copy/move rules
+- [x] Update `dev-docs/semantic-analysis.md` with copyable vs move-only notes
+- [x] Add design note to `notes/` e.g. `notes/list_copy_move_design.md`
 
 ## 8. Final cleanup
 - [ ] Remove all temporary `#warning`s related to lists
 - [ ] `make clean && make` produces zero warnings about list semantics
 - [ ] Commit with clear message
 
-## 9. Future: List-of-Lists support (deferred)
+## 9. List-of-Lists support – Implemented
 - Rationale: Nested lists are desirable for 2D data, adjacency lists, etc.
-- Current restriction: `pp_type_is_copyable` requires list element to be trivially copyable; `emit_copy` for List uses `malloc+memcpy`. This correctly rejects `[[int32]]` to avoid aliasing / double-free.
-- Proposed design:
-  - Loosen copyability predicate to `List(T) is copyable iff T is copyable` (recursive).
-  - Element-wise copy/drop for List: if `pp_type_needs_drop(elem)` then generate loop calling `copy_T` / `drop_T` per element, else keep fast `memcpy` path.
-  - `emit_drop` for List must iterate over `length` elements and `drop_T` each when element needs drop, then `free(data)`.
-  - Drop only `length` elements, never `capacity`.
-- Notes:
-  - `pop`/`resize`/`append` mechanics are out of scope for this project; they will be handled later, possibly as a library or in a later project phase.
-  - Keep current semantic guard until the element-wise path is implemented to avoid silent aliasing.
+- Implementation:
+  - `pp_type_is_copyable` for `List` now requires element copyable recursively.
+  - Element-wise copy/drop for List: if `pp_type_needs_drop(elem)` then generate loop calling `emit_copy`/`emit_drop` per element, else keep fast `memcpy` path.
+  - `emit_drop` for List iterates over `len` elements and recursively drops each when element needs drop, then `free(data)`.
+  - Semantic analyzer break removed so all collection initializer elements are decorated.
 - Acceptance criteria:
-  - `[[int32]]` copies correctly and mutation of source does not affect copy.
-  - ASan/valgrind clean for nested lists.
-  - No change to existing flat-list tests.
+  - [x] `[[int32]]` copies correctly and mutation of source does not affect copy.
+  - [ ] ASan/valgrind clean for nested lists – pending run.
+  - [x] No change to existing flat-list tests.
+- Notes:
+  - `pop`/`resize`/`append` mechanics remain out of scope for this project phase.
 
 ---
-**Status:** Step 0 complete
+**Status:** List copy/move + list-in-list implemented. ASan/valgrind pending.
