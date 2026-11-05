@@ -156,21 +156,35 @@ Design decisions documented:
 - [x] Valgrind clean for ListOfListsDeepCopy – skipped for now, tests pass
 
 ### Runtime semantics
-- [ ] Document current behavior for deep copy of cyclic owned graph may loop at runtime
-- [ ] Decide if runtime guard needed or acceptable limitation
-- [ ] Add test for tree copy 3 levels deep to ensure no leak/double free
+- [x] Document current behavior for deep copy of cyclic owned graph may loop at runtime
+- [x] Decide if runtime guard needed or acceptable limitation – documented as UB
+- [x] Add test for tree copy 3 levels deep to ensure no leak/double free
+
+**Runtime semantics note**
+The compiler now allows `struct S { s :: [S]; }`. Codegen terminates via declare-then-body caching. At runtime, deep copy will recursively follow pointers. If the user builds a cycle via mutation, e.g.
+
+```pp
+struct Node { v :: int32; kids :: [Node]; }
+let n1 :: Node = Node{ .v = 1, .kids = [Node : 0u] };
+let n2 :: Node = Node{ .v = 2, .kids = [Node : 1u; n1] };
+n1.kids[0u] = n2;   // creates cycle
+let copy :: Node = n1;     // deep copy -> infinite recursion / UB
+```
+
+The copy routine will loop forever / stack overflow because there is no runtime visited set. This is a runtime issue, not catchable at semantic analysis time because cycles can be created via mutation after the fact. Treated as undefined behavior for now.
+
 
 ### Documentation updates
-- [ ] Update `notes/list_copy_move_cache_plan.md` to note recursive types now supported
-- [ ] Update notebook page `list-copy-recursive-codegen`
-- [ ] Update `docs/10-semantics-arrays-lists.md` with recursive type support notes
-- [ ] Update `dev-docs/semantic-analysis.md` with copyable vs move-only notes
-- [ ] Ensure `notes/allow_recursive_types_plan.md` Step 5 documentation marked complete
+- [x] Update `notes/list_copy_move_cache_plan.md` to note recursive types now supported
+- [x] Update notebook page `list-copy-recursive-codegen`
+- [x] Update `docs/10-semantics-arrays-lists.md` with recursive type support notes
+- [x] Update `dev-docs/semantic-analysis.md` with copyable vs move-only notes
+- [x] Ensure `notes/allow_recursive_types_plan.md` Step 5 documentation marked complete
 
 ### Cleanup
-- [ ] Remove all temporary `#warning`s related to list semantics
-- [ ] `make clean && make` produces zero warnings about list semantics
-- [ ] Verify no unused visitation state code remains
+- [x] Remove all temporary `#warning`s related to list semantics
+- [x] `make clean && make` produces zero warnings about list semantics
+- [x] Verify no unused visitation state code remains
 
 ### Notes files review
 - [ ] Re-read `notes/allow_recursive_types_plan.md` for open items
