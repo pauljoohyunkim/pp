@@ -754,17 +754,6 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
     cg->sp = sa->sp;
     sa->sp = NULL;
 
-    // Allocate type visitation state for cycle-safe copy/drop checks
-    {
-        size_t gtt_size = cg->gtt ? cg->gtt->type_count : 0;
-        cg->type_visit_count = gtt_size;
-        if (gtt_size > 0) {
-            cg->type_visit = (PP_TypeVisitState*)calloc(gtt_size, sizeof(PP_TypeVisitState));
-        } else {
-            cg->type_visit = NULL;
-        }
-    }
-
     assert(sa->current_function_type == NULL);
     cg->current_function_type = NULL;
 
@@ -817,7 +806,6 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         free(cg->drop_stack_addresses);
         free(cg->drop_stack_types);
         free(cg->type_cache);
-        free(cg->type_visit);
     }
     free(cg);
     LLVMShutdown();

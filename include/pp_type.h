@@ -107,7 +107,6 @@ int pp_type_push_param(PPType* type, const PPType* param_type);
 bool pp_type_is_const(const PPType* type);
 bool pp_type_is_reference(const PPType* type);
 bool pp_type_is_numerical(const PPType* type);
-typedef enum { PP_TYPE_VISIT_UNVISITED, PP_TYPE_VISIT_RESOLVING, PP_TYPE_VISIT_RESOLVED } PP_TypeVisitState;
 bool pp_type_needs_drop(const PPType* type);
 bool pp_type_is_trivially_copyable(const PPType* type);
 bool pp_type_is_copyable(const PPType* type);
