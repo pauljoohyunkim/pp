@@ -10,6 +10,7 @@ Move copy/drop emission out of the inline `pp_code_generator_emit_copy` / `pp_co
 - `pp_code_generator_ensure_copy_fn` generates trivial-type helpers only.
 - `pp_code_generator_ensure_drop_fn` generates no-op helpers for non-needing-drop types only.
 - `emit_copy` / `emit_drop` lookup cache and call helper when present.
+- **Recursive types now supported via declare-then-body codegen.**
 
 Tests pass with trivial-only caching.
 
@@ -45,7 +46,8 @@ Tests pass with trivial-only caching.
 ### Step 6 – Testing
 - [x] `make && make unittest` passes
 - [ ] Valgrind clean on ListOfListsDeepCopy
-- [ ] Inspect LLVM IR for helper deduplication
+- [x] Inspect LLVM IR for helper deduplication
+- [x] Recursive types supported: `struct Node { kids :: [Node]; }` compiles and emits `pp.copy.Node` with recursive call
 
 ### Step 7 – Optional improvements
 - [ ] Hash map cache

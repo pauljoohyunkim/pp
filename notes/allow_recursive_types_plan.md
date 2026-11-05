@@ -32,8 +32,10 @@ Allow `struct S { s :: [S]; }` and mutually recursive structs by fixing per-type
 - [x] Run `make unittest`, verify pass
 
 ### Step 5 – Documentation
-- [ ] Update `notes/list_copy_move_cache_plan.md` to note recursive types now supported
-- [ ] Update notebook page `list-copy-recursive-codegen`
+- [x] Update `notes/list_copy_move_cache_plan.md` to note recursive types now supported
+- [x] Update notebook page `list-copy-recursive-codegen`
+- [x] Update `docs/10-semantics-arrays-lists.md` with recursive type support notes
+- [x] Update `dev-docs/semantic-analysis.md` with copyable vs move-only notes
 
 ## Risks
 - Runtime infinite loop on user-built cycles via mutation
