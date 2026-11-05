@@ -125,8 +125,6 @@ static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merg
 }
 
 static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
-    /* TODO: Defer per-type drop_T / copy_T generation caching. Current implementation inlines emit_drop/emit_copy.
-     * Caching per PPType* would reduce code bloat and improve consistency. */
     if (cg == NULL || address == NULL || type == NULL) return;
     if (pp_type_is_reference(type)) return;
 
@@ -2836,12 +2834,14 @@ static PP_TypeCacheEntry* pp_code_generator_find_cache_entry(PP_CodeGenerator* c
 
 static PP_TypeCacheEntry* pp_code_generator_get_or_create_cache_entry(PP_CodeGenerator* cg, const PPType* type) {
     if (!cg || !type) return NULL;
-    PP_TypeCacheEntry* entry = pp_code_generator_find_cache_entry(cg, type);
+    PP_TypeCacheEntry* entry = NULL;
+    PP_TypeCacheEntry* new_buf = NULL;
+    entry = pp_code_generator_find_cache_entry(cg, type);
     if (entry) return entry;
     if (cg->type_cache_count == cg->type_cache_capacity) {
         size_t new_cap = cg->type_cache_capacity ? cg->type_cache_capacity * 2 : 8;
-        PP_TypeCacheEntry* new_buf = (PP_TypeCacheEntry*)realloc(cg->type_cache, new_cap * sizeof(PP_TypeCacheEntry));
-        if (!new_buf) return NULL;
+        new_buf = (PP_TypeCacheEntry*)realloc(cg->type_cache, new_cap * sizeof(PP_TypeCacheEntry));
+        if (!new_buf) goto error_cleanup;
         cg->type_cache = new_buf;
         cg->type_cache_capacity = new_cap;
     }
@@ -2851,6 +2851,8 @@ static PP_TypeCacheEntry* pp_code_generator_get_or_create_cache_entry(PP_CodeGen
     entry->copy_fn = NULL;
     entry->drop_fn = NULL;
     return entry;
+error_cleanup:
+    return NULL;
 }
 
 static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type) {
