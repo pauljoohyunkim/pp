@@ -909,4 +909,34 @@ TEST(SemanticTest, GlobalScopeCallError) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, HashLengthOperatorValid) {
+    const char* source =
+        "func main :: () -> uint32 {\n"
+        "    let arr :: [int32 : 5u];\n"
+        "    let lst :: [int32];\n"
+        "    let a :: uint32 = #arr;\n"
+        "    let b :: uint32 = #lst;\n"
+        "    return a;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HashLengthOperatorInvalid) {
+    const char* source =
+        "func main :: () -> uint32 {\n"
+        "    let x :: int32 = 5;\n"
+        "    let y :: uint32 = #x;\n"
+        "    return y;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
 

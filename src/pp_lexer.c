@@ -174,6 +174,10 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 if (!pp_lexer_push_token_helper(lexer, PP_TT_PERIOD, 1)) return 0;
                 advance_pp(lexer, 1);
                 break;
+            case '#':
+                if (!pp_lexer_push_token_helper(lexer, PP_TT_HASH, 1)) return 0;
+                advance_pp(lexer, 1);
+                break;
             case ',':
                 if (!pp_lexer_push_token_helper(lexer, PP_TT_COMMA, 1)) return 0;
                 advance_pp(lexer, 1);

@@ -5,6 +5,11 @@ Binary and unary operators require compatible operand types.
 
 Rules:
 - Arithmetic `+ - * / %` require numeric types.
+- Unary `-` requires numeric types, result same type.
+- Unary `!` requires `bool`, result `bool`.
+- Unary `#` requires `array` or `list`, result `uint32`.
+  - Array length is compile-time constant from type size.
+  - List length is runtime value loaded from list handle.
 - Bitwise `& | ^` require integer types.
 - Bitshift `<< >>` require `uint32` operands, result `uint32`. Shift amount `>= 32` is defined to yield `0`; otherwise the shift is logical and the result is truncated to 32 bits. Compound forms `<<=` `>>=` are allowed only for `uint32`.
 - Comparison `== != < > <= >=` require comparable types, result `bool`.

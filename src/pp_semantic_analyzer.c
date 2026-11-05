@@ -3224,6 +3224,15 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                 goto error_cleanup;
             }
             break;
+        case PP_TT_HASH:
+            if (decayed_operand_type->kind == PP_TK_Array || decayed_operand_type->kind == PP_TK_List) {
+                unary_type = pp_type_create(PP_TK_UInt32);
+            } else {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Unary operator '#' requires array or list");
+                goto error_cleanup;
+            }
+            break;
         default:
             abort();
     }

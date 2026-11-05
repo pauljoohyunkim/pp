@@ -58,6 +58,8 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return ";";
         case PP_TT_PERIOD:
             return ".";
+        case PP_TT_HASH:
+            return "#";
         case PP_TT_COMMA:
             return ",";
         case PP_TT_COLON:

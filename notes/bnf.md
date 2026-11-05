@@ -114,7 +114,8 @@
 <cast_expr>                 ::= <unary> "as" <type> 
                               | <unary>
 
-<unary>                     ::= "-" <postfix> 
+<unary>                     ::= "#" <postfix> 
+                              | "-" <postfix> 
                               | "!" <postfix> 
                               | <postfix>
 
