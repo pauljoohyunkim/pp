@@ -50,4 +50,4 @@ Tests pass with trivial-only caching.
 ### Step 7 – Optional improvements
 - [ ] Hash map cache
 - [ ] Generation stats
-- [ ] Recursion guard
+- [x] Recursion guard

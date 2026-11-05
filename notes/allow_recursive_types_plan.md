@@ -49,12 +49,12 @@ Branch: `allow-recursive-types-clean` from `75483d6`
 Goal: remove `__thread` guard stacks and use per-call explicit stacks.
 
 ### Step 6 – Static-free cycle detection for semantic checks
-- [ ] Replace `__thread guard_stack/guard_depth` in `src/pp_type.c` with local stack passed to impl functions
-- [ ] Refactor `pp_type_needs_drop`, `pp_type_is_copyable`, `pp_type_is_trivially_copyable` to use `_impl(type, const PPType** stack, int depth)` with small fixed stack
-- [ ] Remove `__thread ref_guard` from `src/pp_semantic_analyzer.c` and use local stack for `pp_type_contains_reference`
-- [ ] Ensure codegen path with `PP_TypeVisitState*` remains unchanged
-- [ ] Build and run `make unittest`, verify no regression
-- [ ] Search for remaining `__thread` guard usage and eliminate
+- [x] Replace `__thread guard_stack/guard_depth` in `src/pp_type.c` with local stack passed to impl functions
+- [x] Refactor `pp_type_needs_drop`, `pp_type_is_copyable`, `pp_type_is_trivially_copyable` to use `_impl(type, const PPType** stack, int depth)` with small fixed stack
+- [x] Remove `__thread ref_guard` from `src/pp_semantic_analyzer.c` and use local stack for `pp_type_contains_reference`
+- [x] Ensure codegen path with `PP_TypeVisitState*` remains unchanged
+- [x] Build and run `make unittest`, verify no regression
+- [x] Search for remaining `__thread` guard usage and eliminate
 
 
 ## Success Criteria
