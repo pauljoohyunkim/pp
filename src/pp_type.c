@@ -148,69 +148,11 @@ bool pp_type_is_numerical(const PPType* type) {
     }
 }
 
-__thread PP_GlobalTypeTable* pp_type_current_gtt = NULL;
-
-static ssize_t pp_type_find_index(const PPType* type) {
-    if (!pp_type_current_gtt || !type) return -1;
-    for (size_t i = 0; i < pp_type_current_gtt->type_count; i++) {
-        if (pp_type_current_gtt->types[i] == type) return (ssize_t)i;
-    }
-    return -1;
-}
-
 bool pp_type_needs_drop(const PPType* type, PP_TypeVisitState* visited) {
+    (void)visited;
     if (type == NULL) return false;
-
-    if (!visited) {
-        const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
-        return pp_type_needs_drop_impl(type, stack, 0);
-    }
-
-    ssize_t idx = pp_type_find_index(type);
-    if (idx >= 0) {
-        if (visited[idx] == PP_TYPE_VISIT_RESOLVING) return false;
-        if (visited[idx] == PP_TYPE_VISIT_RESOLVED) {
-            // already computed, assume false for cycle break
-            return false;
-        }
-        visited[idx] = PP_TYPE_VISIT_RESOLVING;
-    }
-
-    bool result = false;
-    switch (type->kind) {
-        case PP_TK_List:
-            result = true;
-            break;
-        case PP_TK_Const:
-            result = pp_type_needs_drop(type->type.pp_type_const.const_of, visited);
-            break;
-        case PP_TK_Array:
-            result = pp_type_needs_drop(type->type.pp_type_array.element_type, visited);
-            break;
-        case PP_TK_Newtype:
-            result = pp_type_needs_drop(type->type.pp_type_newtype.underlying, visited);
-            break;
-        case PP_TK_Struct: {
-            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
-            if (!layout) {
-                result = false;
-                break;
-            }
-            for (size_t i = 0; i < layout->field_count; i++) {
-                if (pp_type_needs_drop(layout->fields[i].field_type, visited)) {
-                    result = true;
-                    break;
-                }
-            }
-            break;
-        }
-        default:
-            result = false;
-            break;
-    }
-
-    if (idx >= 0) visited[idx] = PP_TYPE_VISIT_RESOLVED;
-    return result;
+    const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
+    return pp_type_needs_drop_impl(type, stack, 0);
 }
 
 static bool pp_type_needs_drop_impl(const PPType* type, const PPType** stack, int depth) {
@@ -255,6 +197,7 @@ bool pp_type_is_trivially_copyable(const PPType* type) {
 }
 
 bool pp_type_is_copyable(const PPType* type, PP_TypeVisitState* visited) {
+    (void)visited;
     if (type == NULL) return false;
     if (pp_type_is_reference(type)) return false;
     // Trivially copyable types are always copyable
@@ -262,58 +205,8 @@ bool pp_type_is_copyable(const PPType* type, PP_TypeVisitState* visited) {
     // Types that need drop must be checked for deep-copy support
     if (!pp_type_needs_drop(type, visited)) return true;  // No ownership, trivially copyable already handled
 
-    if (!visited) {
-        const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
-        return pp_type_is_copyable_impl(type, stack, 0);
-    }
-
-    ssize_t idx = pp_type_find_index(type);
-    if (idx >= 0) {
-        if (visited[idx] == PP_TYPE_VISIT_RESOLVING) return true;
-        if (visited[idx] == PP_TYPE_VISIT_RESOLVED) return true;
-        visited[idx] = PP_TYPE_VISIT_RESOLVING;
-    }
-
-    bool result;
-    switch (type->kind) {
-        case PP_TK_List: {
-            const PPType* elem = type->type.pp_type_list.element_type;
-            result = pp_type_is_copyable(elem, visited);
-            break;
-        }
-        case PP_TK_Struct: {
-            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
-            if (!layout) {
-                result = false;
-                break;
-            }
-            result = true;
-            for (size_t i = 0; i < layout->field_count; i++) {
-                const PPType* ft = layout->fields[i].field_type;
-                if (!pp_type_is_copyable(ft, visited)) {
-                    result = false;
-                    break;
-                }
-            }
-            break;
-        }
-        case PP_TK_Newtype:
-            result = pp_type_is_copyable(type->type.pp_type_newtype.underlying, visited);
-            break;
-        case PP_TK_Const:
-            result = pp_type_is_copyable(type->type.pp_type_const.const_of, visited);
-            break;
-        case PP_TK_Array: {
-            result = pp_type_is_copyable(type->type.pp_type_array.element_type, visited);
-            break;
-        }
-        default:
-            result = false;
-            break;
-    }
-
-    if (idx >= 0) visited[idx] = PP_TYPE_VISIT_RESOLVED;
-    return result;
+    const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
+    return pp_type_is_copyable_impl(type, stack, 0);
 }
 
 static bool pp_type_is_copyable_impl(const PPType* type, const PPType** stack, int depth) {

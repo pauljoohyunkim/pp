@@ -12,8 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-extern __thread PP_GlobalTypeTable* pp_type_current_gtt;
-
 static PP_Environment_Backend* pp_environment_backend_enter_scope(const PP_Environment_Backend* current_env_b);
 static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
@@ -765,8 +763,6 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
         } else {
             cg->type_visit = NULL;
         }
-        // Set current type table for type predicates
-        pp_type_current_gtt = cg->gtt;
     }
 
     assert(sa->current_function_type == NULL);
