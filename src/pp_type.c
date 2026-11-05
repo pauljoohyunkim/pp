@@ -1,9 +1,10 @@
 #include "pp_type.h"
-#include "pp_type_table.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
+
+#include "pp_type_table.h"
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
@@ -191,9 +192,15 @@ bool pp_type_needs_drop(const PPType* type, PP_TypeVisitState* visited) {
             break;
         case PP_TK_Struct: {
             const PP_StructLayout* layout = type->type.pp_type_struct.layout;
-            if (!layout) { result = false; break; }
+            if (!layout) {
+                result = false;
+                break;
+            }
             for (size_t i = 0; i < layout->field_count; i++) {
-                if (pp_type_needs_drop(layout->fields[i].field_type, visited)) { result = true; break; }
+                if (pp_type_needs_drop(layout->fields[i].field_type, visited)) {
+                    result = true;
+                    break;
+                }
             }
             break;
         }
@@ -276,11 +283,17 @@ bool pp_type_is_copyable(const PPType* type, PP_TypeVisitState* visited) {
         }
         case PP_TK_Struct: {
             const PP_StructLayout* layout = type->type.pp_type_struct.layout;
-            if (!layout) { result = false; break; }
+            if (!layout) {
+                result = false;
+                break;
+            }
             result = true;
             for (size_t i = 0; i < layout->field_count; i++) {
                 const PPType* ft = layout->fields[i].field_type;
-                if (!pp_type_is_copyable(ft, visited)) { result = false; break; }
+                if (!pp_type_is_copyable(ft, visited)) {
+                    result = false;
+                    break;
+                }
             }
             break;
         }

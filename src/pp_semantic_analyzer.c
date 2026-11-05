@@ -3,10 +3,10 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include <stdio.h>
 
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
@@ -366,7 +366,8 @@ static bool pp_type_contains_reference_impl(const PPType* t, const PPType** stac
         case PP_TK_Struct:
             if (t->type.pp_type_struct.layout) {
                 for (size_t i = 0; i < t->type.pp_type_struct.layout->field_count; i++) {
-                    if (pp_type_contains_reference_impl(t->type.pp_type_struct.layout->fields[i].field_type, stack, depth + 1)) {
+                    if (pp_type_contains_reference_impl(t->type.pp_type_struct.layout->fields[i].field_type, stack,
+                                                        depth + 1)) {
                         result = true;
                         break;
                     }
@@ -374,18 +375,26 @@ static bool pp_type_contains_reference_impl(const PPType* t, const PPType** stac
             }
             break;
         case PP_TK_Function:
-            if (pp_type_contains_reference_impl(t->type.pp_type_function.return_type, stack, depth + 1)) result = true;
+            if (pp_type_contains_reference_impl(t->type.pp_type_function.return_type, stack, depth + 1))
+                result = true;
             else {
                 for (size_t i = 0; i < t->type.pp_type_function.param_count; i++) {
-                    if (pp_type_contains_reference_impl(t->type.pp_type_function.param_types[i], stack, depth + 1)) { result = true; break; }
+                    if (pp_type_contains_reference_impl(t->type.pp_type_function.param_types[i], stack, depth + 1)) {
+                        result = true;
+                        break;
+                    }
                 }
             }
             break;
         case PP_TK_Lambda:
-            if (pp_type_contains_reference_impl(t->type.pp_type_lambda.return_type, stack, depth + 1)) result = true;
+            if (pp_type_contains_reference_impl(t->type.pp_type_lambda.return_type, stack, depth + 1))
+                result = true;
             else {
                 for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
-                    if (pp_type_contains_reference_impl(t->type.pp_type_lambda.param_types[i], stack, depth + 1)) { result = true; break; }
+                    if (pp_type_contains_reference_impl(t->type.pp_type_lambda.param_types[i], stack, depth + 1)) {
+                        result = true;
+                        break;
+                    }
                 }
             }
             break;
@@ -2256,8 +2265,8 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         }
 
         // Copyability check: if source is lvalue and type needs drop, ensure type is copyable
-        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_symbol_type, NULL) &&
-            !pp_type_is_copyable(decayed_symbol_type, NULL)) {
+        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE &&
+            pp_type_needs_drop(decayed_symbol_type, NULL) && !pp_type_is_copyable(decayed_symbol_type, NULL)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Cannot copy initialize variable \"%s\": type is move-only or contains "
                                      "non-copyable elements",
