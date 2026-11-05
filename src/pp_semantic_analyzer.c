@@ -330,7 +330,7 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
 
 static bool pp_type_contains_reference(const PPType* t) {
     if (!t) return false;
-    const PPType* stack[128];
+    const PPType* stack[128] = {0};
     return pp_type_contains_reference_impl(t, stack, 0);
 }
 

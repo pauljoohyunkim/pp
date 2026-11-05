@@ -11,6 +11,9 @@
     } while (0)
 
 #define PP_TYPE_VISIT_STACK_MAX 128
+#if PP_TYPE_VISIT_STACK_MAX < 256
+#warning "PP_TYPE_VISIT_STACK_MAX is < 256; consider increasing for deep type graphs"
+#endif
 
 static bool pp_type_needs_drop_impl(const PPType* type, const PPType** stack, int depth);
 static bool pp_type_is_copyable_impl(const PPType* type, const PPType** stack, int depth);
@@ -158,7 +161,7 @@ bool pp_type_needs_drop(const PPType* type, PP_TypeVisitState* visited) {
     if (type == NULL) return false;
 
     if (!visited) {
-        const PPType* stack[PP_TYPE_VISIT_STACK_MAX];
+        const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
         return pp_type_needs_drop_impl(type, stack, 0);
     }
 
@@ -240,7 +243,7 @@ static bool pp_type_needs_drop_impl(const PPType* type, const PPType** stack, in
 
 bool pp_type_is_trivially_copyable(const PPType* type) {
     if (type == NULL) return false;
-    const PPType* stack[PP_TYPE_VISIT_STACK_MAX];
+    const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
     return pp_type_is_trivially_copyable_impl(type, stack, 0);
 }
 
@@ -253,7 +256,7 @@ bool pp_type_is_copyable(const PPType* type, PP_TypeVisitState* visited) {
     if (!pp_type_needs_drop(type, visited)) return true;  // No ownership, trivially copyable already handled
 
     if (!visited) {
-        const PPType* stack[PP_TYPE_VISIT_STACK_MAX];
+        const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
         return pp_type_is_copyable_impl(type, stack, 0);
     }
 
