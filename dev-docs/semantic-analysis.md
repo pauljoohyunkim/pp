@@ -38,8 +38,9 @@
 - `pp_type_needs_drop` identifies owning types: List, Struct containing owning fields, Array of owning elements, Newtype wrappers.
 - `pp_type_is_copyable` determines whether a type can be deep-copied:
   - Trivially copyable types are copyable.
-  - `List(T)` is copyable iff `T` is copyable and currently required to be trivially copyable for the fast-path `malloc+memcpy` implementation.
+  - `List(T)` is copyable iff `T` is copyable.
   - `Struct` is copyable iff all fields are copyable.
+  - Recursive owned types are now allowed. Cycle detection for type predicates uses per-call explicit stacks, not static globals. Deep copy of a cyclic owned graph at runtime is undefined behavior.
 - Semantic checks:
   - Variable initialization: if initializer is lvalue and target type needs drop, require `pp_type_is_copyable` else error "Cannot copy initialize … type is move-only or contains non-copyable elements".
   - Assignment: if RHS is lvalue and LHS type needs drop, require `pp_type_is_copyable` else error "Cannot assign from lvalue: type is move-only or contains non-copyable elements".
