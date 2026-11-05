@@ -420,6 +420,19 @@ static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, 
             }
             break;
         }
+        case PP_TK_Array: {
+            const PPType* elem_type = type->type.pp_type_array.element_type;
+            size_t arr_size = type->type.pp_type_array.size;
+            LLVMTypeRef llvm_array_type = pp_environment_backend_lookup_type(cg, type);
+            if (!llvm_array_type) break;
+            for (size_t i = 0; i < arr_size; i++) {
+                LLVMValueRef idx = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), i, 0);
+                LLVMValueRef elem_dst = LLVMBuildGEP2(cg->builder, llvm_array_type, dst, &idx, 1, "array_elem_dst");
+                LLVMValueRef elem_src = LLVMBuildGEP2(cg->builder, llvm_array_type, src, &idx, 1, "array_elem_src");
+                pp_code_generator_emit_copy(cg, elem_dst, elem_src, elem_type);
+            }
+            break;
+        }
         default:
             // Fallback bitwise
             LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, type);
@@ -2856,6 +2869,14 @@ error_cleanup:
 }
 
 static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type) {
+    #warning "Deep copy of cyclic owned graphs is UNDEFINED BEHAVIOR. See comment below."
+    // WARNING: Deep copy of cyclic owned graphs is undefined behavior.
+    // Example:
+    //   struct Node { v :: int32; kids :: [Node]; }
+    //   let n1 :: Node = Node{ .v = 1, .kids = [Node : 0u] };
+    //   let n2 :: Node = Node{ .v = 2, .kids = [Node : 1u; n1] };
+    //   n1.kids[0u] = n2;   // creates cycle
+    //   let copy :: Node = n1;     // deep copy -> infinite recursion / UB
     // Save current builder insertion point
     LLVMBasicBlockRef saved_bb = pp_cg_save_builder_insert_block(cg);
     LLVMBasicBlockRef entry_bb = LLVMGetEntryBasicBlock(func);
@@ -3084,6 +3105,14 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
 }
 
 static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type) {
+    #warning "Drop of cyclic owned graphs is UNDEFINED BEHAVIOR. See comment below."
+    // WARNING: Drop of cyclic owned graphs is undefined behavior.
+    // Example:
+    //   struct Node { v :: int32; kids :: [Node]; }
+    //   let n1 :: Node = Node{ .v = 1, .kids = [Node : 0u] };
+    //   let n2 :: Node = Node{ .v = 2, .kids = [Node : 1u; n1] };
+    //   n1.kids[0u] = n2;   // creates cycle
+    //   // dropping n1 will recurse infinitely / UB
     LLVMBasicBlockRef saved_bb = pp_cg_save_builder_insert_block(cg);
     LLVMBasicBlockRef entry_bb = LLVMGetEntryBasicBlock(func);
     LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
