@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -109,6 +110,7 @@ typedef enum {
 static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_Node* simple_expr_node, size_t* val);
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node);
 static bool pp_type_contains_reference(const PPType* type);
+static bool pp_type_contains_reference_impl(const PPType* t, const PPType** stack, int depth);
 static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node);
 static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, unsigned int line,
                                                unsigned int col);
@@ -328,32 +330,44 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
 
 static bool pp_type_contains_reference(const PPType* t) {
     if (!t) return false;
-    // Simple cycle guard using thread-local stack
-    static __thread const PPType* ref_guard[64];
-    static __thread int ref_guard_depth = 0;
-    for (int i = 0; i < ref_guard_depth; i++) if (ref_guard[i] == t) return false;
-    if (ref_guard_depth < 64) ref_guard[ref_guard_depth++] = t;
+    const PPType* stack[128] = {0};
+    return pp_type_contains_reference_impl(t, stack, 0);
+}
+
+static bool pp_type_contains_reference_impl(const PPType* t, const PPType** stack, int depth) {
+    if (!t) return false;
+    if (depth > 0) {
+        for (int i = 0; i < depth; i++) {
+            if (stack[i] == t) return false;
+        }
+    }
+    if (depth >= 128) {
+        fprintf(stderr, "WARN: pp_type_contains_reference depth >= 128\n");
+        return false;
+    }
+    stack[depth] = t;
     bool result = false;
     switch (t->kind) {
         case PP_TK_Reference:
             result = true;
             break;
         case PP_TK_Const:
-            result = pp_type_contains_reference(t->type.pp_type_const.const_of);
+            result = pp_type_contains_reference_impl(t->type.pp_type_const.const_of, stack, depth + 1);
             break;
         case PP_TK_Array:
-            result = pp_type_contains_reference(t->type.pp_type_array.element_type);
+            result = pp_type_contains_reference_impl(t->type.pp_type_array.element_type, stack, depth + 1);
             break;
         case PP_TK_List:
-            result = pp_type_contains_reference(t->type.pp_type_list.element_type);
+            result = pp_type_contains_reference_impl(t->type.pp_type_list.element_type, stack, depth + 1);
             break;
         case PP_TK_Newtype:
-            result = pp_type_contains_reference(t->type.pp_type_newtype.underlying);
+            result = pp_type_contains_reference_impl(t->type.pp_type_newtype.underlying, stack, depth + 1);
             break;
         case PP_TK_Struct:
             if (t->type.pp_type_struct.layout) {
                 for (size_t i = 0; i < t->type.pp_type_struct.layout->field_count; i++) {
-                    if (pp_type_contains_reference(t->type.pp_type_struct.layout->fields[i].field_type)) {
+                    if (pp_type_contains_reference_impl(t->type.pp_type_struct.layout->fields[i].field_type, stack,
+                                                        depth + 1)) {
                         result = true;
                         break;
                     }
@@ -361,18 +375,26 @@ static bool pp_type_contains_reference(const PPType* t) {
             }
             break;
         case PP_TK_Function:
-            if (pp_type_contains_reference(t->type.pp_type_function.return_type)) result = true;
+            if (pp_type_contains_reference_impl(t->type.pp_type_function.return_type, stack, depth + 1))
+                result = true;
             else {
                 for (size_t i = 0; i < t->type.pp_type_function.param_count; i++) {
-                    if (pp_type_contains_reference(t->type.pp_type_function.param_types[i])) { result = true; break; }
+                    if (pp_type_contains_reference_impl(t->type.pp_type_function.param_types[i], stack, depth + 1)) {
+                        result = true;
+                        break;
+                    }
                 }
             }
             break;
         case PP_TK_Lambda:
-            if (pp_type_contains_reference(t->type.pp_type_lambda.return_type)) result = true;
+            if (pp_type_contains_reference_impl(t->type.pp_type_lambda.return_type, stack, depth + 1))
+                result = true;
             else {
                 for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
-                    if (pp_type_contains_reference(t->type.pp_type_lambda.param_types[i])) { result = true; break; }
+                    if (pp_type_contains_reference_impl(t->type.pp_type_lambda.param_types[i], stack, depth + 1)) {
+                        result = true;
+                        break;
+                    }
                 }
             }
             break;
@@ -380,7 +402,6 @@ static bool pp_type_contains_reference(const PPType* t) {
             result = false;
             break;
     }
-    if (ref_guard_depth > 0) ref_guard_depth--;
     return result;
 }
 
@@ -2244,8 +2265,8 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         }
 
         // Copyability check: if source is lvalue and type needs drop, ensure type is copyable
-        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_symbol_type, NULL) &&
-            !pp_type_is_copyable(decayed_symbol_type, NULL)) {
+        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE &&
+            pp_type_needs_drop(decayed_symbol_type, NULL) && !pp_type_is_copyable(decayed_symbol_type, NULL)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Cannot copy initialize variable \"%s\": type is move-only or contains "
                                      "non-copyable elements",
