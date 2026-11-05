@@ -2266,7 +2266,7 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
 
         // Copyability check: if source is lvalue and type needs drop, ensure type is copyable
         if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE &&
-            pp_type_needs_drop(decayed_symbol_type, NULL) && !pp_type_is_copyable(decayed_symbol_type, NULL)) {
+            pp_type_needs_drop(decayed_symbol_type) && !pp_type_is_copyable(decayed_symbol_type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Cannot copy initialize variable \"%s\": type is move-only or contains "
                                      "non-copyable elements",
@@ -2436,8 +2436,8 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     }
 
     // Copyability check: if RHS is lvalue and LHS type needs drop, ensure type is copyable
-    if (rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_lhs_type, NULL) &&
-        !pp_type_is_copyable(decayed_lhs_type, NULL)) {
+    if (rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_lhs_type) &&
+        !pp_type_is_copyable(decayed_lhs_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "Cannot assign from lvalue: type is move-only or contains non-copyable elements");
         goto error_cleanup;

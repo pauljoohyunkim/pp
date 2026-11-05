@@ -108,9 +108,9 @@ bool pp_type_is_const(const PPType* type);
 bool pp_type_is_reference(const PPType* type);
 bool pp_type_is_numerical(const PPType* type);
 typedef enum { PP_TYPE_VISIT_UNVISITED, PP_TYPE_VISIT_RESOLVING, PP_TYPE_VISIT_RESOLVED } PP_TypeVisitState;
-bool pp_type_needs_drop(const PPType* type, PP_TypeVisitState* visited);
+bool pp_type_needs_drop(const PPType* type);
 bool pp_type_is_trivially_copyable(const PPType* type);
-bool pp_type_is_copyable(const PPType* type, PP_TypeVisitState* visited);
+bool pp_type_is_copyable(const PPType* type);
 
 /**
  * @brief Resolve the underlying machine type of a possibly chained newtype.

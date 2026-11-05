@@ -148,8 +148,8 @@ bool pp_type_is_numerical(const PPType* type) {
     }
 }
 
-bool pp_type_needs_drop(const PPType* type, PP_TypeVisitState* visited) {
-    (void)visited;
+bool pp_type_needs_drop(const PPType* type) {
+    (void)0;
     if (type == NULL) return false;
     const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
     return pp_type_needs_drop_impl(type, stack, 0);
@@ -196,14 +196,14 @@ bool pp_type_is_trivially_copyable(const PPType* type) {
     return pp_type_is_trivially_copyable_impl(type, stack, 0);
 }
 
-bool pp_type_is_copyable(const PPType* type, PP_TypeVisitState* visited) {
-    (void)visited;
+bool pp_type_is_copyable(const PPType* type) {
+    (void)0;
     if (type == NULL) return false;
     if (pp_type_is_reference(type)) return false;
     // Trivially copyable types are always copyable
     if (pp_type_is_trivially_copyable(type)) return true;
     // Types that need drop must be checked for deep-copy support
-    if (!pp_type_needs_drop(type, visited)) return true;  // No ownership, trivially copyable already handled
+    if (!pp_type_needs_drop(type)) return true;  // No ownership, trivially copyable already handled
 
     const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
     return pp_type_is_copyable_impl(type, stack, 0);
