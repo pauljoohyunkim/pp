@@ -1,5 +1,9 @@
 # General Coding Rules
 
+## Global and static state
+- **No static mutable state or `__thread` globals.** Do not use `static` mutable variables, `__thread` variables, or `extern` globals for program logic. Prefer per-call allocations or context-owned storage.
+- This project is single-threaded; using thread-local storage is prohibited. All cycle detection / visitation must be done with per-call stacks allocated on the caller frame.
+
 ## Error handling
 - Use `NULL_POINTER_ERROR_HANDLE(ptr)` for nullity checks that should jump to an `error_cleanup` label.
 - Prefer `NULL_POINTER_ERROR_HANDLE` for all non-nullable inputs/objects at function entry and after allocations, rather than manual `if (!ptr) goto error_cleanup;`.

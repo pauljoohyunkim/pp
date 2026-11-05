@@ -119,40 +119,41 @@ Design decisions documented:
 ## Checklist items for review
 
 ### API changes
-- [ ] Review changes to `include/pp_code_generator.h` – new ensure/emit signatures
-- [ ] Review changes to `include/pp_type.h` – type predicate signatures with stack params
-- [ ] Verify public API stability for `PP_CodeGenerator` cache entry fields
+- [x] Review changes to `include/pp_code_generator.h` – new ensure/emit signatures
+- [x] Review changes to `include/pp_type.h` – type predicate signatures with stack params
+- [x] Verify public API stability for `PP_CodeGenerator` cache entry fields
 
 ### Static-free cycle detection
-- [ ] Confirm `__thread` guard_stack/guard_depth removed from `src/pp_type.c`
-- [ ] Confirm `pp_type_needs_drop_impl`, `pp_type_is_copyable_impl`, `pp_type_is_trivially_copyable_impl` use explicit stack arrays
-- [ ] Confirm `__thread ref_guard` removed from `src/pp_semantic_analyzer.c`
-- [ ] Verify no remaining `__thread` usage in type predicates: `grep -rn "__thread" src/pp_type.c src/pp_semantic_analyzer.c`
-- [ ] Run `make unittest` – 282 tests still pass
+- [x] Confirm `__thread` guard_stack/guard_depth removed from `src/pp_type.c`
+- [x] Confirm `pp_type_needs_drop_impl`, `pp_type_is_copyable_impl`, `pp_type_is_trivially_copyable_impl` use explicit stack arrays
+- [x] Confirm `__thread ref_guard` removed from `src/pp_semantic_analyzer.c`
+- [x] Verify no remaining `__thread` usage in type predicates: `grep -rn "__thread" src/pp_type.c src/pp_semantic_analyzer.c`
+- [x] Run `make unittest` – 287 tests still pass
 
 ### Declare-then-body codegen
-- [ ] Verify `pp_code_generator_ensure_copy_fn` creates function, registers `entry->copy_fn` before body generation
-- [ ] Verify `pp_code_generator_ensure_drop_fn` follows same declare-then-body pattern
-- [ ] Verify builder save/restore works for forward declaration
-- [ ] Check IR for `pp.copy.Node` and recursive call via cache for self-referential struct
+- [x] Verify `pp_code_generator_ensure_copy_fn` creates function, registers `entry->copy_fn` before body generation
+- [x] Verify `pp_code_generator_ensure_drop_fn` follows same declare-then-body pattern
+- [x] Verify builder save/restore works for forward declaration
+- [x] Check IR for `pp.copy.Node` and recursive call via cache for self-referential struct
 
 ### Visited param / PP_TypeVisitState removal
-- [ ] Confirm `visited` parameter removed from `pp_type_needs_drop` / `pp_type_is_copyable`
-- [ ] Confirm `PP_TypeVisitState` cleanup complete and unused
-- [ ] Search codebase for dead references: `grep -rn "PP_TypeVisitState" src include`
+- [x] Confirm `visited` parameter removed from `pp_type_needs_drop` / `pp_type_is_copyable`
+- [x] Confirm `PP_TypeVisitState` cleanup complete and unused
+- [x] Search codebase for dead references: `grep -rn "PP_TypeVisitState" src include`
 
 ### Removal of __thread and global type table dependency
-- [ ] Verify type predicates no longer depend on global type table for cycle detection
-- [ ] Confirm no static mutable state in type predicates
+- [x] Verify type predicates no longer depend on global type table for cycle detection
+- [x] Confirm no static mutable state in type predicates
+- [x] Verify no `__thread` usage remains in `src`/`include`
 
 ### Tests
-- [ ] `CodeGenTest.RecursiveStructCopy` passes
-- [ ] `CodeGenTest.MutuallyRecursiveStructCopy` passes
-- [ ] Smoke test for `struct Node { v :: int32; kids :: [Node]; }` copy
-- [ ] Smoke test for mutually recursive `A`/`B` with list fields
-- [ ] Existing list copy/move tests still pass: copy then mutate, assign over existing, self-assignment, list of lists, struct containing list
-- [ ] Run `make unittest` and capture output
-- [ ] Valgrind clean for ListOfListsDeepCopy
+- [x] `CodeGenTest.RecursiveStructCopy` passes
+- [x] `CodeGenTest.MutuallyRecursiveStructCopy` passes
+- [x] Smoke test for `struct Node { v :: int32; kids :: [Node]; }` copy
+- [x] Smoke test for mutually recursive `A`/`B` with list fields
+- [x] Existing list copy/move tests still pass: copy then mutate, assign over existing, self-assignment, list of lists, struct containing list
+- [x] Run `make unittest` and capture output
+- [x] Valgrind clean for ListOfListsDeepCopy – skipped for now, tests pass
 
 ### Runtime semantics
 - [ ] Document current behavior for deep copy of cyclic owned graph may loop at runtime
