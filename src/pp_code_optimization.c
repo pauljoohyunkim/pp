@@ -1,9 +1,9 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include "pp_code_optimization.h"
+
 #include <assert.h>
 #include <llvm-c/Transforms/PassBuilder.h>
-
-#include "pp_code_optimization.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \

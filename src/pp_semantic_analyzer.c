@@ -3,12 +3,10 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-
-#warning \
-    "List copy semantics are temporarily banned for move-only v1. Remove this ban and implement copy/drop when value semantics are desired."
 
 #define SCOPE_LEVEL_GLOBAL (0)
 #define SCOPE_LEVEL_FUNC_PARAMS (1)
@@ -112,6 +110,7 @@ typedef enum {
 static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_Node* simple_expr_node, size_t* val);
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node);
 static bool pp_type_contains_reference(const PPType* type);
+static bool pp_type_contains_reference_impl(const PPType* t, const PPType** stack, int depth);
 static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node);
 static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, unsigned int line,
                                                unsigned int col);
@@ -331,41 +330,79 @@ int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa) {
 
 static bool pp_type_contains_reference(const PPType* t) {
     if (!t) return false;
+    const PPType* stack[128] = {0};
+    return pp_type_contains_reference_impl(t, stack, 0);
+}
+
+static bool pp_type_contains_reference_impl(const PPType* t, const PPType** stack, int depth) {
+    if (!t) return false;
+    if (depth > 0) {
+        for (int i = 0; i < depth; i++) {
+            if (stack[i] == t) return false;
+        }
+    }
+    if (depth >= 128) {
+        fprintf(stderr, "WARN: pp_type_contains_reference depth >= 128\n");
+        return false;
+    }
+    stack[depth] = t;
+    bool result = false;
     switch (t->kind) {
         case PP_TK_Reference:
-            return true;
+            result = true;
+            break;
         case PP_TK_Const:
-            return pp_type_contains_reference(t->type.pp_type_const.const_of);
+            result = pp_type_contains_reference_impl(t->type.pp_type_const.const_of, stack, depth + 1);
+            break;
         case PP_TK_Array:
-            return pp_type_contains_reference(t->type.pp_type_array.element_type);
+            result = pp_type_contains_reference_impl(t->type.pp_type_array.element_type, stack, depth + 1);
+            break;
         case PP_TK_List:
-            return pp_type_contains_reference(t->type.pp_type_list.element_type);
+            result = pp_type_contains_reference_impl(t->type.pp_type_list.element_type, stack, depth + 1);
+            break;
         case PP_TK_Newtype:
-            return pp_type_contains_reference(t->type.pp_type_newtype.underlying);
+            result = pp_type_contains_reference_impl(t->type.pp_type_newtype.underlying, stack, depth + 1);
+            break;
         case PP_TK_Struct:
             if (t->type.pp_type_struct.layout) {
                 for (size_t i = 0; i < t->type.pp_type_struct.layout->field_count; i++) {
-                    if (pp_type_contains_reference(t->type.pp_type_struct.layout->fields[i].field_type)) {
-                        return true;
+                    if (pp_type_contains_reference_impl(t->type.pp_type_struct.layout->fields[i].field_type, stack,
+                                                        depth + 1)) {
+                        result = true;
+                        break;
                     }
                 }
             }
-            return false;
+            break;
         case PP_TK_Function:
-            if (pp_type_contains_reference(t->type.pp_type_function.return_type)) return true;
-            for (size_t i = 0; i < t->type.pp_type_function.param_count; i++) {
-                if (pp_type_contains_reference(t->type.pp_type_function.param_types[i])) return true;
+            if (pp_type_contains_reference_impl(t->type.pp_type_function.return_type, stack, depth + 1))
+                result = true;
+            else {
+                for (size_t i = 0; i < t->type.pp_type_function.param_count; i++) {
+                    if (pp_type_contains_reference_impl(t->type.pp_type_function.param_types[i], stack, depth + 1)) {
+                        result = true;
+                        break;
+                    }
+                }
             }
-            return false;
+            break;
         case PP_TK_Lambda:
-            if (pp_type_contains_reference(t->type.pp_type_lambda.return_type)) return true;
-            for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
-                if (pp_type_contains_reference(t->type.pp_type_lambda.param_types[i])) return true;
+            if (pp_type_contains_reference_impl(t->type.pp_type_lambda.return_type, stack, depth + 1))
+                result = true;
+            else {
+                for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
+                    if (pp_type_contains_reference_impl(t->type.pp_type_lambda.param_types[i], stack, depth + 1)) {
+                        result = true;
+                        break;
+                    }
+                }
             }
-            return false;
+            break;
         default:
-            return false;
+            result = false;
+            break;
     }
+    return result;
 }
 
 static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node) {
@@ -483,7 +520,8 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                 case PP_TT_LESS_LESS:
                     if (right_val >= sizeof(size_t) * 8) {
                         pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                                 simple_expr_node->col, "Shift amount too large in array size expression");
+                                                 simple_expr_node->col,
+                                                 "Shift amount too large in array size expression");
                         goto error_cleanup;
                     }
                     *val = left_val << right_val;
@@ -491,7 +529,8 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                 case PP_TT_GREATER_GREATER:
                     if (right_val >= sizeof(size_t) * 8) {
                         pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                                 simple_expr_node->col, "Shift amount too large in array size expression");
+                                                 simple_expr_node->col,
+                                                 "Shift amount too large in array size expression");
                         goto error_cleanup;
                     }
                     *val = left_val >> right_val;
@@ -1622,15 +1661,16 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
         NULL_POINTER_ERROR_HANDLE(param_type);
 
         // Move-only list check v1: disallow by-value List parameters
-        {
-            const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
-            if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
-                                         node->function_declaration.params[i]->col,
-                                         "By-value List parameter is not allowed in move-only v1; use a reference");
-                goto error_cleanup;
-            }
-        }
+        // NOTE: lifted – copy semantics now handled by codegen
+        // {
+        //     const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+        //     if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
+        //         pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
+        //                                  node->function_declaration.params[i]->col,
+        //                                  "By-value List parameter is not allowed in move-only v1; use a reference");
+        //         goto error_cleanup;
+        //     }
+        // }
 
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
         if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
@@ -1753,15 +1793,16 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
         NULL_POINTER_ERROR_HANDLE(param_type);
 
         // Move-only list check v1: disallow by-value List parameters
-        {
-            const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
-            if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
-                                         node->function_declaration.params[i]->col,
-                                         "By-value List parameter is not allowed in move-only v1; use a reference");
-                goto error_cleanup;
-            }
-        }
+        // NOTE: lifted – copy semantics now handled by codegen
+        // {
+        //     const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
+        //     if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
+        //         pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
+        //                                  node->function_declaration.params[i]->col,
+        //                                  "By-value List parameter is not allowed in move-only v1; use a reference");
+        //         goto error_cleanup;
+        //     }
+        // }
 
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
         if (!pp_symbol_table_push(lambda_param_symbol_table, param_name, param_symbol)) {
@@ -2030,9 +2071,12 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         const PP_AST_Decoration* decor = pp_ast_get_decoration(node->variable_declaration.initializer);
         NULL_POINTER_ERROR_HANDLE(decor);
         // Explicitly reject non-empty list initializers at global scope
-        if (variable_symbol->type->kind == PP_TK_List && node->variable_declaration.initializer->node_type == PP_AST_CollectionInitializerNode && node->variable_declaration.initializer->collection_initializer.element_count > 0) {
+        if (variable_symbol->type->kind == PP_TK_List &&
+            node->variable_declaration.initializer->node_type == PP_AST_CollectionInitializerNode &&
+            node->variable_declaration.initializer->collection_initializer.element_count > 0) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                     "Global list initialization with non-empty initializer is not allowed; only empty list is permitted at global scope.");
+                                     "Global list initialization with non-empty initializer is not allowed; only empty "
+                                     "list is permitted at global scope.");
             goto error_cleanup;
         }
         if (!decor->is_constexpr) {
@@ -2220,11 +2264,13 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
             goto error_cleanup;
         }
 
-        // Move-only list check v1: disallow copying List from lvalue initializer
-        if (decayed_symbol_type->kind == PP_TK_List && initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
+        // Copyability check: if source is lvalue and type needs drop, ensure type is copyable
+        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE &&
+            pp_type_needs_drop(decayed_symbol_type) && !pp_type_is_copyable(decayed_symbol_type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                     "List initialization from lvalue is not allowed in move-only v1; use an rvalue "
-                                     "initializer or a reference");
+                                     "Cannot copy initialize variable \"%s\": type is move-only or contains "
+                                     "non-copyable elements",
+                                     symbol_name);
             goto error_cleanup;
         }
 
@@ -2389,11 +2435,11 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
         goto error_cleanup;
     }
 
-    // Move-only list check v1: disallow copying List from lvalue RHS
-    if (decayed_lhs_type->kind == PP_TK_List && rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE) {
+    // Copyability check: if RHS is lvalue and LHS type needs drop, ensure type is copyable
+    if (rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_lhs_type) &&
+        !pp_type_is_copyable(decayed_lhs_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                 "List assignment from lvalue is not allowed in move-only v1; use an rvalue "
-                                 "initializer or a reference");
+                                 "Cannot assign from lvalue: type is move-only or contains non-copyable elements");
         goto error_cleanup;
     }
 
@@ -3078,7 +3124,8 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
             }
             break;
         default:
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Unsupported binary operator");
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                     "Unsupported binary operator");
             goto error_cleanup;
     }
     if (!binary_type) {
@@ -3885,7 +3932,7 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
     bool all_constexpr = true;
     for (unsigned int i = 0; i < expr->collection_initializer.element_count; i++) {
         PP_AST_Node* elem = expr->collection_initializer.elements[i];
-        if (!elem) continue;
+        assert(elem);
         if (!pp_semantic_analyzer_check_expression(sa, symbol_table, elem)) { goto error_cleanup; }
         const PP_AST_Decoration* elem_dec = pp_ast_get_decoration(elem);
         assert(elem_dec);
@@ -3901,17 +3948,12 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
         }
         // Collection element types must never be references – rejected at type construction
         assert(!pp_type_contains_reference(elem_type) && "Collection element type must not contain a reference");
-        if (!elem_dec->is_constexpr) {
-            all_constexpr = false;
-            break;
-        }
+        if (!elem_dec->is_constexpr) { all_constexpr = false; }
     }
 
     bool is_constexpr = is_array && all_constexpr;
     // Empty list is constexpr; non-empty lists remain non-constexpr
-    if (!is_array && expr->collection_initializer.element_count == 0) {
-        is_constexpr = true;
-    }
+    if (!is_array && expr->collection_initializer.element_count == 0) { is_constexpr = true; }
     // Lists are never constexpr per language design except empty
     decoration = pp_ast_decoration_create(coll_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr, false);
     if (!decoration) goto error_cleanup;

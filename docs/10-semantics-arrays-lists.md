@@ -45,14 +45,18 @@ Resizable runtime collection, represented internally as handle.
 
 Rules:
 - Element type follows same value constraints as arrays.
-- By-value List parameters are disallowed in move-only v1; use reference. *Temporary restriction for move-only v1.*
-- List copy semantics are temporarily banned for move-only v1. Copy/drop will be implemented when value semantics are desired.
+- List value semantics are now supported: copy on lvalue source, drop on scope exit.
+- Copy is performed for variable initialization and assignment when the RHS is an lvalue and the type needs drop.
+- A type is copyable if it is trivially copyable, or if it is an owning type whose elements are recursively copyable. Currently list elements must be trivially copyable for a deep copy to be generated; non-trivial element types make the list move-only and are rejected by semantic analysis.
+- By-value List parameters are allowed; caller copies if argument is lvalue and type needs drop.
+- Recursive owned types are allowed: `struct Node { kids :: [Node]; }` is legal. Codegen uses declare-then-body per-type helpers, so compilation succeeds. Deep copy/drop of a cyclic owned graph is undefined behavior – trees are fine, cycles created by mutation lead to infinite recursion.
 
 Initialization:
 ```pp
-let v :: list[int32] = [int32; 1, 2, 3];
+let v :: [int32] = [int32; 1, 2, 3];
+let w :: [int32] = v;  // deep copy generated
 ```
 
 Access:
-- Index must be integer expression.
+- Index must be unsigned 32-bit integer expression.
 - Assignment to element requires mutable l-value.

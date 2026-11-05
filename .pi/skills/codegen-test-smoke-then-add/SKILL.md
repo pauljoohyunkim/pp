@@ -11,13 +11,13 @@ Use this skill when adding branching/control-flow or new codegen features to the
 
 1. **Smoke test first**
    - Create a temporary `.pp` file under `/tmp` with the feature under test.
-   - Run `bin/pplang /tmp/<name>.pp`.
+   - Run `bin/pplang -c -v /tmp/<name>.pp -o /tmp/<name>.o`.
    - Verify:
      - No lexer errors
      - No parser errors
      - No semantic errors
      - Code generation succeeds and prints LLVM IR
-   - Capture the IR output for verification.
+   - Capture and inspect the IR output for verification and correctness.
 
    Optional deep inspection:
    - Use `gdb` to pause after codegen and dump internal state.

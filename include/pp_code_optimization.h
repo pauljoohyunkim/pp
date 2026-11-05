@@ -13,4 +13,4 @@ int pp_optimize_module(LLVMModuleRef mod, LLVMTargetMachineRef target_machine, c
 }
 #endif
 
-#endif  /* PP_CODE_OPTIMIZATION_H */
+#endif /* PP_CODE_OPTIMIZATION_H */

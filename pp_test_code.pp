@@ -1,6 +1,6 @@
-func main :: (argc :: int32) -> int32 {
-let x :: int32 = argc;
-let y :: int32& = x;
-y = y +1;
-    return x;
+struct Node { v :: int32; kids :: [Node]; }
+
+func main :: () -> void {
+  let n1 :: Node;
+  let n2 :: Node = n1;
 }

@@ -108,6 +108,8 @@ bool pp_type_is_const(const PPType* type);
 bool pp_type_is_reference(const PPType* type);
 bool pp_type_is_numerical(const PPType* type);
 bool pp_type_needs_drop(const PPType* type);
+bool pp_type_is_trivially_copyable(const PPType* type);
+bool pp_type_is_copyable(const PPType* type);
 
 /**
  * @brief Resolve the underlying machine type of a possibly chained newtype.
