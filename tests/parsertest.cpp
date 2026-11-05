@@ -1262,4 +1262,19 @@ TEST(ParserTest, GoodForWithEmptyInitAndCond) {
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
 
+TEST(ParserTest, GoodHashUnaryParser) {
+    const char* source =
+        "func main :: () -> uint32 {\n"
+        "    let arr :: [int32 : 5u];\n"
+        "    let lst :: [int32];\n"
+        "    let a :: uint32 = #arr;\n"
+        "    let b :: uint32 = #lst;\n"
+        "    return a;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
 

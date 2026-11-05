@@ -26,6 +26,7 @@ typedef enum {
     PP_TT_CARET,
     PP_TT_SEMICOLON,
     PP_TT_PERIOD,
+    PP_TT_HASH,
     PP_TT_COMMA,
     PP_TT_COLON,
     PP_TT_EXCLAMATION,

@@ -1211,5 +1211,31 @@ TEST(CodeGenTest, MutuallyRecursiveStructCopy) {
     assert_ir_contains(cg.get(), "pp.copy.");
 }
 
+TEST(CodeGenTest, HashLengthArrayConstant) {
+    const char* source =
+        "func main :: () -> uint32 {\n"
+        "    let arr :: [int32 : 5u];\n"
+        "    let len :: uint32 = #arr;\n"
+        "    return len;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    // Array length should be emitted as constant i32 5
+    assert_ir_contains(cg.get(), "i32 5");
+    assert_ir_contains(cg.get(), "@main");
+}
+
 
 

@@ -2406,6 +2406,24 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
                 llvm_val = LLVMBuildXor(cg->builder, one_const, llvm_operand, "nottmp");
             }
         } break;
+        case PP_TT_HASH: {
+            const PP_AST_Decoration* op_dec = pp_ast_get_decoration(node->unary_expression.operand);
+            assert(op_dec);
+            const PPType* op_type = pp_type_decay_cg(cg->gtt, op_dec->resolved_type);
+            assert(op_type);
+            if (op_type->kind == PP_TK_Array) {
+                size_t sz = op_type->type.pp_type_array.size;
+                llvm_val = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), sz, false);
+            } else if (op_type->kind == PP_TK_List) {
+                // List value is a struct { data_ptr, len, cap }
+                LLVMValueRef len_val = LLVMBuildExtractValue(cg->builder, llvm_operand, 1, "list_len");
+                // List len is i64 internally, truncate to uint32 as per PP type
+                llvm_val = LLVMBuildTrunc(cg->builder, len_val, LLVMInt32TypeInContext(cg->ctx), "len_u32");
+            } else {
+                assert(0 && "Unary '#' requires array or list");
+            }
+            break;
+        }
         default:
             assert(0 && "Unary expression failure");
             return NULL;

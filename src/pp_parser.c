@@ -439,7 +439,7 @@ static PP_AST_Node* pp_parser_create_unary(PP_Parser* parser) {
     NULL_POINTER_ERROR_HANDLE(parser);
 
     tt = pp_parser_peek_token_type(parser, 0);
-    if (tt == PP_TT_MINUS || tt == PP_TT_EXCLAMATION) {
+    if (tt == PP_TT_MINUS || tt == PP_TT_EXCLAMATION || tt == PP_TT_HASH) {
         {
             op_tok = pp_parser_consume_token(parser, tt);
             NULL_POINTER_ERROR_HANDLE(op_tok);
