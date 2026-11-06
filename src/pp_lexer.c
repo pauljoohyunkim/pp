@@ -440,20 +440,13 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                         if (!is_at_end(lexer) && (peek_pp(lexer, len) == 'u' || peek_pp(lexer, len) == 'U')) {
                             len++;
                         }
-                        // Suffix parsing for integer literals: s, ss, l, ll case-insensitive
-                        if (!is_at_end(lexer)) {
-                            char p1 = tolower(peek_pp(lexer, len));
-                            if (p1 == 's' || p1 == 'l') {
-                                if (!is_at_end(lexer)) {
-                                    char p2 = tolower(peek_pp(lexer, len + 1));
-                                    if ((p1 == 's' && p2 == 's') || (p1 == 'l' && p2 == 'l')) {
-                                        len += 2;
-                                    } else {
-                                        len += 1;
-                                    }
-                                } else {
-                                    len += 1;
-                                }
+                        // Suffix parsing for integer literals: s, ss, l, ll case-insensitive, also allow overlong for error detection
+                        while (!is_at_end(lexer)) {
+                            char c_suf = tolower(peek_pp(lexer, len));
+                            if (c_suf == 's' || c_suf == 'l') {
+                                len++;
+                            } else {
+                                break;
                             }
                         }
                     }

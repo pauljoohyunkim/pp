@@ -1237,5 +1237,45 @@ TEST(CodeGenTest, HashLengthArrayConstant) {
     assert_ir_contains(cg.get(), "@main");
 }
 
+TEST(CodeGenTest, IntegerLiteralSuffixCodegen) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int16 = 1s;\n"
+        "    let b :: uint16 = 1us;\n"
+        "    let c :: int8 = 2ss;\n"
+        "    let d :: uint8 = 2uss;\n"
+        "    let e :: int64 = 3l;\n"
+        "    let f :: uint64 = 3ul;\n"
+        "    let g :: int128 = 4ll;\n"
+        "    let h :: uint128 = 4ull;\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    // Verify types are emitted
+    assert_ir_contains(cg.get(), "i16");
+    assert_ir_contains(cg.get(), "i8");
+    assert_ir_contains(cg.get(), "i64");
+    assert_ir_contains(cg.get(), "i128");
+    // Verify constants
+    assert_ir_contains(cg.get(), "store i16 1");
+    assert_ir_contains(cg.get(), "store i8 2");
+    assert_ir_contains(cg.get(), "store i64 3");
+    assert_ir_contains(cg.get(), "store i128 4");
+    assert_ir_contains(cg.get(), "@main");
+}
+
 
 
