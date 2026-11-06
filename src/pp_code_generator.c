@@ -1,6 +1,7 @@
 #include "pp_code_generator.h"
 
 #include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
@@ -633,10 +634,26 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
             return LLVMVoidTypeInContext(cg->ctx);
         case PP_TK_Bool:
             return LLVMInt1TypeInContext(cg->ctx);
+        case PP_TK_Int8:
+            return LLVMInt8TypeInContext(cg->ctx);
+        case PP_TK_UInt8:
+            return LLVMInt8TypeInContext(cg->ctx);
+        case PP_TK_Int16:
+            return LLVMInt16TypeInContext(cg->ctx);
+        case PP_TK_UInt16:
+            return LLVMInt16TypeInContext(cg->ctx);
         case PP_TK_Int32:
             return LLVMInt32TypeInContext(cg->ctx);
         case PP_TK_UInt32:
             return LLVMInt32TypeInContext(cg->ctx);
+        case PP_TK_Int64:
+            return LLVMInt64TypeInContext(cg->ctx);
+        case PP_TK_UInt64:
+            return LLVMInt64TypeInContext(cg->ctx);
+        case PP_TK_Int128:
+            return LLVMInt128TypeInContext(cg->ctx);
+        case PP_TK_UInt128:
+            return LLVMInt128TypeInContext(cg->ctx);
         case PP_TK_Float:
             return LLVMFloatTypeInContext(cg->ctx);
 
@@ -1362,13 +1379,13 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
                 if (llvm_rhs_type_kind == LLVMFloatTypeKind) {
                     llvm_val = LLVMBuildFDiv(cg->builder, llvm_lhs_val, llvm_rhs, "fdivtmp");
                 } else {
-                    bool is_unsigned = (lhs_type->kind == PP_TK_UInt32);
+                    bool is_unsigned = pp_type_is_unsigned_integer(lhs_type);
                     llvm_val = is_unsigned ? LLVMBuildUDiv(cg->builder, llvm_lhs_val, llvm_rhs, "udivtmp")
                                            : LLVMBuildSDiv(cg->builder, llvm_lhs_val, llvm_rhs, "sdivtmp");
                 }
                 break;
             case PP_TT_PERCENT_EQUAL: {
-                bool is_unsigned = (lhs_type->kind == PP_TK_UInt32);
+                bool is_unsigned = pp_type_is_unsigned_integer(lhs_type);
                 llvm_val = is_unsigned ? LLVMBuildURem(cg->builder, llvm_lhs_val, llvm_rhs, "uremtmp")
                                        : LLVMBuildSRem(cg->builder, llvm_lhs_val, llvm_rhs, "sremtmp");
             } break;
@@ -1383,7 +1400,7 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
                 break;
             case PP_TT_LESS_LESS_EQUAL:
             case PP_TT_GREATER_GREATER_EQUAL:
-                if (lhs_type->kind == PP_TK_UInt32) {
+                if (pp_type_is_unsigned_integer(lhs_type)) {
                     // Left-shift overflow defined.
                     LLVMValueRef shift_limit = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 32, false);
                     LLVMValueRef cmp_ge = LLVMBuildICmp(cg->builder, LLVMIntUGE, llvm_rhs, shift_limit, "sh_ge32");
@@ -2230,7 +2247,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 const PPType* lhs_decayed_type =
                     pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
                 assert(lhs_decayed_type);
-                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                if (pp_type_is_unsigned_integer(lhs_decayed_type)) {
                     llvm_val = LLVMBuildURem(cg->builder, llvm_lhs, llvm_rhs, "uremtmp");
                 } else {
                     llvm_val = LLVMBuildSRem(cg->builder, llvm_lhs, llvm_rhs, "sremtmp");
@@ -2244,7 +2261,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 const PPType* lhs_decayed_type =
                     pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
                 assert(lhs_decayed_type);
-                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                if (pp_type_is_unsigned_integer(lhs_decayed_type)) {
                     llvm_val = LLVMBuildUDiv(cg->builder, llvm_lhs, llvm_rhs, "udivtmp");
                 } else {
                     llvm_val = LLVMBuildSDiv(cg->builder, llvm_lhs, llvm_rhs, "sdivtmp");
@@ -2275,7 +2292,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 const PPType* lhs_decayed_type =
                     pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
                 assert(lhs_decayed_type);
-                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                if (pp_type_is_unsigned_integer(lhs_decayed_type)) {
                     // Left-shift overflow defined.
                     LLVMValueRef shift_limit = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 32, false);
                     LLVMValueRef cmp_ge = LLVMBuildICmp(cg->builder, LLVMIntUGE, llvm_rhs, shift_limit, "sh_ge32");
@@ -2297,7 +2314,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 const PPType* lhs_decayed_type =
                     pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
                 assert(lhs_decayed_type);
-                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                if (pp_type_is_unsigned_integer(lhs_decayed_type)) {
                     llvm_val = LLVMBuildICmp(cg->builder, LLVMIntUGT, llvm_lhs, llvm_rhs, "gttmp");
                 } else {
                     llvm_val = LLVMBuildICmp(cg->builder, LLVMIntSGT, llvm_lhs, llvm_rhs, "gttmp");
@@ -2311,7 +2328,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 const PPType* lhs_decayed_type =
                     pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
                 assert(lhs_decayed_type);
-                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                if (pp_type_is_unsigned_integer(lhs_decayed_type)) {
                     llvm_val = LLVMBuildICmp(cg->builder, LLVMIntULT, llvm_lhs, llvm_rhs, "lttmp");
                 } else {
                     llvm_val = LLVMBuildICmp(cg->builder, LLVMIntSLT, llvm_lhs, llvm_rhs, "lttmp");
@@ -2325,7 +2342,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 const PPType* lhs_decayed_type =
                     pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
                 assert(lhs_decayed_type);
-                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                if (pp_type_is_unsigned_integer(lhs_decayed_type)) {
                     llvm_val = LLVMBuildICmp(cg->builder, LLVMIntUGE, llvm_lhs, llvm_rhs, "getmp");
                 } else {
                     llvm_val = LLVMBuildICmp(cg->builder, LLVMIntSGE, llvm_lhs, llvm_rhs, "getmp");
@@ -2339,7 +2356,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 const PPType* lhs_decayed_type =
                     pp_type_decay_cg(cg->gtt, pp_ast_get_decoration(node->binary_expression.left)->resolved_type);
                 assert(lhs_decayed_type);
-                if (lhs_decayed_type->kind == PP_TK_UInt32) {
+                if (pp_type_is_unsigned_integer(lhs_decayed_type)) {
                     llvm_val = LLVMBuildICmp(cg->builder, LLVMIntULE, llvm_lhs, llvm_rhs, "letmp");
                 } else {
                     llvm_val = LLVMBuildICmp(cg->builder, LLVMIntSLE, llvm_lhs, llvm_rhs, "letmp");
@@ -2392,7 +2409,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
                     llvm_val = LLVMBuildFSub(cg->builder, zero_const, llvm_operand, "fnegtmp");
                 } break;
                 case LLVMIntegerTypeKind: {
-                    const LLVMValueRef zero_const = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, true);
+                    const LLVMValueRef zero_const = LLVMConstNull(llvm_operand_type);
                     llvm_val = LLVMBuildSub(cg->builder, zero_const, llvm_operand, "negtmp");
                 } break;
                 default:
@@ -2489,20 +2506,20 @@ static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* 
     assert(env_b);
     assert(node);
 
+    const PP_AST_Decoration* decor = pp_ast_get_decoration(node);
+    assert(decor);
+    const PPType* lit_type = decor->resolved_type;
+    assert(lit_type);
+
     switch (node->literal.literal_type) {
         case PP_TT_INTEGER_LITERAL: {
-            char* endptr = NULL;
-            errno = 0;
-            long long val = strtoll(node->literal.lexeme, &endptr, 10);
-            if (errno != 0 || node->literal.lexeme == endptr) { return NULL; }
-            llvm_val = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), (unsigned long long)val, 1);
-        } break;
-        case PP_TT_UNSIGNED_INTEGER_LITERAL: {
-            char* endptr = NULL;
-            errno = 0;
-            unsigned long long val = strtoull(node->literal.lexeme, &endptr, 10);
-            if (errno != 0 || node->literal.lexeme == endptr) { return NULL; }
-            llvm_val = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), val, 0);
+            const char* lex = node->literal.lexeme;
+            char numbuf[PP_INT_LITERAL_NUMBUF_SIZE] = {0};
+            pp_type_parse_int_literal_suffix(lex, numbuf);
+            LLVMTypeRef llvm_ty = pp_backend_lower_type(cg, lit_type);
+            assert(llvm_ty);
+            /* LLVMConstIntOfString works for any integer width */
+            llvm_val = LLVMConstIntOfString(llvm_ty, numbuf, 10);
         } break;
         case PP_TT_FLOAT_LITERAL: {
             char* endptr = NULL;

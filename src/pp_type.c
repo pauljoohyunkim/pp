@@ -1,5 +1,6 @@
 #include "pp_type.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -140,8 +141,30 @@ bool pp_type_is_numerical(const PPType* type) {
 
     switch (type->kind) {
         case PP_TK_Float:
+        case PP_TK_Int8:
+        case PP_TK_UInt8:
+        case PP_TK_Int16:
+        case PP_TK_UInt16:
         case PP_TK_Int32:
         case PP_TK_UInt32:
+        case PP_TK_Int64:
+        case PP_TK_UInt64:
+        case PP_TK_Int128:
+        case PP_TK_UInt128:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool pp_type_is_unsigned_integer(const PPType* type) {
+    if (!type) return false;
+    switch (type->kind) {
+        case PP_TK_UInt8:
+        case PP_TK_UInt16:
+        case PP_TK_UInt32:
+        case PP_TK_UInt64:
+        case PP_TK_UInt128:
             return true;
         default:
             return false;
@@ -264,8 +287,16 @@ static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType*
     stack[depth] = type;
 
     switch (type->kind) {
+        case PP_TK_Int8:
+        case PP_TK_UInt8:
+        case PP_TK_Int16:
+        case PP_TK_UInt16:
         case PP_TK_Int32:
         case PP_TK_UInt32:
+        case PP_TK_Int64:
+        case PP_TK_UInt64:
+        case PP_TK_Int128:
+        case PP_TK_UInt128:
         case PP_TK_Float:
         case PP_TK_Bool:
         case PP_TK_Void:
@@ -291,4 +322,57 @@ static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType*
         default:
             return false;
     }
+}
+
+PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeric) {
+    if (!lexeme) return PP_TK_Void;
+    size_t len = strlen(lexeme);
+    if (len == 0) {
+        if (out_numeric) out_numeric[0] = '\0';
+        return PP_TK_Int32;
+    }
+    size_t pos = 0;
+    while (pos < len && isdigit((unsigned char)lexeme[pos])) pos++;
+    bool is_unsigned = false;
+    if (pos < len && tolower((unsigned char)lexeme[pos]) == 'u') {
+        is_unsigned = true;
+        pos++;
+    }
+    size_t suffix_len = 0;
+    if (len >= pos + 2) {
+        char c1 = tolower((unsigned char)lexeme[len-2]);
+        char c2 = tolower((unsigned char)lexeme[len-1]);
+        if ((c1=='s' && c2=='s') || (c1=='l' && c2=='l')) {
+            suffix_len = 2;
+        }
+    }
+    if (suffix_len == 0 && len > pos) {
+        char last = tolower((unsigned char)lexeme[len-1]);
+        if (last == 's' || last == 'l') suffix_len = 1;
+    }
+    PPTypeKind kind;
+    if (suffix_len == 0) {
+        kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
+    } else if (suffix_len == 2) {
+        char s = tolower((unsigned char)lexeme[len-2]);
+        if (s == 's') kind = is_unsigned ? PP_TK_UInt8 : PP_TK_Int8;
+        else if (s == 'l') kind = is_unsigned ? PP_TK_UInt128 : PP_TK_Int128;
+        else kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
+    } else {
+        char s = tolower((unsigned char)lexeme[len-1]);
+        if (s == 's') kind = is_unsigned ? PP_TK_UInt16 : PP_TK_Int16;
+        else if (s == 'l') kind = is_unsigned ? PP_TK_UInt64 : PP_TK_Int64;
+        else kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
+    }
+    if (out_numeric) {
+        size_t num_len = pos - (is_unsigned ? 1 : 0);
+        if (num_len > len) num_len = 0;
+        if (num_len > 0) {
+            memcpy(out_numeric, lexeme, num_len);
+            out_numeric[num_len] = '\0';
+        } else {
+            out_numeric[0] = '\0';
+        }
+    }
+    return kind;
 }

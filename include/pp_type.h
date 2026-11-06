@@ -25,8 +25,16 @@ typedef struct {
 
 typedef enum {
     PP_TK_Void,
+    PP_TK_Int8,
+    PP_TK_UInt8,
+    PP_TK_Int16,
+    PP_TK_UInt16,
     PP_TK_Int32,
     PP_TK_UInt32,
+    PP_TK_Int64,
+    PP_TK_UInt64,
+    PP_TK_Int128,
+    PP_TK_UInt128,
     PP_TK_Float,
     PP_TK_Bool,
     PP_TK_Struct,
@@ -86,6 +94,16 @@ typedef struct PPType {
 /* Construction / Destruction */
 /** @brief Create a new PPType with the given kind. */
 PPType* pp_type_create(PPTypeKind kind);
+/** @brief Parse integer literal suffix from lexeme.
+ * Returns PPTypeKind for the literal, or PP_TK_Void on failure.
+ * If out_numeric is non-NULL, writes the numeric digits only into it.
+ */
+#define PP_INT_LITERAL_NUMBUF_SIZE 64
+PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeric);
+/** @brief Return true if the type kind represents an unsigned integer */
+static inline bool pp_type_kind_is_unsigned(PPTypeKind k) {
+    return k == PP_TK_UInt8 || k == PP_TK_UInt16 || k == PP_TK_UInt32 || k == PP_TK_UInt64 || k == PP_TK_UInt128;
+}
 /** @brief Free a PPType. Shallow free – internal owned allocations such as
  * struct layouts and param arrays are freed, referenced types remain owned by
  * the global type table. */
@@ -107,6 +125,7 @@ int pp_type_push_param(PPType* type, const PPType* param_type);
 bool pp_type_is_const(const PPType* type);
 bool pp_type_is_reference(const PPType* type);
 bool pp_type_is_numerical(const PPType* type);
+bool pp_type_is_unsigned_integer(const PPType* type);
 bool pp_type_needs_drop(const PPType* type);
 bool pp_type_is_trivially_copyable(const PPType* type);
 bool pp_type_is_copyable(const PPType* type);

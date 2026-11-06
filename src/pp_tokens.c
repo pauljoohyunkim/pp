@@ -136,10 +136,26 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "void";
         case PP_TT_BOOL:
             return "bool";
+        case PP_TT_INT8:
+            return "int8";
+        case PP_TT_UINT8:
+            return "uint8";
+        case PP_TT_INT16:
+            return "int16";
+        case PP_TT_UINT16:
+            return "uint16";
         case PP_TT_INT32:
             return "int32";
         case PP_TT_UINT32:
             return "uint32";
+        case PP_TT_INT64:
+            return "int64";
+        case PP_TT_UINT64:
+            return "uint64";
+        case PP_TT_INT128:
+            return "int128";
+        case PP_TT_UINT128:
+            return "uint128";
         case PP_TT_FLOAT:
             return "float";
         case PP_TT_STRUCT:

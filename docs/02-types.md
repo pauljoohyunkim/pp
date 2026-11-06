@@ -1,12 +1,43 @@
 # 02 – Types
 
 ## Primitive Types
-- `int32`
+- `int8`, `uint8`
+- `int16`, `uint16`
+- `int32`, `uint32`
+- `int64`, `uint64`
+- `int128`, `uint128`
 - `float`
 - `bool`
 - `void` – cannot define variable of type void
 
-Future: `int8`, `int16`, `uint32`, `int`, `pointer`
+Future: `int`, `pointer`
+
+### Integer Literal Suffixes
+Integer literals can be suffixed to specify type explicitly. The suffix is case-insensitive and the unsigned prefix `u` always precedes the size suffix.
+
+| Suffix | Type |
+|--------|------|
+| `s` | int16 |
+| `ss` | int8 |
+| `l` | int64 |
+| `ll` | int128 |
+
+Unsigned forms:
+- `us` → uint16
+- `uss` → uint8
+- `ul` → uint64
+- `ull` → uint128
+
+Examples:
+```pp
+let a :: int16 = 42s;
+let b :: uint8 = 255uss;
+let c :: int64 = 100l;
+let d :: uint128 = 1ull;
+```
+
+No implicit promotion; use `as` for explicit casts.
+
 
 ## Modifiers
 - `const` – immutable after initialization
