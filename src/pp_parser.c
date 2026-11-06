@@ -515,11 +515,35 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
             case PP_TT_VOID:
                 kind = PP_AST_TYPE_KIND_VOID;
                 break;
+            case PP_TT_INT8:
+                kind = PP_AST_TYPE_KIND_INT8;
+                break;
+            case PP_TT_UINT8:
+                kind = PP_AST_TYPE_KIND_UINT8;
+                break;
+            case PP_TT_INT16:
+                kind = PP_AST_TYPE_KIND_INT16;
+                break;
+            case PP_TT_UINT16:
+                kind = PP_AST_TYPE_KIND_UINT16;
+                break;
             case PP_TT_INT32:
                 kind = PP_AST_TYPE_KIND_INT32;
                 break;
             case PP_TT_UINT32:
                 kind = PP_AST_TYPE_KIND_UINT32;
+                break;
+            case PP_TT_INT64:
+                kind = PP_AST_TYPE_KIND_INT64;
+                break;
+            case PP_TT_UINT64:
+                kind = PP_AST_TYPE_KIND_UINT64;
+                break;
+            case PP_TT_INT128:
+                kind = PP_AST_TYPE_KIND_INT128;
+                break;
+            case PP_TT_UINT128:
+                kind = PP_AST_TYPE_KIND_UINT128;
                 break;
             case PP_TT_FLOAT:
                 kind = PP_AST_TYPE_KIND_FLOAT;

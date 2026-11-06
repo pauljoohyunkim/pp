@@ -372,12 +372,36 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     } else if (pp_lexer_exactly_match_keyword(lexer, "bool")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_BOOL, 4)) return 0;
                         advance_pp(lexer, 4);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "int8")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_INT8, 4)) return 0;
+                        advance_pp(lexer, 4);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "uint8")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_UINT8, 5)) return 0;
+                        advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "int16")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_INT16, 5)) return 0;
+                        advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "uint16")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_UINT16, 6)) return 0;
+                        advance_pp(lexer, 6);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "int32")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_INT32, 5)) return 0;
                         advance_pp(lexer, 5);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "uint32")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_UINT32, 6)) return 0;
                         advance_pp(lexer, 6);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "int64")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_INT64, 5)) return 0;
+                        advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "uint64")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_UINT64, 6)) return 0;
+                        advance_pp(lexer, 6);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "int128")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_INT128, 6)) return 0;
+                        advance_pp(lexer, 6);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "uint128")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_UINT128, 7)) return 0;
+                        advance_pp(lexer, 7);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "float")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_FLOAT, 5)) return 0;
                         advance_pp(lexer, 5);
@@ -406,27 +430,35 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 } else if (isdigit((unsigned char)c)) {
                     size_t len = 1;
                     bool is_float = false;
-                    bool is_unsigned = false;
                     while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer, len))) len++;
                     if (!is_at_end(lexer) && peek_pp(lexer, len) == '.') {
                         is_float = true;
                         len++;
                         while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer, len))) len++;
                     }
-                    if (!is_at_end(lexer) && (peek_pp(lexer, len) == 'e' || peek_pp(lexer, len) == 'E')) {
-                        is_float = true;
-                        len++;
-                        if (!is_at_end(lexer) && (peek_pp(lexer, len) == '+' || peek_pp(lexer, len) == '-')) len++;
-                        while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer, len))) len++;
-                    }
-                    if (!is_float && !is_at_end(lexer) && (peek_pp(lexer, len) == 'u' || peek_pp(lexer, len) == 'U')) {
-                        is_unsigned = true;
-                        len++;
+                    if (!is_float) {
+                        if (!is_at_end(lexer) && (peek_pp(lexer, len) == 'u' || peek_pp(lexer, len) == 'U')) {
+                            len++;
+                        }
+                        // Suffix parsing for integer literals: s, ss, l, ll case-insensitive
+                        if (!is_at_end(lexer)) {
+                            char p1 = tolower(peek_pp(lexer, len));
+                            if (p1 == 's' || p1 == 'l') {
+                                if (!is_at_end(lexer)) {
+                                    char p2 = tolower(peek_pp(lexer, len + 1));
+                                    if ((p1 == 's' && p2 == 's') || (p1 == 'l' && p2 == 'l')) {
+                                        len += 2;
+                                    } else {
+                                        len += 1;
+                                    }
+                                } else {
+                                    len += 1;
+                                }
+                            }
+                        }
                     }
                     if (is_float) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_FLOAT_LITERAL, len)) return 0;
-                    } else if (is_unsigned) {
-                        if (!pp_lexer_push_token_helper(lexer, PP_TT_UNSIGNED_INTEGER_LITERAL, len)) return 0;
                     } else {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_INTEGER_LITERAL, len)) return 0;
                     }
