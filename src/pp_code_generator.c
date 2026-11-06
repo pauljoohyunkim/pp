@@ -2889,11 +2889,16 @@ error_cleanup:
 static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type) {
     #warning "Deep copy of cyclic owned graphs is UNDEFINED BEHAVIOR. See comment below."
     // WARNING: Deep copy of cyclic owned graphs is undefined behavior.
-    // Example:
+    // Under exclusive ownership semantics lvalue source -> deep copy, rvalue source -> move.
+    // With correct copy/drop emission the owned heap graph is always a tree and a cycle
+    // cannot be built by user code. If infinite recursion is observed it indicates an
+    // aliasing bug in the compiler, e.g. collection initializer storing lvalue elements
+    // by plain store instead of copy_T, or indexed/member assignment skipping copy_T/drop_T.
+    // Example of the bug that would trigger UB:
     //   struct Node { v :: int32; kids :: [Node]; }
     //   let n1 :: Node = Node{ .v = 1, .kids = [Node : 0u] };
     //   let n2 :: Node = Node{ .v = 2, .kids = [Node : 1u; n1] };
-    //   n1.kids[0u] = n2;   // creates cycle
+    //   n1.kids[0u] = n2;   // if copy is skipped, aliasing creates a cycle
     //   let copy :: Node = n1;     // deep copy -> infinite recursion / UB
     // Save current builder insertion point
     LLVMBasicBlockRef saved_bb = pp_cg_save_builder_insert_block(cg);
@@ -3125,11 +3130,15 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
 static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type) {
     #warning "Drop of cyclic owned graphs is UNDEFINED BEHAVIOR. See comment below."
     // WARNING: Drop of cyclic owned graphs is undefined behavior.
-    // Example:
+    // Under exclusive ownership semantics the owned heap graph must be a tree.
+    // A cycle can only arise from an aliasing bug in the compiler e.g. missing copy_T/drop_T
+    // on element stores. If infinite recursion is observed it is a compiler bug, not a
+    // permitted user program. Do not add a runtime visited set to hide it.
+    // Example of the bug that would trigger UB:
     //   struct Node { v :: int32; kids :: [Node]; }
     //   let n1 :: Node = Node{ .v = 1, .kids = [Node : 0u] };
     //   let n2 :: Node = Node{ .v = 2, .kids = [Node : 1u; n1] };
-    //   n1.kids[0u] = n2;   // creates cycle
+    //   n1.kids[0u] = n2;   // if copy is skipped, aliasing creates a cycle
     //   // dropping n1 will recurse infinitely / UB
     LLVMBasicBlockRef saved_bb = pp_cg_save_builder_insert_block(cg);
     LLVMBasicBlockRef entry_bb = LLVMGetEntryBasicBlock(func);

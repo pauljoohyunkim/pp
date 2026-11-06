@@ -38,8 +38,24 @@ Allow `struct S { s :: [S]; }` and mutually recursive structs by fixing per-type
 - [x] Update `dev-docs/semantic-analysis.md` with copyable vs move-only notes
 
 ## Risks
-- Runtime infinite loop on user-built cycles via mutation
-- If runtime cycles become issue later, need visited-set deep copy
+- Runtime infinite loop on user-built cycles via mutation. With correct copy/drop emission this cannot be built by user code under exclusive ownership; it would indicate an aliasing bug in the compiler.
+- If shared ownership is added later, owned graph is no longer guaranteed to be a tree and a visited-set deep copy becomes necessary.
+
+## Example of problematic aliasing bug
+The following looks like a cycle but is *not* reachable with correct deep-copy semantics because RHS is evaluated before the store:
+```pp
+struct Node { v :: int32; kids :: [Node]; }
+let n1 :: Node = Node { .v = 1, .kids = [Node; ] };
+let n2 :: Node;
+n1.kids[0u] = n2;   // OK if kids is pre-allocated
+```
+A *real* problem would be a compiler bug where element stores skip `copy_T`/`drop_T`, e.g. collection initializer storing lvalue elements by plain store:
+```pp
+// Buggy codegen: element stored by memcpy instead of copy_T
+let lst :: [Node] = [Node; n1, n2];
+```
+If `n1`/`n2` are the same allocation as `lst`'s storage, the resulting owned graph aliases and a subsequent deep copy of `lst` will recurse forever. This is the aliasing bug the warnings refer to, not a user program that intentionally creates a cycle.
+
 
 ## Potential Fix Considered but Rejected
 A recursion guard was prototyped in `pp_type_is_copyable` and `pp_type_needs_drop` using a static visited set to break cycles. This would allow the copyability check to terminate for recursive types. However, this is a band-aid that hides the underlying semantic issue: the type system still permits deep copy of potentially cyclic owned graphs, which may diverge at runtime. The guard also uses static mutable state which is not re-entrant safe.
