@@ -939,4 +939,26 @@ TEST(SemanticTest, HashLengthOperatorInvalid) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, IntegerLiteralSuffixTypes) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int16 = 1s;\n"
+        "    let b :: uint16 = 1us;\n"
+        "    let c :: int8 = 2ss;\n"
+        "    let d :: uint8 = 2uss;\n"
+        "    let e :: int64 = 3l;\n"
+        "    let f :: uint64 = 3ul;\n"
+        "    let g :: int128 = 4ll;\n"
+        "    let h :: uint128 = 4ull;\n"
+        "    let i :: int16 = 5s;\n"
+        "    let j :: uint16 = 5us;\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
 
