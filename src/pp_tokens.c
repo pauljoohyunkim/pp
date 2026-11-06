@@ -14,6 +14,8 @@ bool pp_token_type_is_assignment(PP_TokenType token_type) {
         case PP_TT_AMPERSAND_EQUAL:
         case PP_TT_BAR_EQUAL:
         case PP_TT_CARET_EQUAL:
+        case PP_TT_LESS_LESS_EQUAL:
+        case PP_TT_GREATER_GREATER_EQUAL:
             return true;
         default:
             return false;
@@ -56,6 +58,8 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return ";";
         case PP_TT_PERIOD:
             return ".";
+        case PP_TT_HASH:
+            return "#";
         case PP_TT_COMMA:
             return ",";
         case PP_TT_COLON:
@@ -100,6 +104,14 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "&&";
         case PP_TT_BAR_BAR:
             return "||";
+        case PP_TT_LESS_LESS:
+            return "<<";
+        case PP_TT_GREATER_GREATER:
+            return ">>";
+        case PP_TT_LESS_LESS_EQUAL:
+            return "<<=";
+        case PP_TT_GREATER_GREATER_EQUAL:
+            return ">>=";
 
         // Keywords / Types
         case PP_TT_FOR:
@@ -124,10 +136,26 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "void";
         case PP_TT_BOOL:
             return "bool";
+        case PP_TT_INT8:
+            return "int8";
+        case PP_TT_UINT8:
+            return "uint8";
+        case PP_TT_INT16:
+            return "int16";
+        case PP_TT_UINT16:
+            return "uint16";
         case PP_TT_INT32:
             return "int32";
         case PP_TT_UINT32:
             return "uint32";
+        case PP_TT_INT64:
+            return "int64";
+        case PP_TT_UINT64:
+            return "uint64";
+        case PP_TT_INT128:
+            return "int128";
+        case PP_TT_UINT128:
+            return "uint128";
         case PP_TT_FLOAT:
             return "float";
         case PP_TT_STRUCT:

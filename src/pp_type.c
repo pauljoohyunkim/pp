@@ -1,12 +1,25 @@
 #include "pp_type.h"
 
+#include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "pp_type_table.h"
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
         if ((ptr) == NULL) goto error_cleanup; \
     } while (0)
+
+#define PP_TYPE_VISIT_STACK_MAX 128
+#if PP_TYPE_VISIT_STACK_MAX < 256
+#warning "PP_TYPE_VISIT_STACK_MAX is < 256; consider increasing for deep type graphs"
+#endif
+
+static bool pp_type_needs_drop_impl(const PPType* type, const PPType** stack, int depth);
+static bool pp_type_is_copyable_impl(const PPType* type, const PPType** stack, int depth);
+static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType** stack, int depth);
 
 /** @brief Create a new PPType with the given kind. */
 PPType* pp_type_create(PPTypeKind kind) {
@@ -128,8 +141,30 @@ bool pp_type_is_numerical(const PPType* type) {
 
     switch (type->kind) {
         case PP_TK_Float:
+        case PP_TK_Int8:
+        case PP_TK_UInt8:
+        case PP_TK_Int16:
+        case PP_TK_UInt16:
         case PP_TK_Int32:
         case PP_TK_UInt32:
+        case PP_TK_Int64:
+        case PP_TK_UInt64:
+        case PP_TK_Int128:
+        case PP_TK_UInt128:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool pp_type_is_unsigned_integer(const PPType* type) {
+    if (!type) return false;
+    switch (type->kind) {
+        case PP_TK_UInt8:
+        case PP_TK_UInt16:
+        case PP_TK_UInt32:
+        case PP_TK_UInt64:
+        case PP_TK_UInt128:
             return true;
         default:
             return false;
@@ -138,25 +173,206 @@ bool pp_type_is_numerical(const PPType* type) {
 
 bool pp_type_needs_drop(const PPType* type) {
     if (type == NULL) return false;
+    const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
+    return pp_type_needs_drop_impl(type, stack, 0);
+}
+
+static bool pp_type_needs_drop_impl(const PPType* type, const PPType** stack, int depth) {
+    if (type == NULL) return false;
+    if (depth > 0) {
+        for (int i = 0; i < depth; i++) {
+            if (stack[i] == type) return false;
+        }
+    }
+    if (depth >= PP_TYPE_VISIT_STACK_MAX) {
+        fprintf(stderr, "WARN: pp_type_needs_drop depth >= %d\n", PP_TYPE_VISIT_STACK_MAX);
+        return false;
+    }
+    stack[depth] = type;
 
     switch (type->kind) {
         case PP_TK_List:
             return true;
         case PP_TK_Const:
-            return pp_type_needs_drop(type->type.pp_type_const.const_of);
+            return pp_type_needs_drop_impl(type->type.pp_type_const.const_of, stack, depth + 1);
         case PP_TK_Array:
-            return pp_type_needs_drop(type->type.pp_type_array.element_type);
+            return pp_type_needs_drop_impl(type->type.pp_type_array.element_type, stack, depth + 1);
         case PP_TK_Newtype:
-            return pp_type_needs_drop(type->type.pp_type_newtype.underlying);
+            return pp_type_needs_drop_impl(type->type.pp_type_newtype.underlying, stack, depth + 1);
         case PP_TK_Struct: {
             const PP_StructLayout* layout = type->type.pp_type_struct.layout;
             if (!layout) return false;
             for (size_t i = 0; i < layout->field_count; i++) {
-                if (pp_type_needs_drop(layout->fields[i].field_type)) return true;
+                if (pp_type_needs_drop_impl(layout->fields[i].field_type, stack, depth + 1)) return true;
             }
             return false;
         }
         default:
             return false;
     }
+}
+
+bool pp_type_is_trivially_copyable(const PPType* type) {
+    if (type == NULL) return false;
+    const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
+    return pp_type_is_trivially_copyable_impl(type, stack, 0);
+}
+
+bool pp_type_is_copyable(const PPType* type) {
+    if (type == NULL) return false;
+    if (pp_type_is_reference(type)) return false;
+    // Trivially copyable types are always copyable
+    if (pp_type_is_trivially_copyable(type)) return true;
+    // Types that need drop must be checked for deep-copy support
+    if (!pp_type_needs_drop(type)) return true;  // No ownership, trivially copyable already handled
+
+    const PPType* stack[PP_TYPE_VISIT_STACK_MAX] = {0};
+    return pp_type_is_copyable_impl(type, stack, 0);
+}
+
+static bool pp_type_is_copyable_impl(const PPType* type, const PPType** stack, int depth) {
+    if (type == NULL) return false;
+    if (pp_type_is_reference(type)) return false;
+    if (pp_type_is_trivially_copyable_impl(type, stack, depth)) return true;
+    if (!pp_type_needs_drop_impl(type, stack, depth)) return true;
+
+    if (depth > 0) {
+        for (int i = 0; i < depth; i++) {
+            if (stack[i] == type) return true;
+        }
+    }
+    if (depth >= PP_TYPE_VISIT_STACK_MAX) {
+        fprintf(stderr, "WARN: pp_type_is_copyable depth >= %d\n", PP_TYPE_VISIT_STACK_MAX);
+        return true;
+    }
+    stack[depth] = type;
+
+    switch (type->kind) {
+        case PP_TK_List: {
+            const PPType* elem = type->type.pp_type_list.element_type;
+            return pp_type_is_copyable_impl(elem, stack, depth + 1);
+        }
+        case PP_TK_Struct: {
+            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+            if (!layout) return false;
+            for (size_t i = 0; i < layout->field_count; i++) {
+                const PPType* ft = layout->fields[i].field_type;
+                if (!pp_type_is_copyable_impl(ft, stack, depth + 1)) return false;
+            }
+            return true;
+        }
+        case PP_TK_Newtype:
+            return pp_type_is_copyable_impl(type->type.pp_type_newtype.underlying, stack, depth + 1);
+        case PP_TK_Const:
+            return pp_type_is_copyable_impl(type->type.pp_type_const.const_of, stack, depth + 1);
+        case PP_TK_Array:
+            return pp_type_is_copyable_impl(type->type.pp_type_array.element_type, stack, depth + 1);
+        default:
+            return false;
+    }
+}
+
+static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType** stack, int depth) {
+    if (type == NULL) return false;
+    if (pp_type_is_reference(type)) return false;
+    if (depth > 0) {
+        for (int i = 0; i < depth; i++) {
+            if (stack[i] == type) return true;
+        }
+    }
+    if (depth >= PP_TYPE_VISIT_STACK_MAX) {
+        fprintf(stderr, "WARN: pp_type_is_trivially_copyable depth >= %d\n", PP_TYPE_VISIT_STACK_MAX);
+        return true;
+    }
+    stack[depth] = type;
+
+    switch (type->kind) {
+        case PP_TK_Int8:
+        case PP_TK_UInt8:
+        case PP_TK_Int16:
+        case PP_TK_UInt16:
+        case PP_TK_Int32:
+        case PP_TK_UInt32:
+        case PP_TK_Int64:
+        case PP_TK_UInt64:
+        case PP_TK_Int128:
+        case PP_TK_UInt128:
+        case PP_TK_Float:
+        case PP_TK_Bool:
+        case PP_TK_Void:
+            return true;
+        case PP_TK_Const:
+            return pp_type_is_trivially_copyable_impl(type->type.pp_type_const.const_of, stack, depth + 1);
+        case PP_TK_Newtype:
+            return pp_type_is_trivially_copyable_impl(type->type.pp_type_newtype.underlying, stack, depth + 1);
+        case PP_TK_Array:
+            return pp_type_is_trivially_copyable_impl(type->type.pp_type_array.element_type, stack, depth + 1);
+        case PP_TK_Struct: {
+            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+            if (!layout) return false;
+            for (size_t i = 0; i < layout->field_count; i++) {
+                const PPType* ft = layout->fields[i].field_type;
+                if (!pp_type_is_trivially_copyable_impl(ft, stack, depth + 1)) return false;
+                if (pp_type_needs_drop_impl(ft, stack, depth + 1)) return false;
+            }
+            return true;
+        }
+        case PP_TK_List:
+            return false;
+        default:
+            return false;
+    }
+}
+
+PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeric) {
+    if (!lexeme) return PP_TK_Void;
+    size_t len = strlen(lexeme);
+    if (len == 0) {
+        if (out_numeric) out_numeric[0] = '\0';
+        return PP_TK_Int32;
+    }
+    size_t pos = 0;
+    while (pos < len && isdigit((unsigned char)lexeme[pos])) pos++;
+    bool is_unsigned = false;
+    if (pos < len && tolower((unsigned char)lexeme[pos]) == 'u') {
+        is_unsigned = true;
+        pos++;
+    }
+    size_t suffix_len = 0;
+    if (len >= pos + 2) {
+        char c1 = tolower((unsigned char)lexeme[len-2]);
+        char c2 = tolower((unsigned char)lexeme[len-1]);
+        if ((c1=='s' && c2=='s') || (c1=='l' && c2=='l')) {
+            suffix_len = 2;
+        }
+    }
+    if (suffix_len == 0 && len > pos) {
+        char last = tolower((unsigned char)lexeme[len-1]);
+        if (last == 's' || last == 'l') suffix_len = 1;
+    }
+    PPTypeKind kind;
+    if (suffix_len == 0) {
+        kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
+    } else if (suffix_len == 2) {
+        char s = tolower((unsigned char)lexeme[len-2]);
+        if (s == 's') kind = is_unsigned ? PP_TK_UInt8 : PP_TK_Int8;
+        else if (s == 'l') kind = is_unsigned ? PP_TK_UInt128 : PP_TK_Int128;
+        else kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
+    } else {
+        char s = tolower((unsigned char)lexeme[len-1]);
+        if (s == 's') kind = is_unsigned ? PP_TK_UInt16 : PP_TK_Int16;
+        else if (s == 'l') kind = is_unsigned ? PP_TK_UInt64 : PP_TK_Int64;
+        else kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
+    }
+    if (out_numeric) {
+        size_t num_len = pos - (is_unsigned ? 1 : 0);
+        if (num_len > len) num_len = 0;
+        if (num_len > 0) {
+            memcpy(out_numeric, lexeme, num_len);
+            out_numeric[num_len] = '\0';
+        } else {
+            out_numeric[0] = '\0';
+        }
+    }
+    return kind;
 }

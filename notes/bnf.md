@@ -43,7 +43,7 @@
 <variable_decl>             ::= "let" <param_decl> [ "=" <expression> ]
 
 <assignment_stmt>           ::= <expression> <assignment_op> <expression>
-<assignment_op>             ::= "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^="
+<assignment_op>             ::= "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
 
 <return_stmt>               ::= "return" [ <expression> ]
 
@@ -71,7 +71,6 @@
                               | <identifier>
 
 ;; --- Expression ---
-;; TODO: Need to add equality, relational, etc.
 <expression>                ::= <logical_or>
 
 <logical_or>                ::= <logical_or> "||" <logical_and>
@@ -96,7 +95,11 @@
 <bitwise_xor>               ::= <bitwise_xor> "^" <bitwise_and> 
                               | <bitwise_and>
 
-<bitwise_and>               ::= <bitwise_and> "&" <additive> 
+<bitwise_and>               ::= <bitwise_and> "&" <shift> 
+                              | <shift>
+
+<bitshift>                  ::= <bitshift> "<<" <additive>
+                              | <bitshift> ">>" <additive>
                               | <additive>
 
 <additive>                  ::= <additive> "+" <multiplicative> 
@@ -111,7 +114,8 @@
 <cast_expr>                 ::= <unary> "as" <type> 
                               | <unary>
 
-<unary>                     ::= "-" <postfix> 
+<unary>                     ::= "#" <postfix> 
+                              | "-" <postfix> 
                               | "!" <postfix> 
                               | <postfix>
 

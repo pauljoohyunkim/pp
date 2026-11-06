@@ -49,5 +49,5 @@ for (i :: int32 = 0; i < 10; i += 1) { ... }
 ## Arrays / Lists
 ```pp
 let arr :: [int32 : 4] = [int32 : 4; 1, 2, 3, 4];
-let v = arr[0];
+let v :: int32 = arr[0];
 ```

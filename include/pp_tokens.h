@@ -26,6 +26,7 @@ typedef enum {
     PP_TT_CARET,
     PP_TT_SEMICOLON,
     PP_TT_PERIOD,
+    PP_TT_HASH,
     PP_TT_COMMA,
     PP_TT_COLON,
     PP_TT_EXCLAMATION,
@@ -49,6 +50,12 @@ typedef enum {
     PP_TT_COLON_COLON,
     PP_TT_AMPERSAND_AMPERSAND,
     PP_TT_BAR_BAR,
+    PP_TT_LESS_LESS,
+    PP_TT_GREATER_GREATER,
+
+    // Triple-letter
+    PP_TT_LESS_LESS_EQUAL,
+    PP_TT_GREATER_GREATER_EQUAL,
 
     // Others
     PP_TT_FOR,
@@ -63,8 +70,16 @@ typedef enum {
     PP_TT_CONST,
     PP_TT_VOID,
     PP_TT_BOOL,
+    PP_TT_INT8,
+    PP_TT_UINT8,
+    PP_TT_INT16,
+    PP_TT_UINT16,
     PP_TT_INT32,
     PP_TT_UINT32,
+    PP_TT_INT64,
+    PP_TT_UINT64,
+    PP_TT_INT128,
+    PP_TT_UINT128,
     PP_TT_FLOAT,
     PP_TT_STRUCT,
     PP_TT_TYPEDEF,

@@ -42,6 +42,12 @@ struct PP_Environment_Backend {
 };
 
 typedef struct {
+    const PPType* type;
+    LLVMValueRef copy_fn;
+    LLVMValueRef drop_fn;
+} PP_TypeCacheEntry;
+
+typedef struct {
     LLVMContextRef ctx;
     LLVMModuleRef mod;
     LLVMBuilderRef builder;
@@ -65,6 +71,11 @@ typedef struct {
     PPType** drop_stack_types;
     size_t drop_stack_count;
     size_t drop_stack_capacity;
+
+    /* Per-type copy/drop function cache */
+    PP_TypeCacheEntry* type_cache;
+    size_t type_cache_count;
+    size_t type_cache_capacity;
 } PP_CodeGenerator;
 
 /**
@@ -126,6 +137,20 @@ int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_
  * @return 1 on success, 0 otherwise.
  */
 int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf);
+
+/**
+ * @brief Create a default native target machine for the given module.
+ * @param module LLVM module whose target triple will be set.
+ * @param out_tm Output target machine, caller must free with pp_code_generator_target_machine_free.
+ * @return 1 on success, 0 on failure.
+ */
+int pp_code_generator_target_machine_create_default(LLVMModuleRef module, LLVMTargetMachineRef* out_tm);
+
+/**
+ * @brief Free a target machine created by pp_code_generator_target_machine_create_default.
+ * @param tm Target machine to free.
+ */
+void pp_code_generator_target_machine_free(LLVMTargetMachineRef tm);
 
 #ifdef __cplusplus
 }

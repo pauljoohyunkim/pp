@@ -218,10 +218,10 @@ TEST(Lexer, NumericEdgeCases) {
     ASSERT_EQ(lexer->tokens[6].token_type, PP_TT_FLOAT_LITERAL);
     ASSERT_EQ(lexer->tokens[7].token_type, PP_TT_PERIOD);
     ASSERT_EQ(lexer->tokens[8].token_type, PP_TT_INTEGER_LITERAL);
-    ASSERT_EQ(lexer->tokens[9].token_type, PP_TT_UNSIGNED_INTEGER_LITERAL);
-    ASSERT_EQ(lexer->tokens[10].token_type, PP_TT_UNSIGNED_INTEGER_LITERAL);
+    ASSERT_EQ(lexer->tokens[9].token_type, PP_TT_INTEGER_LITERAL);
+    ASSERT_EQ(lexer->tokens[10].token_type, PP_TT_INTEGER_LITERAL);
     ASSERT_EQ(lexer->tokens[11].token_type, PP_TT_PERIOD);
-    ASSERT_EQ(lexer->tokens[12].token_type, PP_TT_UNSIGNED_INTEGER_LITERAL);
+    ASSERT_EQ(lexer->tokens[12].token_type, PP_TT_INTEGER_LITERAL);
     ASSERT_EQ(lexer->tokens[13].token_type, PP_TT_FLOAT_LITERAL);
     ASSERT_EQ(lexer->tokens[14].token_type, PP_TT_IDENTIFIER);
     ASSERT_EQ(lexer->tokens[15].token_type, PP_TT_EOF);
@@ -258,7 +258,7 @@ TEST(Lexer, OperatorCombinations) {
     auto lexer_h = pp_lexer_create("++ -- ** &&|| ==!= <=>= <<>> !!", nullptr);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
-    ASSERT_EQ(lexer->n_tokens, 19);
+    ASSERT_EQ(lexer->n_tokens, 17);
     ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_PLUS);
     ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_PLUS);
     ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_MINUS);
@@ -271,13 +271,11 @@ TEST(Lexer, OperatorCombinations) {
     ASSERT_EQ(lexer->tokens[9].token_type, PP_TT_EXCLAMATION_EQUAL);
     ASSERT_EQ(lexer->tokens[10].token_type, PP_TT_LESS_EQUAL);
     ASSERT_EQ(lexer->tokens[11].token_type, PP_TT_GREATER_EQUAL);
-    ASSERT_EQ(lexer->tokens[12].token_type, PP_TT_LESS);
-    ASSERT_EQ(lexer->tokens[13].token_type, PP_TT_LESS);
-    ASSERT_EQ(lexer->tokens[14].token_type, PP_TT_GREATER);
-    ASSERT_EQ(lexer->tokens[15].token_type, PP_TT_GREATER);
-    ASSERT_EQ(lexer->tokens[16].token_type, PP_TT_EXCLAMATION);
-    ASSERT_EQ(lexer->tokens[17].token_type, PP_TT_EXCLAMATION);
-    ASSERT_EQ(lexer->tokens[18].token_type, PP_TT_EOF);
+    ASSERT_EQ(lexer->tokens[12].token_type, PP_TT_LESS_LESS);
+    ASSERT_EQ(lexer->tokens[13].token_type, PP_TT_GREATER_GREATER);
+    ASSERT_EQ(lexer->tokens[14].token_type, PP_TT_EXCLAMATION);
+    ASSERT_EQ(lexer->tokens[15].token_type, PP_TT_EXCLAMATION);
+    ASSERT_EQ(lexer->tokens[16].token_type, PP_TT_EOF);
 }
 
 TEST(Lexer, MixedWhitespaceAndComments) {
@@ -311,3 +309,65 @@ TEST(Lexer, StringLiteralBehavior) {
     }
     ASSERT_EQ(lexer->tokens[5].token_type, PP_TT_EOF);
 }
+
+TEST(Lexer, HashToken) {
+    auto lexer_h = pp_lexer_create("# #arr # arr#", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 7);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_HASH);
+    ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_HASH);
+    ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[3].token_type, PP_TT_HASH);
+    ASSERT_EQ(lexer->tokens[4].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[5].token_type, PP_TT_HASH);
+    ASSERT_EQ(lexer->tokens[6].token_type, PP_TT_EOF);
+}
+
+TEST(Lexer, IntegerSuffixLiterals) {
+    auto lexer_h = pp_lexer_create("42s 42ss 42l 42ll 42us 42uss 42ul 42ull 42S 42SS 42L 42LL 42US 42USS 42UL 42ULL", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    // 16 literals + EOF
+    ASSERT_EQ(lexer->n_tokens, 17);
+    for (int i = 0; i < 16; ++i) {
+        PP_TokenType tt = lexer->tokens[i].token_type;
+        ASSERT_EQ(tt, PP_TT_INTEGER_LITERAL);
+    }
+    // Verify lexemes are preserved with suffixes
+    ASSERT_STREQ(lexer->tokens[0].lexeme, "42s");
+    ASSERT_STREQ(lexer->tokens[1].lexeme, "42ss");
+    ASSERT_STREQ(lexer->tokens[2].lexeme, "42l");
+    ASSERT_STREQ(lexer->tokens[3].lexeme, "42ll");
+    ASSERT_STREQ(lexer->tokens[4].lexeme, "42us");
+    ASSERT_STREQ(lexer->tokens[5].lexeme, "42uss");
+    ASSERT_STREQ(lexer->tokens[6].lexeme, "42ul");
+    ASSERT_STREQ(lexer->tokens[7].lexeme, "42ull");
+    ASSERT_STREQ(lexer->tokens[8].lexeme, "42S");
+    ASSERT_STREQ(lexer->tokens[9].lexeme, "42SS");
+    ASSERT_STREQ(lexer->tokens[10].lexeme, "42L");
+    ASSERT_STREQ(lexer->tokens[11].lexeme, "42LL");
+    ASSERT_STREQ(lexer->tokens[12].lexeme, "42US");
+    ASSERT_STREQ(lexer->tokens[13].lexeme, "42USS");
+    ASSERT_STREQ(lexer->tokens[14].lexeme, "42UL");
+    ASSERT_STREQ(lexer->tokens[15].lexeme, "42ULL");
+}
+
+TEST(Lexer, NewIntegerTypeKeywords) {
+    auto lexer_h = pp_lexer_create("int8 uint8 int16 uint16 int64 uint64 int128 uint128", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 9);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_INT8);
+    ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_UINT8);
+    ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_INT16);
+    ASSERT_EQ(lexer->tokens[3].token_type, PP_TT_UINT16);
+    ASSERT_EQ(lexer->tokens[4].token_type, PP_TT_INT64);
+    ASSERT_EQ(lexer->tokens[5].token_type, PP_TT_UINT64);
+    ASSERT_EQ(lexer->tokens[6].token_type, PP_TT_INT128);
+    ASSERT_EQ(lexer->tokens[7].token_type, PP_TT_UINT128);
+    ASSERT_EQ(lexer->tokens[8].token_type, PP_TT_EOF);
+    ASSERT_STREQ(lexer->tokens[0].lexeme, "int8");
+    ASSERT_STREQ(lexer->tokens[7].lexeme, "uint128");
+}
+

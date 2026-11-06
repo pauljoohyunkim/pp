@@ -909,4 +909,187 @@ TEST(SemanticTest, GlobalScopeCallError) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, HashLengthOperatorValid) {
+    const char* source =
+        "func main :: () -> uint32 {\n"
+        "    let arr :: [int32 : 5u];\n"
+        "    let lst :: [int32];\n"
+        "    let a :: uint32 = #arr;\n"
+        "    let b :: uint32 = #lst;\n"
+        "    return a;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HashLengthOperatorInvalid) {
+    const char* source =
+        "func main :: () -> uint32 {\n"
+        "    let x :: int32 = 5;\n"
+        "    let y :: uint32 = #x;\n"
+        "    return y;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, IntegerLiteralSuffixTypes) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int16 = 1s;\n"
+        "    let b :: uint16 = 1us;\n"
+        "    let c :: int8 = 2ss;\n"
+        "    let d :: uint8 = 2uss;\n"
+        "    let e :: int64 = 3l;\n"
+        "    let f :: uint64 = 3ul;\n"
+        "    let g :: int128 = 4ll;\n"
+        "    let h :: uint128 = 4ull;\n"
+        "    let i :: int16 = 5s;\n"
+        "    let j :: uint16 = 5us;\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, IntegerLiteralSuffixTypeMismatch) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int8 = 1s;\n"   // 1s is int16, mismatch
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, IntegerLiteralSuffixTripleL) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int32 = 1lll;\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, IntegerLiteralSuffixCaseInsensitive) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int16 = 1S;\n"
+        "    let b :: uint16 = 1US;\n"
+        "    let c :: int8 = 2SS;\n"
+        "    let d :: uint8 = 2USS;\n"
+        "    let e :: int64 = 3L;\n"
+        "    let f :: uint64 = 3UL;\n"
+        "    let g :: int128 = 4LL;\n"
+        "    let h :: uint128 = 4ULL;\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, IntegerLiteralSuffixBinaryOps) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int16 = 1s + 2s;\n"
+        "    let b :: uint16 = 1us + 2us;\n"
+        "    let c :: int8 = 1ss - 2ss;\n"
+        "    let d :: uint8 = 1uss * 2uss;\n"
+        "    let e :: int64 = 1l + 2l;\n"
+        "    let f :: uint64 = 1ul * 2ul;\n"
+        "    let g :: int128 = 1ll + 2ll;\n"
+        "    let h :: uint128 = 1ull * 2ull;\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, IntegerLiteralSuffixUnaryOps) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int16 = -1s;\n"
+        "    let b :: uint16 = 1us;\n"
+        "    let c :: int8 = -1ss;\n"
+        "    let d :: int64 = -1l;\n"
+        "    let e :: int128 = -1ll;\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, IntegerLiteralSuffixCompoundAssign) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int16 = 0s;\n"
+        "    a += 1s;\n"
+        "    let b :: uint16 = 0us;\n"
+        "    b -= 1us;\n"
+        "    let c :: int8 = 0ss;\n"
+        "    c *= 2ss;\n"
+        "    let d :: int64 = 0l;\n"
+        "    d += 1l;\n"
+        "    let e :: int128 = 0ll;\n"
+        "    e += 1ll;\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, IntegerLiteralSuffixBinaryTypeMismatch) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: int8 = 1s + 1ss;\n"   // int16 + int8 mismatch
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, IntegerLiteralSuffixUnaryMinusUnsigned) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: uint16 = -1us;\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
 
