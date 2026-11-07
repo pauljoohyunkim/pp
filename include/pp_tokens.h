@@ -81,6 +81,7 @@ typedef enum {
     PP_TT_INT128,
     PP_TT_UINT128,
     PP_TT_FLOAT,
+    PP_TT_STRING,
     PP_TT_STRUCT,
     PP_TT_TYPEDEF,
     PP_TT_NEWTYPE,

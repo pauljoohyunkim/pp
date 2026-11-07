@@ -438,6 +438,9 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     } else if (pp_lexer_exactly_match_keyword(lexer, "float")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_FLOAT, 5)) return 0;
                         advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "string")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_STRING, 6)) return 0;
+                        advance_pp(lexer, 6);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "struct")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_STRUCT, 6)) return 0;
                         advance_pp(lexer, 6);

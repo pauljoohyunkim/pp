@@ -158,6 +158,8 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "uint128";
         case PP_TT_FLOAT:
             return "float";
+        case PP_TT_STRING:
+            return "string";
         case PP_TT_STRUCT:
             return "struct";
         case PP_TT_TYPEDEF:
