@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 bool pp_token_type_is_assignment(PP_TokenType token_type) {
     switch (token_type) {
@@ -193,3 +194,60 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return NULL;
     }
 }
+
+#include <ctype.h>
+#include <string.h>
+
+/* Return unescaped byte length of a string literal lexeme.
+ * For static string: lexeme is @"..."; for heap string: "..."
+ * Returns -1 on invalid escape, otherwise number of bytes in the unescaped content.
+ * Caller should add +1 for NUL if needed for static strings.
+ */
+ssize_t pp_tokens_unescape_string_length(const char* lexeme) {
+    if (!lexeme) return -1;
+    size_t i = 0;
+    size_t len = strlen(lexeme);
+    /* Skip opening delimiter */
+    if (len >= 2 && lexeme[0] == '@' && lexeme[1] == '"') {
+        i = 2;
+    } else if (len >= 2 && lexeme[0] == '"') {
+        i = 1;
+    } else {
+        return -1;
+    }
+    long out = 0;
+    while (i < len) {
+        char c = lexeme[i];
+        if (c == '"') {
+            /* End of literal */
+            break;
+        }
+        if (c == '\\') {
+            if (i + 1 >= len) return -1;
+            char esc = lexeme[i + 1];
+            switch (esc) {
+                case 'n': out += 1; i += 2; continue;
+                case 't': out += 1; i += 2; continue;
+                case 'r': out += 1; i += 2; continue;
+                case '"': out += 1; i += 2; continue;
+                case '\\': out += 1; i += 2; continue;
+                case '0': out += 1; i += 2; continue;
+                case 'x': {
+                    if (i + 3 >= len) return -1;
+                    char h1 = lexeme[i + 2];
+                    char h2 = lexeme[i + 3];
+                    if (!isxdigit((unsigned char)h1) || !isxdigit((unsigned char)h2)) return -1;
+                    out += 1; i += 4; continue;
+                }
+                default:
+                    /* Unknown escape */
+                    return -1;
+            }
+        }
+        /* Normal char */
+        out += 1;
+        i += 1;
+    }
+    return out;
+}
+

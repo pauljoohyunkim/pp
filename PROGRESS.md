@@ -25,10 +25,10 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 - [x] No AST changes required
 
 ### Semantic Analyzer
-- [ ] Extend `pp_semantic_analyzer_check_literal_expression` for `PP_TT_STATIC_STRING_LITERAL`
+- [x] Extend `pp_semantic_analyzer_check_literal_expression` for `PP_TT_STATIC_STRING_LITERAL`
   - [ ] Unescape lexeme, compute length = content bytes + 1 NUL
-  - [ ] Set `is_constexpr = true`
-- [ ] Extend `pp_semantic_analyzer_check_literal_expression` for `PP_TT_STRING_LITERAL`
+  - [x] Set `is_constexpr = true`
+- [x] Extend `pp_semantic_analyzer_check_literal_expression` for `PP_TT_STRING_LITERAL`
   - [ ] Handle heap `string` type, no NUL, runtime allocation
 - [ ] Add array literal initialization check in variable/field initializer path
   - [ ] Detect target type = `[uint8 : N]`

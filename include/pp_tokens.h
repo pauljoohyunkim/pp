@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+#include <sys/types.h>
 
 typedef enum {
     // Single-letter
@@ -108,6 +109,7 @@ typedef struct {
 
 const char* pp_token_to_human_name(PP_TokenType token_type);
 bool pp_token_type_is_assignment(PP_TokenType token_type);
+ssize_t pp_tokens_unescape_string_length(const char* lexeme);
 
 #ifdef __cplusplus
 }

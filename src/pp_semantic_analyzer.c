@@ -3593,6 +3593,45 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
             resolved_type = pp_global_type_table_find_alias(sa->gtt, "float");
             assert(resolved_type);
             break;
+        case PP_TT_STRING_LITERAL:
+            resolved_type = pp_global_type_table_find_alias(sa->gtt, "string");
+            assert(resolved_type);
+            {
+                const char* lexeme = expr->literal.lexeme;
+                assert(lexeme);
+                ssize_t len = pp_tokens_unescape_string_length(lexeme);
+                if (len < 0) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Invalid escape sequence in string literal");
+                    goto error_cleanup;
+                }
+            }
+            break;
+        case PP_TT_STATIC_STRING_LITERAL:
+            {
+                const char* lexeme = expr->literal.lexeme;
+                assert(lexeme);
+                ssize_t len = pp_tokens_unescape_string_length(lexeme);
+                if (len < 0) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Invalid escape sequence in static string literal");
+                    goto error_cleanup;
+                }
+                size_t total_size = (size_t)(len + 1); /* implicit NUL */
+                const PPType* uint8_type = pp_global_type_table_find_alias(sa->gtt, "uint8");
+                assert(uint8_type);
+
+                PPType* arr_type = pp_type_create(PP_TK_Array);
+                if (!arr_type) goto error_cleanup;
+                arr_type->type.pp_type_array.element_type = uint8_type;
+                arr_type->type.pp_type_array.size = total_size;
+                resolved_type = pp_global_type_table_intern(sa->gtt, arr_type);
+                arr_type = NULL;
+
+                if (!resolved_type) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Failed to intern array type for static string literal");
+                    goto error_cleanup;
+                }
+            }
+            break;
         default:
             goto error_cleanup;
     }
@@ -3605,7 +3644,11 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
     resolved_type = pp_global_type_table_intern(sa->gtt, literal_type);
     literal_type = NULL;
 
-    decoration = pp_ast_decoration_create(resolved_type, PP_VALUE_CATEGORY_RVALUE, true, false);
+    bool is_constexpr = true;
+    if (expr->literal.literal_type == PP_TT_STRING_LITERAL) {
+        is_constexpr = false;
+    }
+    decoration = pp_ast_decoration_create(resolved_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
 
     expr->literal.decoration = decoration;
