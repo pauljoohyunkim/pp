@@ -26,16 +26,16 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 
 ### Semantic Analyzer
 - [x] Extend `pp_semantic_analyzer_check_literal_expression` for `PP_TT_STATIC_STRING_LITERAL`
-  - [ ] Unescape lexeme, compute length = content bytes + 1 NUL
+  - [x] Unescape lexeme, compute length = content bytes + 1 NUL
   - [x] Set `is_constexpr = true`
 - [x] Extend `pp_semantic_analyzer_check_literal_expression` for `PP_TT_STRING_LITERAL`
   - [ ] Handle heap `string` type, no NUL, runtime allocation
 - [ ] Add array literal initialization check in variable/field initializer path
-  - [ ] Detect target type = `[uint8 : N]`
-  - [ ] Detect initializer = static string literal
-  - [ ] Compare `N` vs literal length, error if mismatch
-  - [ ] Error for too small: `let b :: [uint8 :5u] = @"hello";` must error
-  - [ ] Error for too large: `let c :: [uint8 :4u] = @"hello";` must error
+  - [x] Detect target type = `[uint8 : N]`
+  - [x] Detect initializer = static string literal
+  - [x] Compare `N` vs literal length, error if mismatch
+  - [x] Error for too small: `let b :: [uint8 :5u] = @"hello";` must error
+  - [x] Error for too large: `let c :: [uint8 :4u] = @"hello";` must error
 - [ ] Ensure const correctness for global/static arrays
 - [ ] Support heap `string` type
   - [x] Register `PP_TK_String` type kind in `include/pp_type.h`

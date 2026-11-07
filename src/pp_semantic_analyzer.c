@@ -2202,6 +2202,28 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
             goto error_cleanup;
         }
 
+        // Static string literal size check for [uint8 : N] initialization
+        if (node->variable_declaration.initializer &&
+            node->variable_declaration.initializer->node_type == PP_AST_LiteralNode &&
+            node->variable_declaration.initializer->literal.literal_type == PP_TT_STATIC_STRING_LITERAL) {
+            const PPType* lhs_arr = pp_type_decay(sa->gtt, variable_symbol->type);
+            const PPType* rhs_arr = pp_type_decay(sa->gtt, decor->resolved_type);
+            if (lhs_arr && rhs_arr && lhs_arr->kind == PP_TK_Array && rhs_arr->kind == PP_TK_Array) {
+                const PPType* lhs_elem = lhs_arr->type.pp_type_array.element_type;
+                const PPType* rhs_elem = rhs_arr->type.pp_type_array.element_type;
+                if (lhs_elem && rhs_elem && lhs_elem->kind == PP_TK_UInt8 && rhs_elem->kind == PP_TK_UInt8) {
+                    size_t lhs_size = lhs_arr->type.pp_type_array.size;
+                    size_t rhs_size = rhs_arr->type.pp_type_array.size;
+                    if (lhs_size != rhs_size) {
+                        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                                 "Static string literal size mismatch: target array size is %zu but literal requires %zu",
+                                                 lhs_size, rhs_size);
+                        goto error_cleanup;
+                    }
+                }
+            }
+        }
+
         // Check if types match
         const PPType* decayed_lhs_type = pp_type_decay(sa->gtt, variable_symbol->type);
         const PPType* decayed_rhs_type = pp_type_decay(sa->gtt, decor->resolved_type);
@@ -2374,6 +2396,27 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         const PPType* decayed_initializer_type = pp_type_decay(sa->gtt, initializer_decor->resolved_type);
         assert(decayed_symbol_type);
         assert(decayed_initializer_type);
+
+        // Static string literal size check for [uint8 : N] initialization
+        if (node->variable_declaration.initializer &&
+            node->variable_declaration.initializer->node_type == PP_AST_LiteralNode &&
+            node->variable_declaration.initializer->literal.literal_type == PP_TT_STATIC_STRING_LITERAL) {
+            if (decayed_symbol_type->kind == PP_TK_Array && decayed_initializer_type->kind == PP_TK_Array) {
+                const PPType* lhs_elem = decayed_symbol_type->type.pp_type_array.element_type;
+                const PPType* rhs_elem = decayed_initializer_type->type.pp_type_array.element_type;
+                if (lhs_elem && rhs_elem && lhs_elem->kind == PP_TK_UInt8 && rhs_elem->kind == PP_TK_UInt8) {
+                    size_t lhs_size = decayed_symbol_type->type.pp_type_array.size;
+                    size_t rhs_size = decayed_initializer_type->type.pp_type_array.size;
+                    if (lhs_size != rhs_size) {
+                        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                                 "Static string literal size mismatch: target array size is %zu but literal requires %zu",
+                                                 lhs_size, rhs_size);
+                        goto error_cleanup;
+                    }
+                }
+            }
+        }
+
         if (!pp_type_equal(decayed_symbol_type, decayed_initializer_type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Type of variable \"%s\" does not match its initializer", symbol_name);
@@ -2545,6 +2588,27 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     const PPType* decayed_rhs_type = pp_type_decay(sa->gtt, rhs_decor->resolved_type);
     NULL_POINTER_ERROR_HANDLE(decayed_lhs_type);
     NULL_POINTER_ERROR_HANDLE(decayed_rhs_type);
+
+    // Static string literal size check for [uint8 : N] assignment
+    if (node->assignment.rhs &&
+        node->assignment.rhs->node_type == PP_AST_LiteralNode &&
+        node->assignment.rhs->literal.literal_type == PP_TT_STATIC_STRING_LITERAL) {
+        if (decayed_lhs_type->kind == PP_TK_Array && decayed_rhs_type->kind == PP_TK_Array) {
+            const PPType* lhs_elem = decayed_lhs_type->type.pp_type_array.element_type;
+            const PPType* rhs_elem = decayed_rhs_type->type.pp_type_array.element_type;
+            if (lhs_elem && rhs_elem && lhs_elem->kind == PP_TK_UInt8 && rhs_elem->kind == PP_TK_UInt8) {
+                size_t lhs_size = decayed_lhs_type->type.pp_type_array.size;
+                size_t rhs_size = decayed_rhs_type->type.pp_type_array.size;
+                if (lhs_size != rhs_size) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                             "Static string literal size mismatch in assignment: target array size is %zu but literal requires %zu",
+                                             lhs_size, rhs_size);
+                    goto error_cleanup;
+                }
+            }
+        }
+    }
+
     if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "LHS and RHS of assignment must have the same type.");
