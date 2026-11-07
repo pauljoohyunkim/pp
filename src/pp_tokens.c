@@ -176,6 +176,8 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "integer literal";
         case PP_TT_FLOAT_LITERAL:
             return "float literal";
+        case PP_TT_STATIC_STRING_LITERAL:
+            return "static string literal";
         case PP_TT_STRING_LITERAL:
             return "string literal";
         case PP_TT_IDENTIFIER:
