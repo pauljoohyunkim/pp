@@ -389,6 +389,7 @@ static PP_AST_Node* pp_parser_create_primary(PP_Parser* parser) {
         case PP_TT_TRUE:
         case PP_TT_FALSE:
         case PP_TT_STRING_LITERAL:
+        case PP_TT_STATIC_STRING_LITERAL:
             return pp_parser_create_literal(parser);
         case PP_TT_LEFT_PARENTHESIS: {
             pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);

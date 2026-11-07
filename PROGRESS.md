@@ -21,7 +21,7 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 - [x] Ensure plain `"..."` remains `PP_TT_STRING_LITERAL` for heap `string` type
 
 ### Parser
-- [ ] Verify `PP_TT_STATIC_STRING_LITERAL` is routed to `pp_parser_create_literal`
+- [x] Verify `PP_TT_STATIC_STRING_LITERAL` is routed to `pp_parser_create_literal`
 - [ ] No AST changes required
 
 ### Semantic Analyzer
