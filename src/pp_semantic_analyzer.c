@@ -2220,13 +2220,27 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         const PP_AST_Decoration* decor = pp_ast_get_decoration(node->variable_declaration.initializer);
         NULL_POINTER_ERROR_HANDLE(decor);
         // Explicitly reject non-empty list initializers at global scope
-        if (variable_symbol->type->kind == PP_TK_List &&
+        const PPType* decayed_type = pp_type_decay(sa->gtt, variable_symbol->type);
+        NULL_POINTER_ERROR_HANDLE(decayed_type);
+        if (decayed_type->kind == PP_TK_List &&
             node->variable_declaration.initializer->node_type == PP_AST_CollectionInitializerNode &&
             node->variable_declaration.initializer->collection_initializer.element_count > 0) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Global list initialization with non-empty initializer is not allowed; only empty "
                                      "list is permitted at global scope.");
             goto error_cleanup;
+        }
+        if (decayed_type->kind == PP_TK_String &&
+            node->variable_declaration.initializer->node_type == PP_AST_LiteralNode &&
+            node->variable_declaration.initializer->literal.literal_type == PP_TT_STRING_LITERAL) {
+            const char* lexeme = node->variable_declaration.initializer->literal.lexeme;
+            assert(lexeme);
+            if (strlen(lexeme) > 2) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Global string initialization with non-empty initializer is not allowed; only empty "
+                                         "string is permitted at global scope.");
+                goto error_cleanup;
+            }
         }
         if (!decor->is_constexpr) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,

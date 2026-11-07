@@ -42,7 +42,7 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
   - [x] Register builtin type `string` in semantic init
   - [x] Update `pp_type_needs_drop`, `pp_type_is_trivially_copyable` for `String` → needs drop, not trivially copyable
   - [ ] Handle `PP_TT_STRING_LITERAL` for heap `string` with escaped length, no NUL
-  - [ ] Global variables of `string` only allowed empty, local allowed
+  - [x] Global variables of `string` only allowed empty, local allowed
   - [ ] Codegen for heap string literals: allocate + copy
 - [ ] Binary `+` and compound `+=` for `string`
   - [ ] Extend `pp_semantic_analyzer_check_binary_expression` for `PP_TT_PLUS` with `PP_TK_String` operands
