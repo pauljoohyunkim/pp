@@ -71,6 +71,25 @@ Reference allowed only as outer modifier: `const [int32 : 4]&`
 ### List
 Resizable runtime array. Represented as shared handle `%pp.list = {ptr, i64, i64}`
 
+## String Types
+* No `str` type. Static strings are fixed-size byte arrays `[uint8 : N]`.
+* Heap-allocated strings use builtin type `string`.
+
+### Static string literals
+* Syntax: `@ "text"` with no whitespace between @ and "."
+* Can only initialize `[uint8 : N]` arrays.
+* Implicit NUL terminator is part of the array length: required N == unescaped_byte_count + 1.
+* Exact size match required; e.g., `let a :: [uint8 : 4] = @"abc";` is valid, `let b :: [uint8 : 3] = @"abc";` is error.
+* Supported escapes: \n \t \r \" \\ \xHH \0 etc. Escape sequences are interpreted at semantic analysis.
+* Example: `@"a\0"` requires `[uint8 : 3]` for `'a'`, explicit NUL, implicit NUL.
+
+### Heap string type `string`
+* Literal syntax: `"text"` with no @ prefix.
+* Length is escaped byte count, no NUL terminator.
+* Global variables of type `string` may only be initialized with empty literal `""`. Non-empty literals allowed only for locals.
+* Requires copy/drop semantics.
+* Concatenation via + is planned but not prioritized now.
+
 ## Type Construction
 Base → Modifiers → Reference
 `int32` → `const int32` → `int32&` → `const int32&`

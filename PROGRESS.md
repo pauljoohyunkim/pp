@@ -6,10 +6,10 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 ## Checklist
 
 ### Design & Docs
-- [ ] Document design decision: static literals via `@"text"` → `[uint8 : N]` with implicit NUL, heap `string` type with `"text"` literals
-- [ ] Update `docs/02-types.md` with array string literal initialization rule and `string` type
-- [ ] Add note in `notes/string_design.md` or `notes/v2-todo.md` about chosen approach
-- [ ] Clarify no `str` type; static strings are arrays only
+- [x] Document design decision: static literals via `@"text"` → `[uint8 : N]` with implicit NUL, heap `string` type with `"text"` literals
+- [x] Update `docs/02-types.md` with array string literal initialization rule and `string` type
+- [x] Add note in `notes/string_design.md` or `notes/v2-todo.md` about chosen approach
+- [x] Clarify no `str` type; static strings are arrays only
 
 ### Lexer / Tokens
 - [ ] Add `PP_TT_STATIC_STRING_LITERAL` to `include/pp_tokens.h`
