@@ -193,6 +193,8 @@ static bool pp_type_needs_drop_impl(const PPType* type, const PPType** stack, in
     switch (type->kind) {
         case PP_TK_List:
             return true;
+        case PP_TK_String:
+            return true;
         case PP_TK_Const:
             return pp_type_needs_drop_impl(type->type.pp_type_const.const_of, stack, depth + 1);
         case PP_TK_Array:
@@ -318,6 +320,8 @@ static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType*
             return true;
         }
         case PP_TK_List:
+            return false;
+        case PP_TK_String:
             return false;
         default:
             return false;

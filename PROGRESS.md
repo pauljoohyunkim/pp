@@ -22,12 +22,14 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 
 ### Parser
 - [x] Verify `PP_TT_STATIC_STRING_LITERAL` is routed to `pp_parser_create_literal`
-- [ ] No AST changes required
+- [x] No AST changes required
 
 ### Semantic Analyzer
 - [ ] Extend `pp_semantic_analyzer_check_literal_expression` for `PP_TT_STATIC_STRING_LITERAL`
   - [ ] Unescape lexeme, compute length = content bytes + 1 NUL
   - [ ] Set `is_constexpr = true`
+- [ ] Extend `pp_semantic_analyzer_check_literal_expression` for `PP_TT_STRING_LITERAL`
+  - [ ] Handle heap `string` type, no NUL, runtime allocation
 - [ ] Add array literal initialization check in variable/field initializer path
   - [ ] Detect target type = `[uint8 : N]`
   - [ ] Detect initializer = static string literal
@@ -36,10 +38,16 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
   - [ ] Error for too large: `let c :: [uint8 :4u] = @"hello";` must error
 - [ ] Ensure const correctness for global/static arrays
 - [ ] Support heap `string` type
-  - [ ] Register `PP_TK_String` type kind
+  - [x] Register `PP_TK_String` type kind in `include/pp_type.h`
+  - [x] Register builtin type `string` in semantic init
+  - [x] Update `pp_type_needs_drop`, `pp_type_is_trivially_copyable` for `String` → needs drop, not trivially copyable
   - [ ] Handle `PP_TT_STRING_LITERAL` for heap `string` with escaped length, no NUL
   - [ ] Global variables of `string` only allowed empty, local allowed
   - [ ] Codegen for heap string literals: allocate + copy
+- [ ] Binary `+` and compound `+=` for `string`
+  - [ ] Extend `pp_semantic_analyzer_check_binary_expression` for `PP_TT_PLUS` with `PP_TK_String` operands
+  - [ ] Ensure `+=` works via assignment check
+
 
 ### Code Generator
 - [ ] `pp_code_generator_generate_rvalue_literal` handle static string literal
@@ -48,9 +56,9 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 - [ ] Verify global vs local constant handling
 
 ### Type System
-- [ ] Add `PP_TK_String` type kind for heap-allocated strings
-- [ ] Register builtin type `string` in semantic init
-- [ ] Update `pp_type_needs_drop`, `pp_type_is_trivially_copyable` for `String` → needs drop, not trivially copyable
+- [x] Add `PP_TK_String` type kind for heap-allocated strings
+- [x] Register builtin type `string` in semantic init
+- [x] Update `pp_type_needs_drop`, `pp_type_is_trivially_copyable` for `String` → needs drop, not trivially copyable
 - [ ] Static strings use existing `PP_TK_Array` with `uint8` element
 
 ### Tests

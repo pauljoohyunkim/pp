@@ -357,6 +357,15 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
             if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
             t = NULL;
         }
+        t = pp_type_create(PP_TK_String);
+        if (t) {
+            const char* type_name = pp_string_pool_push(sa->sp, "string", 6);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
+        }
     }
 
     return sa;
