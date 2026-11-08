@@ -552,6 +552,9 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
             case PP_TT_BOOL:
                 kind = PP_AST_TYPE_KIND_BOOL;
                 break;
+            case PP_TT_STRING:
+                kind = PP_AST_TYPE_KIND_STRING;
+                break;
             case PP_TT_IDENTIFIER:
                 kind = PP_AST_TYPE_KIND_IDENTIFIER;
                 break;

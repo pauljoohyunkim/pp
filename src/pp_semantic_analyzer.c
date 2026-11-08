@@ -793,6 +793,9 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             case PP_AST_TYPE_KIND_BOOL:
                 temp_type = pp_type_create(PP_TK_Bool);
                 break;
+            case PP_AST_TYPE_KIND_STRING:
+                temp_type = pp_type_create(PP_TK_String);
+                break;
             case PP_AST_TYPE_KIND_IDENTIFIER:
                 gtt_lookedup_type = pp_global_type_table_find_by_name(sa->gtt, base_identifier);
                 if (gtt_lookedup_type) { break; }

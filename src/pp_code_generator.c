@@ -2604,6 +2604,75 @@ static LLVMValueRef pp_codegen_static_string_literal_to_llvm_constant(LLVMContex
     return arr;
 }
 
+/* Helper to materialise a heap string literal at runtime */
+static LLVMValueRef pp_codegen_string_literal_to_llvm_value(PP_CodeGenerator* cg, const char* lexeme) {
+    if (!lexeme) return NULL;
+    /* Ensure we are inside a function */
+    assert(cg->current_function_type != NULL && "Heap string literals cannot be used at global scope");
+    size_t lex_len = strlen(lexeme);
+    unsigned char* buf = (unsigned char*)malloc(lex_len + 1);
+    if (!buf) return NULL;
+    ssize_t n = pp_codegen_unescape_lexeme_to_buf(lexeme, buf, lex_len + 1);
+    if (n < 0) {
+        free(buf);
+        return NULL;
+    }
+    size_t len = (size_t)n;
+
+    LLVMTypeRef i64_ty = LLVMInt64TypeInContext(cg->ctx);
+    LLVMTypeRef i8ptr_ty = LLVMPointerTypeInContext(cg->ctx, 0);
+
+    LLVMValueRef malloc_fn = LLVMGetNamedFunction(cg->mod, "malloc");
+    assert(malloc_fn);
+    LLVMTypeRef malloc_type = LLVMFunctionType(i8ptr_ty, &i64_ty, 1, 0);
+    LLVMValueRef len_val = LLVMConstInt(i64_ty, len, 0);
+    LLVMValueRef raw_ptr = LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &len_val, 1, "str_malloc");
+
+    LLVMValueRef data_global = NULL;
+    if (len > 0) {
+        /* Create a private constant global for the literal bytes */
+        static int str_lit_counter = 0;
+        char name[64];
+        snprintf(name, sizeof(name), ".str.lit.%d", str_lit_counter++);
+        LLVMTypeRef i8_ty = LLVMInt8TypeInContext(cg->ctx);
+        LLVMValueRef* data_vals = (LLVMValueRef*)calloc(len, sizeof(LLVMValueRef));
+        for (size_t i = 0; i < len; ++i) {
+            data_vals[i] = LLVMConstInt(i8_ty, (unsigned long)buf[i], true);
+        }
+        LLVMValueRef data_arr = LLVMConstArray(i8_ty, data_vals, len);
+        free(data_vals);
+        LLVMTypeRef arr_ty = LLVMArrayType(i8_ty, (unsigned)len);
+        LLVMValueRef global = LLVMAddGlobal(cg->mod, arr_ty, name);
+        LLVMSetInitializer(global, data_arr);
+        LLVMSetLinkage(global, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(global, 1);
+        data_global = global;
+    }
+
+    if (len > 0) {
+        LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
+        assert(memcpy_fn);
+        LLVMTypeRef memcpy_type = LLVMFunctionType(i8ptr_ty, (LLVMTypeRef[3]){i8ptr_ty, i8ptr_ty, i64_ty}, 3, 0);
+        /* data_global is a pointer to the array; GEP to get i8* */
+        LLVMValueRef zero = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 0);
+        LLVMValueRef indices[2] = { zero, zero };
+        LLVMValueRef data_ptr = LLVMBuildGEP2(cg->builder, LLVMArrayType(LLVMInt8TypeInContext(cg->ctx), (unsigned)len), data_global, indices, 2, "str_data_ptr");
+        LLVMValueRef memcpy_args[3] = { raw_ptr, data_ptr, len_val };
+        LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, memcpy_args, 3, "str_memcpy");
+    } else {
+        /* len == 0: raw_ptr may be null, no memcpy needed */
+    }
+
+    /* Build pp.string struct { ptr, len } */
+    LLVMTypeRef str_struct_ty = pp_backend_lower_type(cg, &(PPType){ .kind = PP_TK_String });
+    LLVMValueRef undef = LLVMGetUndef(str_struct_ty);
+    LLVMValueRef ptr_field = LLVMBuildInsertValue(cg->builder, undef, raw_ptr, 0, "str_ptr");
+    LLVMValueRef str_val = LLVMBuildInsertValue(cg->builder, ptr_field, len_val, 1, "str_len");
+
+    free(buf);
+    return str_val;
+}
+
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                               PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     LLVMValueRef llvm_val = NULL;
@@ -2645,11 +2714,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* 
             if (!llvm_val) return NULL;
         } break;
         case PP_TT_STRING_LITERAL: {
-            /* Heap string literal: for now emit undef / placeholder – runtime materialisation to be wired later */
-            const PPType* heap_type = lit_type->type.pp_type_const.const_of;
-            LLVMTypeRef llvm_ty = pp_environment_backend_lookup_type(cg, heap_type);
-            if (!llvm_ty) return NULL;
-            llvm_val = LLVMGetUndef(llvm_ty);
+            /* Heap string literal: materialise at runtime via malloc + memcpy */
+            llvm_val = pp_codegen_string_literal_to_llvm_value(cg, node->literal.lexeme);
+            if (!llvm_val) return NULL;
         } break;
         default:
             assert(0 && "Invalid literal");
