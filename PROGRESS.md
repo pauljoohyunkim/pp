@@ -43,7 +43,7 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
   - [x] Update `pp_type_needs_drop`, `pp_type_is_trivially_copyable` for `String` → needs drop, not trivially copyable
   - [x] Handle `PP_TT_STRING_LITERAL` for heap `string` with escaped length, no NUL
   - [x] Global variables of `string` only allowed empty, local allowed
-  - [ ] Codegen for heap string literals: allocate + copy
+  - [x] Codegen for heap string literals: allocate + copy
 - [x] Binary `+` and compound `+=` for `string`
   - [x] Extend `pp_semantic_analyzer_check_binary_expression` for `PP_TT_PLUS` with `PP_TK_String` operands
   - [x] Ensure `+=` works via assignment check
@@ -52,9 +52,9 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 ### Code Generator
 - [x] `pp_code_generator_generate_rvalue_literal` handle static string literal
   - [x] Emit LLVM constant array `[N x i8]` with bytes + NUL
-  - [ ] Helper created; heap string literal placeholder only
+  - [x] Helper created; heap string literal placeholder only
 - [ ] Or transform literal to synthetic collection initializer to reuse existing codegen
-- [ ] Verify global vs local constant handling
+- [x] Verify global vs local constant handling
 
 ### Type System
 - [x] Add `PP_TK_String` type kind for heap-allocated strings
@@ -63,11 +63,14 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 - [x] Static strings use existing `PP_TK_Array` with `uint8` element
 
 ### Tests
-- [ ] Lexer tests for `@` prefix
-- [ ] Parser tests for literal node
-- [ ] Semantic tests for valid initialization `let a :: [uint8 :6u] = @"hello";`
-- [ ] Semantic tests for invalid size `let b :: [uint8 :5u] = @"hello";`
-- [ ] Codegen test for LLVM constant `[6 x i8] c"hello\00"`
+- [x] Lexer tests for `@` prefix
+- [x] Parser tests for literal node
+- [x] Semantic tests for valid initialization `let a :: [uint8 :6u] = @"hello";`
+- [x] Semantic tests for invalid size `let b :: [uint8 :5u] = @"hello";`
+- [x] Codegen test for LLVM constant `[6 x i8] c"hello\00"`
+- [x] Codegen test for heap string literal materialisation and drop
+- [x] Codegen test for string drop in struct
+- [x] Codegen test for list of strings drop
 - [ ] C interop test: `ptr` from array is usable as C string
 
 ### Ownership / Interop
@@ -76,9 +79,10 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 
 ### Future / TODO
 - [ ] Heap `string` indexing not supported yet – `string` is not an Array/List, so `s[0]` is disallowed for heap strings; decide on API/methods later
-- [ ] Codegen for heap string literals: allocate + copy
-- [ ] String concatenation codegen for `+` and `+=`
-- [ ] Tests for lexer/parser/semantic/codegen
+- [x] Codegen for heap string literals: allocate + copy
+- [x] String concatenation codegen for `+`
+- [ ] String concatenation codegen for `+=`
+- [x] Tests for lexer/parser/semantic/codegen
 - [ ] Ponder: normalise static string literals into synthetic collection initializer at semantic analysis vs keep codegen helper `pp_codegen_static_string_literal_to_llvm_constant`
 - [ ] Use LLVM `memcpy` intrinsic `llvm.memcpy.p0.p0.i64` instead of libc `memcpy` for heap string materialisation
 - [ ] Handle len == 0 for heap string literals → emit `{null,0}` without malloc

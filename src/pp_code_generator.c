@@ -2267,7 +2267,31 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
 
     switch (node->binary_expression.op) {
         case PP_TT_PLUS:
-            if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
+            if (lhs_type->kind == PP_TK_String && rhs_type->kind == PP_TK_String) {
+                /* String concatenation */
+                LLVMValueRef lhs_ptr = LLVMBuildExtractValue(cg->builder, llvm_lhs, 0, "str_lhs_ptr");
+                LLVMValueRef lhs_len = LLVMBuildExtractValue(cg->builder, llvm_lhs, 1, "str_lhs_len");
+                LLVMValueRef rhs_ptr = LLVMBuildExtractValue(cg->builder, llvm_rhs, 0, "str_rhs_ptr");
+                LLVMValueRef rhs_len = LLVMBuildExtractValue(cg->builder, llvm_rhs, 1, "str_rhs_len");
+                LLVMTypeRef i64_ty = LLVMInt64TypeInContext(cg->ctx);
+                LLVMValueRef total_len = LLVMBuildAdd(cg->builder, lhs_len, rhs_len, "str_total_len");
+                LLVMValueRef malloc_fn = LLVMGetNamedFunction(cg->mod, "malloc");
+                assert(malloc_fn);
+                LLVMTypeRef malloc_type = LLVMFunctionType(LLVMPointerTypeInContext(cg->ctx, 0), &i64_ty, 1, 0);
+                LLVMValueRef raw_ptr = LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &total_len, 1, "str_concat_malloc");
+                LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
+                assert(memcpy_fn);
+                LLVMTypeRef memcpy_type = LLVMFunctionType(LLVMPointerTypeInContext(cg->ctx, 0), (LLVMTypeRef[3]){LLVMPointerTypeInContext(cg->ctx,0), LLVMPointerTypeInContext(cg->ctx,0), i64_ty}, 3, 0);
+                LLVMValueRef args1[3] = {raw_ptr, lhs_ptr, lhs_len};
+                LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, args1, 3, "str_concat_memcpy1");
+                LLVMValueRef offset_ptr = LLVMBuildGEP2(cg->builder, LLVMArrayType(LLVMInt8TypeInContext(cg->ctx), 0), raw_ptr, &lhs_len, 1, "str_concat_offset");
+                LLVMValueRef args2[3] = {offset_ptr, rhs_ptr, rhs_len};
+                LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, args2, 3, "str_concat_memcpy2");
+                LLVMTypeRef str_struct_ty = pp_environment_backend_lookup_type(cg, lhs_type);
+                LLVMValueRef undef = LLVMGetUndef(str_struct_ty);
+                LLVMValueRef ptr_field = LLVMBuildInsertValue(cg->builder, undef, raw_ptr, 0, "str_concat_ptr");
+                llvm_val = LLVMBuildInsertValue(cg->builder, ptr_field, total_len, 1, "str_concat");
+            } else if (llvm_lhs_type_kind == LLVMFloatTypeKind && llvm_rhs_type_kind == LLVMFloatTypeKind) {
                 llvm_val = LLVMBuildFAdd(cg->builder, llvm_lhs, llvm_rhs, "faddtmp");
             } else if (llvm_lhs_type_kind == LLVMIntegerTypeKind && llvm_rhs_type_kind == LLVMIntegerTypeKind) {
                 llvm_val = LLVMBuildAdd(cg->builder, llvm_lhs, llvm_rhs, "addtmp");
