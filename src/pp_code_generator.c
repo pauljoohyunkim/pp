@@ -2731,7 +2731,12 @@ static LLVMValueRef pp_codegen_string_literal_to_llvm_value(PP_CodeGenerator* cg
     assert(malloc_fn);
     LLVMTypeRef malloc_type = LLVMFunctionType(i8ptr_ty, &i64_ty, 1, 0);
     LLVMValueRef len_val = LLVMConstInt(i64_ty, len, 0);
-    LLVMValueRef raw_ptr = LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &len_val, 1, "str_malloc");
+    LLVMValueRef raw_ptr;
+    if (len == 0) {
+        raw_ptr = LLVMConstNull(i8ptr_ty);
+    } else {
+        raw_ptr = LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &len_val, 1, "str_malloc");
+    }
 
     LLVMValueRef data_global = NULL;
     if (len > 0) {
@@ -2997,7 +3002,12 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
         LLVMValueRef elem_size_val = LLVMConstInt(i64_type, elem_size, 0);
         LLVMValueRef n_val = LLVMConstInt(i64_type, n, 0);
         LLVMValueRef size_val = LLVMBuildMul(cg->builder, elem_size_val, n_val, "list_alloc_size");
-        LLVMValueRef raw_ptr = LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &size_val, 1, "list_raw");
+        LLVMValueRef raw_ptr;
+        if (n == 0) {
+            raw_ptr = LLVMConstNull(i8ptr_type);
+        } else {
+            raw_ptr = LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &size_val, 1, "list_raw");
+        }
         LLVMValueRef buf = LLVMBuildBitCast(cg->builder, raw_ptr, LLVMPointerTypeInContext(cg->ctx, 0), "list_buf");
         // Actually need pointer to elem type
         LLVMTypeRef elem_ptr_type = LLVMPointerType(llvm_elem_type, 0);
