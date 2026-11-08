@@ -251,6 +251,32 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
                 pp_code_generator_emit_drop(cg, elem_ptr, elem_type);
             }
         } break;
+        case PP_TK_String: {
+            LLVMTypeRef llvm_str_type = pp_environment_backend_lookup_type(cg, type);
+            if (!llvm_str_type) return;
+            LLVMValueRef ptr_ptr = LLVMBuildStructGEP2(cg->builder, llvm_str_type, address, 0, "str_ptr_ptr");
+            LLVMValueRef ptr = LLVMBuildLoad2(cg->builder, LLVMPointerTypeInContext(cg->ctx, 0), ptr_ptr, "str_ptr");
+            LLVMValueRef is_null = LLVMBuildICmp(cg->builder, LLVMIntNE, ptr, LLVMConstNull(LLVMPointerTypeInContext(cg->ctx, 0)), "str_ptr_not_null");
+            LLVMBasicBlockRef then_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "str_drop_then");
+            LLVMBasicBlockRef else_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "str_drop_else");
+            LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)), "str_drop_merge");
+            LLVMBuildCondBr(cg->builder, is_null, then_bb, else_bb);
+            LLVMPositionBuilderAtEnd(cg->builder, then_bb);
+            LLVMValueRef free_fn = LLVMGetNamedFunction(cg->mod, "free");
+            if (free_fn) {
+                LLVMValueRef args[1] = {ptr};
+                LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), (LLVMTypeRef[]){LLVMPointerTypeInContext(cg->ctx, 0)}, 1, 0);
+                LLVMBuildCall2(cg->builder, free_type, free_fn, args, 1, "");
+            }
+            // Null out fields to avoid double free
+            LLVMBuildStore(cg->builder, LLVMConstNull(LLVMPointerTypeInContext(cg->ctx, 0)), ptr_ptr);
+            LLVMValueRef len_ptr = LLVMBuildStructGEP2(cg->builder, llvm_str_type, address, 1, "str_len_ptr");
+            LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), len_ptr);
+            LLVMBuildBr(cg->builder, merge_bb);
+            LLVMPositionBuilderAtEnd(cg->builder, else_bb);
+            LLVMBuildBr(cg->builder, merge_bb);
+            LLVMPositionBuilderAtEnd(cg->builder, merge_bb);
+        } break;
         default:
             return;
     }
@@ -1186,6 +1212,7 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
             LLVMTypeRef ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(llvm_func));
 
             if (LLVMGetTypeKind(ret_type) == LLVMVoidTypeKind) {
+                pp_code_generator_emit_scope_drops(cg);
                 LLVMBuildRetVoid(cg->builder);
             } else {
                 // Emits LLVM unreachable for non-void control flow fallthrough
@@ -3483,6 +3510,31 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
                     }
                 }
             }
+        }
+    } else if (type->kind == PP_TK_String) {
+        LLVMTypeRef llvm_str_type = pp_environment_backend_lookup_type(cg, type);
+        if (llvm_str_type) {
+            LLVMValueRef str_ptr = LLVMBuildBitCast(cg->builder, arg0, LLVMPointerType(llvm_str_type, 0), "str_ptr");
+            LLVMValueRef ptr_ptr = LLVMBuildStructGEP2(cg->builder, llvm_str_type, str_ptr, 0, "str_ptr_ptr");
+            LLVMValueRef ptr = LLVMBuildLoad2(cg->builder, LLVMPointerTypeInContext(cg->ctx, 0), ptr_ptr, "str_ptr_val");
+            LLVMValueRef is_null = LLVMBuildICmp(cg->builder, LLVMIntNE, ptr, LLVMConstNull(LLVMPointerTypeInContext(cg->ctx, 0)), "str_not_null");
+            LLVMBasicBlockRef then_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "str_drop_then");
+            LLVMBasicBlockRef else_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "str_drop_else");
+            LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "str_drop_merge");
+            LLVMBuildCondBr(cg->builder, is_null, then_bb, else_bb);
+            LLVMPositionBuilderAtEnd(cg->builder, then_bb);
+            LLVMValueRef free_fn = LLVMGetNamedFunction(cg->mod, "free");
+            if (free_fn) {
+                LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), (LLVMTypeRef[1]){LLVMPointerTypeInContext(cg->ctx, 0)}, 1, 0);
+                LLVMBuildCall2(cg->builder, free_type, free_fn, &ptr, 1, "");
+            }
+            LLVMBuildStore(cg->builder, LLVMConstNull(LLVMPointerTypeInContext(cg->ctx, 0)), ptr_ptr);
+            LLVMValueRef len_ptr = LLVMBuildStructGEP2(cg->builder, llvm_str_type, str_ptr, 1, "str_len_ptr");
+            LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), len_ptr);
+            LLVMBuildBr(cg->builder, merge_bb);
+            LLVMPositionBuilderAtEnd(cg->builder, else_bb);
+            LLVMBuildBr(cg->builder, merge_bb);
+            LLVMPositionBuilderAtEnd(cg->builder, merge_bb);
         }
     }
     LLVMBuildRetVoid(cg->builder);
