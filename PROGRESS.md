@@ -30,14 +30,14 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
   - [x] Set `is_constexpr = true`
 - [x] Extend `pp_semantic_analyzer_check_literal_expression` for `PP_TT_STRING_LITERAL`
   - [x] Handle heap `string` type, no NUL, runtime allocation
-- [ ] Add array literal initialization check in variable/field initializer path
+- [x] Add array literal initialization check in variable/field initializer path
   - [x] Detect target type = `[uint8 : N]`
   - [x] Detect initializer = static string literal
   - [x] Compare `N` vs literal length, error if mismatch
   - [x] Error for too small: `let b :: [uint8 :5u] = @"hello";` must error
   - [x] Error for too large: `let c :: [uint8 :4u] = @"hello";` must error
 - [x] Ensure const correctness for global/static arrays
-- [ ] Support heap `string` type
+- [x] Support heap `string` type
   - [x] Register `PP_TK_String` type kind in `include/pp_type.h`
   - [x] Register builtin type `string` in semantic init
   - [x] Update `pp_type_needs_drop`, `pp_type_is_trivially_copyable` for `String` → needs drop, not trivially copyable

@@ -215,7 +215,7 @@ ssize_t pp_tokens_unescape_string_length(const char* lexeme) {
     } else {
         return -1;
     }
-    long out = 0;
+    ssize_t out = 0;
     while (i < len) {
         char c = lexeme[i];
         if (c == '"') {
