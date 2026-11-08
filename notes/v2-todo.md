@@ -39,16 +39,16 @@
 
 ## Strings
 Open decision: array vs list
-- [ ] Design decision doc: notes/string_design.md
+- [x] Design decision doc: notes/string_design.md
   - Array-backed immutable string with length prefix vs list of chars
   - Interoperability with C strings and LLVM
-- [ ] Lexer: string literal tokenization, escape sequences
-- [ ] Type system: `String` type definition, const correctness
-- [ ] Parser / AST: string literal node, string concatenation
-- [ ] Semantic analyzer: string operations type checking
-- [ ] Code generator: LLVM string constants, `malloc` + copy, string functions
-- [ ] Ownership model update for strings
-- [ ] Tests: string literals, concat, interning
+- [x] Lexer: string literal tokenization, escape sequences
+- [x] Type system: `String` type definition, const correctness
+- [x] Parser / AST: string literal node, string concatenation
+- [x] Semantic analyzer: string operations type checking
+- [x] Code generator: LLVM string constants, `malloc` + copy, string functions
+- [x] Ownership model update for strings
+- [x] Tests: string literals, concat, interning
 
 ## List operations as operators, no builtins
 Design principle: stay away from builtin functions, prefer operators
