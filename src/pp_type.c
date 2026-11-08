@@ -322,7 +322,7 @@ static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType*
         case PP_TK_List:
             return false;
         case PP_TK_String:
-            return false;
+            return true;
         default:
             return false;
     }
