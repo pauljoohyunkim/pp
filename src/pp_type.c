@@ -344,29 +344,33 @@ PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeri
     }
     size_t suffix_len = 0;
     if (len >= pos + 2) {
-        char c1 = tolower((unsigned char)lexeme[len-2]);
-        char c2 = tolower((unsigned char)lexeme[len-1]);
-        if ((c1=='s' && c2=='s') || (c1=='l' && c2=='l')) {
-            suffix_len = 2;
-        }
+        char c1 = tolower((unsigned char)lexeme[len - 2]);
+        char c2 = tolower((unsigned char)lexeme[len - 1]);
+        if ((c1 == 's' && c2 == 's') || (c1 == 'l' && c2 == 'l')) { suffix_len = 2; }
     }
     if (suffix_len == 0 && len > pos) {
-        char last = tolower((unsigned char)lexeme[len-1]);
+        char last = tolower((unsigned char)lexeme[len - 1]);
         if (last == 's' || last == 'l') suffix_len = 1;
     }
     PPTypeKind kind;
     if (suffix_len == 0) {
         kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
     } else if (suffix_len == 2) {
-        char s = tolower((unsigned char)lexeme[len-2]);
-        if (s == 's') kind = is_unsigned ? PP_TK_UInt8 : PP_TK_Int8;
-        else if (s == 'l') kind = is_unsigned ? PP_TK_UInt128 : PP_TK_Int128;
-        else kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
+        char s = tolower((unsigned char)lexeme[len - 2]);
+        if (s == 's')
+            kind = is_unsigned ? PP_TK_UInt8 : PP_TK_Int8;
+        else if (s == 'l')
+            kind = is_unsigned ? PP_TK_UInt128 : PP_TK_Int128;
+        else
+            kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
     } else {
-        char s = tolower((unsigned char)lexeme[len-1]);
-        if (s == 's') kind = is_unsigned ? PP_TK_UInt16 : PP_TK_Int16;
-        else if (s == 'l') kind = is_unsigned ? PP_TK_UInt64 : PP_TK_Int64;
-        else kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
+        char s = tolower((unsigned char)lexeme[len - 1]);
+        if (s == 's')
+            kind = is_unsigned ? PP_TK_UInt16 : PP_TK_Int16;
+        else if (s == 'l')
+            kind = is_unsigned ? PP_TK_UInt64 : PP_TK_Int64;
+        else
+            kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
     }
     if (out_numeric) {
         size_t num_len = pos - (is_unsigned ? 1 : 0);

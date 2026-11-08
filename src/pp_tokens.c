@@ -226,18 +226,38 @@ ssize_t pp_tokens_unescape_string_length(const char* lexeme) {
             if (i + 1 >= len) return -1;
             char esc = lexeme[i + 1];
             switch (esc) {
-                case 'n': out += 1; i += 2; continue;
-                case 't': out += 1; i += 2; continue;
-                case 'r': out += 1; i += 2; continue;
-                case '"': out += 1; i += 2; continue;
-                case '\\': out += 1; i += 2; continue;
-                case '0': out += 1; i += 2; continue;
+                case 'n':
+                    out += 1;
+                    i += 2;
+                    continue;
+                case 't':
+                    out += 1;
+                    i += 2;
+                    continue;
+                case 'r':
+                    out += 1;
+                    i += 2;
+                    continue;
+                case '"':
+                    out += 1;
+                    i += 2;
+                    continue;
+                case '\\':
+                    out += 1;
+                    i += 2;
+                    continue;
+                case '0':
+                    out += 1;
+                    i += 2;
+                    continue;
                 case 'x': {
                     if (i + 3 >= len) return -1;
                     char h1 = lexeme[i + 2];
                     char h2 = lexeme[i + 3];
                     if (!isxdigit((unsigned char)h1) || !isxdigit((unsigned char)h2)) return -1;
-                    out += 1; i += 4; continue;
+                    out += 1;
+                    i += 4;
+                    continue;
                 }
                 default:
                     /* Unknown escape */
@@ -250,4 +270,3 @@ ssize_t pp_tokens_unescape_string_length(const char* lexeme) {
     }
     return out;
 }
-

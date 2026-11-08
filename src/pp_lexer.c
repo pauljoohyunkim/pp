@@ -27,7 +27,7 @@ static size_t pp_lexer_scan_until_quote(PP_Lexer* lexer, size_t start_offset) {
     while (lexer->idx + pos < lexer->code_length && peek_pp(lexer, pos) != '"') {
         char ch = peek_pp(lexer, pos);
         if (ch == '\n' || ch == '\r') {
-            break; // forbid multiline
+            break;  // forbid multiline
         }
         if (ch == '\\')
             pos += 2;
@@ -35,7 +35,7 @@ static size_t pp_lexer_scan_until_quote(PP_Lexer* lexer, size_t start_offset) {
             pos++;
     }
     if (lexer->idx + pos < lexer->code_length) {
-        pos += 1; // include closing quote if present
+        pos += 1;  // include closing quote if present
     }
     return pos;
 }
@@ -473,10 +473,9 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                         while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer, len))) len++;
                     }
                     if (!is_float) {
-                        if (!is_at_end(lexer) && (peek_pp(lexer, len) == 'u' || peek_pp(lexer, len) == 'U')) {
-                            len++;
-                        }
-                        // Suffix parsing for integer literals: s, ss, l, ll case-insensitive, also allow overlong for error detection
+                        if (!is_at_end(lexer) && (peek_pp(lexer, len) == 'u' || peek_pp(lexer, len) == 'U')) { len++; }
+                        // Suffix parsing for integer literals: s, ss, l, ll case-insensitive, also allow overlong for
+                        // error detection
                         while (!is_at_end(lexer)) {
                             char c_suf = tolower(peek_pp(lexer, len));
                             if (c_suf == 's' || c_suf == 'l') {
