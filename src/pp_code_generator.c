@@ -333,11 +333,6 @@ static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, 
         // Bitwise copy for trivial types
         LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, type);
         if (!llvm_type) return;
-        // Use memcpy for simplicity
-        LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
-        if (!memcpy_fn) return;
-        // memcpy(dst, src, sizeof(type), align)
-        // Placeholder: assume size 1 for now – full implementation needs type size
         // For now emit a store/load for trivial scalars
         LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_type, src, "copy_src");
         LLVMBuildStore(cg->builder, loaded, dst);
