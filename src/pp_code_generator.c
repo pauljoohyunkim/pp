@@ -125,6 +125,26 @@ static void pp_cg_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merg
     if (cur && LLVMGetBasicBlockTerminator(cur) == NULL) { LLVMBuildBr(cg->builder, merge_block); }
 }
 
+static LLVMValueRef pp_cg_get_memcpy_intrinsic(PP_CodeGenerator* cg) {
+    LLVMValueRef fn = LLVMGetNamedFunction(cg->mod, "llvm.memcpy.p0.p0.i64");
+    if (!fn) {
+        LLVMTypeRef i8ptr = LLVMPointerTypeInContext(cg->ctx, 0);
+        LLVMTypeRef i64 = LLVMInt64TypeInContext(cg->ctx);
+        LLVMTypeRef i32 = LLVMInt32TypeInContext(cg->ctx);
+        LLVMTypeRef params[4] = {i8ptr, i8ptr, i64, i32};
+        LLVMTypeRef ty = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), params, 4, 0);
+        fn = LLVMAddFunction(cg->mod, "llvm.memcpy.p0.p0.i64", ty);
+    }
+    return fn;
+}
+
+static void pp_cg_emit_memcpy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, LLVMValueRef size, const char* name) {
+    if (!cg || !dst || !src || !size) return;
+    // Use LLVM's built-in memcpy builder which emits llvm.memcpy intrinsic with correct signature
+    // Alignment of 1 is safe default; can be improved with target data if desired
+    LLVMBuildMemCpy(cg->builder, dst, 1, src, 1, size);
+}
+
 static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
     if (cg == NULL || address == NULL || type == NULL) return;
     if (pp_type_is_reference(type)) return;
@@ -390,13 +410,9 @@ static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, 
             LLVMBuildStore(cg->builder, src_cap, dst_cap_ptr);
             // Copy elements: fast memcpy for trivial, element-wise copy otherwise
             if (pp_type_is_trivially_copyable(elem_type)) {
-                LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
-                LLVMTypeRef memcpy_type =
-                    LLVMFunctionType(i8ptr_type, (LLVMTypeRef[3]){i8ptr_type, i8ptr_type, i64_type}, 3, 0);
                 LLVMValueRef src_data_i8 = LLVMBuildBitCast(cg->builder, src_data, i8ptr_type, "src_data_i8");
                 LLVMValueRef dst_data_i8 = LLVMBuildBitCast(cg->builder, new_data, i8ptr_type, "dst_data_i8");
-                LLVMValueRef memcpy_args[3] = {dst_data_i8, src_data_i8, bytes};
-                LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, memcpy_args, 3, "list_memcpy");
+                pp_cg_emit_memcpy(cg, dst_data_i8, src_data_i8, bytes, "list_memcpy");
             } else {
                 // Element-wise copy
                 LLVMBasicBlockRef loop_cond_bb =
@@ -837,10 +853,6 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
         LLVMTypeRef free_param = i8ptr_type;
         LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), &free_param, 1, 0);
         if (!LLVMGetNamedFunction(cg->mod, "free")) LLVMAddFunction(cg->mod, "free", free_type);
-
-        LLVMTypeRef memcpy_params[3] = {i8ptr_type, i8ptr_type, i64_type};
-        LLVMTypeRef memcpy_type = LLVMFunctionType(i8ptr_type, memcpy_params, 3, 0);
-        if (!LLVMGetNamedFunction(cg->mod, "memcpy")) LLVMAddFunction(cg->mod, "memcpy", memcpy_type);
     }
 
     return cg;
@@ -1405,14 +1417,9 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
                     assert(malloc_fn);
                     LLVMTypeRef malloc_type = LLVMFunctionType(LLVMPointerTypeInContext(cg->ctx, 0), &i64_ty, 1, 0);
                     LLVMValueRef raw_ptr = LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &total_len, 1, "str_concat_malloc");
-                    LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
-                    assert(memcpy_fn);
-                    LLVMTypeRef memcpy_type = LLVMFunctionType(LLVMPointerTypeInContext(cg->ctx, 0), (LLVMTypeRef[3]){LLVMPointerTypeInContext(cg->ctx,0), LLVMPointerTypeInContext(cg->ctx,0), i64_ty}, 3, 0);
-                    LLVMValueRef args1[3] = {raw_ptr, lhs_ptr_val, lhs_len_val};
-                    LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, args1, 3, "str_concat_memcpy1");
                     LLVMValueRef offset_ptr = LLVMBuildGEP2(cg->builder, LLVMArrayType(LLVMInt8TypeInContext(cg->ctx), 0), raw_ptr, &lhs_len_val, 1, "str_concat_offset");
-                    LLVMValueRef args2[3] = {offset_ptr, rhs_ptr_val, rhs_len_val};
-                    LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, args2, 3, "str_concat_memcpy2");
+                    pp_cg_emit_memcpy(cg, raw_ptr, lhs_ptr_val, lhs_len_val, "str_concat_memcpy1");
+                    pp_cg_emit_memcpy(cg, offset_ptr, rhs_ptr_val, rhs_len_val, "str_concat_memcpy2");
                     // Drop old lhs string to avoid leak
                     pp_code_generator_emit_drop(cg, llvm_lhs, lhs_type);
                     // Store new string into lhs
@@ -2328,14 +2335,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 assert(malloc_fn);
                 LLVMTypeRef malloc_type = LLVMFunctionType(LLVMPointerTypeInContext(cg->ctx, 0), &i64_ty, 1, 0);
                 LLVMValueRef raw_ptr = LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &total_len, 1, "str_concat_malloc");
-                LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
-                assert(memcpy_fn);
-                LLVMTypeRef memcpy_type = LLVMFunctionType(LLVMPointerTypeInContext(cg->ctx, 0), (LLVMTypeRef[3]){LLVMPointerTypeInContext(cg->ctx,0), LLVMPointerTypeInContext(cg->ctx,0), i64_ty}, 3, 0);
-                LLVMValueRef args1[3] = {raw_ptr, lhs_ptr, lhs_len};
-                LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, args1, 3, "str_concat_memcpy1");
                 LLVMValueRef offset_ptr = LLVMBuildGEP2(cg->builder, LLVMArrayType(LLVMInt8TypeInContext(cg->ctx), 0), raw_ptr, &lhs_len, 1, "str_concat_offset");
-                LLVMValueRef args2[3] = {offset_ptr, rhs_ptr, rhs_len};
-                LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, args2, 3, "str_concat_memcpy2");
+                pp_cg_emit_memcpy(cg, raw_ptr, lhs_ptr, lhs_len, "str_concat_memcpy1");
+                pp_cg_emit_memcpy(cg, offset_ptr, rhs_ptr, rhs_len, "str_concat_memcpy2");
                 LLVMTypeRef str_struct_ty = pp_environment_backend_lookup_type(cg, lhs_type);
                 LLVMValueRef undef = LLVMGetUndef(str_struct_ty);
                 LLVMValueRef ptr_field = LLVMBuildInsertValue(cg->builder, undef, raw_ptr, 0, "str_concat_ptr");
@@ -2760,15 +2762,11 @@ static LLVMValueRef pp_codegen_string_literal_to_llvm_value(PP_CodeGenerator* cg
     }
 
     if (len > 0) {
-        LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
-        assert(memcpy_fn);
-        LLVMTypeRef memcpy_type = LLVMFunctionType(i8ptr_ty, (LLVMTypeRef[3]){i8ptr_ty, i8ptr_ty, i64_ty}, 3, 0);
         /* data_global is a pointer to the array; GEP to get i8* */
         LLVMValueRef zero = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 0, 0);
         LLVMValueRef indices[2] = { zero, zero };
         LLVMValueRef data_ptr = LLVMBuildGEP2(cg->builder, LLVMArrayType(LLVMInt8TypeInContext(cg->ctx), (unsigned)len), data_global, indices, 2, "str_data_ptr");
-        LLVMValueRef memcpy_args[3] = { raw_ptr, data_ptr, len_val };
-        LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, memcpy_args, 3, "str_memcpy");
+        pp_cg_emit_memcpy(cg, raw_ptr, data_ptr, len_val, "str_memcpy");
     } else {
         /* len == 0: raw_ptr may be null, no memcpy needed */
     }
@@ -3230,17 +3228,7 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
             unsigned size = LLVMABISizeOfType(td, llvm_type);
             LLVMDisposeTargetData(td);
             LLVMValueRef size_val = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), size, 0);
-            LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
-            if (memcpy_fn) {
-                LLVMTypeRef memcpy_type =
-                    LLVMFunctionType(LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0),
-                                     (LLVMTypeRef[3]){LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0),
-                                                      LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0),
-                                                      LLVMInt64TypeInContext(cg->ctx)},
-                                     3, 0);
-                LLVMValueRef memcpy_args[3] = {arg0, arg1, size_val};
-                LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, memcpy_args, 3, "");
-            }
+            pp_cg_emit_memcpy(cg, arg0, arg1, size_val, "");
         }
     } else if (type->kind == PP_TK_List) {
         const PPType* elem_type = type->type.pp_type_list.element_type;
@@ -3292,15 +3280,9 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
             LLVMBuildStore(cg->builder, src_len, dst_len_ptr);
             LLVMBuildStore(cg->builder, src_cap, dst_cap_ptr);
             if (pp_type_is_trivially_copyable(elem_type)) {
-                LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
-                if (memcpy_fn) {
-                    LLVMTypeRef memcpy_type =
-                        LLVMFunctionType(i8ptr_type, (LLVMTypeRef[3]){i8ptr_type, i8ptr_type, i64_type}, 3, 0);
-                    LLVMValueRef src_data_i8 = LLVMBuildBitCast(cg->builder, src_data, i8ptr_type, "src_data_i8");
-                    LLVMValueRef dst_data_i8 = LLVMBuildBitCast(cg->builder, new_data, i8ptr_type, "dst_data_i8");
-                    LLVMValueRef memcpy_args[3] = {dst_data_i8, src_data_i8, bytes};
-                    LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, memcpy_args, 3, "list_memcpy");
-                }
+                LLVMValueRef src_data_i8 = LLVMBuildBitCast(cg->builder, src_data, i8ptr_type, "src_data_i8");
+                LLVMValueRef dst_data_i8 = LLVMBuildBitCast(cg->builder, new_data, i8ptr_type, "dst_data_i8");
+                pp_cg_emit_memcpy(cg, dst_data_i8, src_data_i8, bytes, "list_memcpy");
             } else {
                 PP_TypeCacheEntry* elem_entry = pp_code_generator_get_or_create_cache_entry(cg, elem_type);
                 LLVMValueRef elem_copy_fn = pp_code_generator_ensure_copy_fn(cg, elem_entry);
@@ -3365,14 +3347,9 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
                 LLVMDisposeTargetData(td);
                 LLVMValueRef elem_size_val = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), elem_size, 0);
                 LLVMValueRef total_size = LLVMBuildMul(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), arr_size, 0), elem_size_val, "array_copy_bytes");
-                LLVMValueRef memcpy_fn = LLVMGetNamedFunction(cg->mod, "memcpy");
-                if (memcpy_fn) {
-                    LLVMTypeRef memcpy_type = LLVMFunctionType(LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0), (LLVMTypeRef[3]){LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0), LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0), LLVMInt64TypeInContext(cg->ctx)}, 3, 0);
-                    LLVMValueRef src_i8 = LLVMBuildBitCast(cg->builder, src_ptr, LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0), "src_i8");
-                    LLVMValueRef dst_i8 = LLVMBuildBitCast(cg->builder, dst_ptr, LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0), "dst_i8");
-                    LLVMValueRef memcpy_args[3] = {dst_i8, src_i8, total_size};
-                    LLVMBuildCall2(cg->builder, memcpy_type, memcpy_fn, memcpy_args, 3, "");
-                }
+                LLVMValueRef src_i8 = LLVMBuildBitCast(cg->builder, src_ptr, LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0), "src_i8");
+                LLVMValueRef dst_i8 = LLVMBuildBitCast(cg->builder, dst_ptr, LLVMPointerType(LLVMInt8TypeInContext(cg->ctx),0), "dst_i8");
+                pp_cg_emit_memcpy(cg, dst_i8, src_i8, total_size, "");
             } else {
                 LLVMTypeRef elem_llvm_type = pp_environment_backend_lookup_type(cg, elem_type);
                 PP_TypeCacheEntry* elem_entry = pp_code_generator_get_or_create_cache_entry(cg, elem_type);

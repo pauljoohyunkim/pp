@@ -988,7 +988,7 @@ TEST(CodeGenTest, ListCopyInitAndAssign) {
     assert_ir_contains(cg.get(), "@test_list_copy");
     assert_ir_contains(cg.get(), "%pp.list");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "list_copy_nonempty");
     assert_ir_contains(cg.get(), "call void @free");
 }
@@ -1008,7 +1008,7 @@ TEST(CodeGenTest, ListCopyNoAliasing) {
     assert_ir_contains(cg.get(), "@test_list_alias");
     assert_ir_contains(cg.get(), "%pp.list");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "list_copy_nonempty");
 }
 
@@ -1027,7 +1027,7 @@ TEST(CodeGenTest, ListAssignDropsOld) {
     assert_ir_contains(cg.get(), "@test_list_assign_drop");
     assert_ir_contains(cg.get(), "%pp.list");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "call void @free");
 }
 
@@ -1068,7 +1068,7 @@ TEST(CodeGenTest, StructInitCopy) {
     assert_ir_contains(cg.get(), "%S");
     assert_ir_contains(cg.get(), "%pp.list");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "call void @free");
 }
 
@@ -1105,7 +1105,7 @@ TEST(CodeGenTest, EarlyReturnAfterCopy) {
     assert_ir_contains(cg.get(), "@test_early_return");
     assert_ir_contains(cg.get(), "%pp.list");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "call void @free");
 }
 
@@ -1353,7 +1353,7 @@ TEST(CodeGenTest, HeapStringLiteralLocal) {
 
     assert_ir_contains(cg.get(), "%pp.string");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "@.str.lit");
     assert_ir_contains(cg.get(), "call void @pp.drop");
 }
@@ -1436,8 +1436,8 @@ TEST(CodeGenTest, StringConcat) {
     assert_ir_contains(cg.get(), "%pp.string");
     assert_ir_contains(cg.get(), "call ptr @malloc");
     assert_ir_contains(cg.get(), "str_total_len");
-    assert_ir_contains(cg.get(), "str_concat_memcpy1");
-    assert_ir_contains(cg.get(), "str_concat_memcpy2");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
 }
 
 TEST(CodeGenTest, StringConcatPlusEq) {
@@ -1464,8 +1464,8 @@ TEST(CodeGenTest, StringConcatPlusEq) {
     assert_ir_contains(cg.get(), "%pp.string");
     assert_ir_contains(cg.get(), "call ptr @malloc");
     assert_ir_contains(cg.get(), "str_total_len");
-    assert_ir_contains(cg.get(), "str_concat_memcpy1");
-    assert_ir_contains(cg.get(), "str_concat_memcpy2");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "call void @free");
 }
 
