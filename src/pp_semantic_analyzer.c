@@ -3564,11 +3564,11 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
             }
             break;
         case PP_TT_HASH:
-            if (decayed_operand_type->kind == PP_TK_Array || decayed_operand_type->kind == PP_TK_List) {
+            if (decayed_operand_type->kind == PP_TK_Array || decayed_operand_type->kind == PP_TK_List || decayed_operand_type->kind == PP_TK_String) {
                 unary_type = pp_type_create(PP_TK_UInt32);
             } else {
                 pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-                                         "Unary operator '#' requires array or list");
+                                         "Unary operator '#' requires array, list, or string");
                 goto error_cleanup;
             }
             break;
@@ -3853,9 +3853,9 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     const PPType* decayed_base_type = pp_type_decay(sa->gtt, base_decoration->resolved_type);
     NULL_POINTER_ERROR_HANDLE(decayed_base_type);
 
-    if (decayed_base_type->kind != PP_TK_Array && decayed_base_type->kind != PP_TK_List) {
+    if (decayed_base_type->kind != PP_TK_Array && decayed_base_type->kind != PP_TK_List && decayed_base_type->kind != PP_TK_String) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-                                 "Array/list access requires an array or list base type.");
+                                 "Array/list/string access requires an array, list, or string base type.");
         goto error_cleanup;
     }
 
@@ -3896,8 +3896,13 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     const PPType* element_type = NULL;
     if (decayed_base_type->kind == PP_TK_Array) {
         element_type = decayed_base_type->type.pp_type_array.element_type;
-    } else {  // List
+    } else if (decayed_base_type->kind == PP_TK_List) {
         element_type = decayed_base_type->type.pp_type_list.element_type;
+    } else if (decayed_base_type->kind == PP_TK_String) {
+        /* string indexing yields uint8 */
+        const PPType* uint8_type = pp_global_type_table_find_alias(sa->gtt, "uint8");
+        assert(uint8_type && "uint8 type must exist");
+        element_type = uint8_type;
     }
     NULL_POINTER_ERROR_HANDLE(element_type);
 

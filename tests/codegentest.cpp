@@ -1471,3 +1471,55 @@ TEST(CodeGenTest, StringConcatPlusEq) {
 
 
 
+
+TEST(CodeGenTest, StringIndexing) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    let s :: string = \"hi\";\n"
+        "    let c :: uint8 = s[0u];\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "%pp.string");
+    assert_ir_contains(cg.get(), "str_ptr");
+    assert_ir_contains(cg.get(), "str_elem_ptr");
+    assert_ir_contains(cg.get(), "load i8");
+}
+
+TEST(CodeGenTest, StringLength) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    let s :: string = \"hi\";\n"
+        "    let l :: uint32 = #s;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "%pp.string");
+    assert_ir_contains(cg.get(), "extractvalue");
+    assert_ir_contains(cg.get(), "str_len");
+    assert_ir_contains(cg.get(), "trunc i64");
+}

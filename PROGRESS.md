@@ -86,6 +86,8 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 - [ ] Ponder: normalise static string literals into synthetic collection initializer at semantic analysis vs keep codegen helper `pp_codegen_static_string_literal_to_llvm_constant`
 - [ ] Use LLVM `memcpy` intrinsic `llvm.memcpy.p0.p0.i64` instead of libc `memcpy` for heap string materialisation
 - [ ] Handle len == 0 for heap string literals → emit `{null,0}` without malloc
+- [x] Add heap `string` indexing support: `s[i]` → load ptr, GEP by i, load i8
+- [x] Add length operator `#` support for heap `string` → return len field
 
 ## Current Status
 - Design decided: static literals via `@"…"` → `[uint8 : N]` with implicit NUL, heap `string` type with `"…"` literals

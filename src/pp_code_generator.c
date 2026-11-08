@@ -1871,8 +1871,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
 
     const PPType* base_type = pp_type_decay_cg(cg->gtt, object_decoration->resolved_type);
     assert(base_type);
-    if (base_type->kind != PP_TK_Array && base_type->kind != PP_TK_List) {
-        assert(0 && "Unsupported base type for array/list access");
+    if (base_type->kind != PP_TK_Array && base_type->kind != PP_TK_List && base_type->kind != PP_TK_String) {
+        assert(0 && "Unsupported base type for array/list/string access");
         return NULL;
     }
 
@@ -1893,7 +1893,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
             LLVMBuildGEP2(cg->builder, llvm_base_type, llvm_base_ptr, indices, 2, "array_idx");
         assert(llvm_element_ptr);
         return llvm_element_ptr;
-    } else {
+    } else if (base_type->kind == PP_TK_List) {
         const PPType* elem_type = base_type->type.pp_type_list.element_type;
         assert(elem_type);
         LLVMTypeRef llvm_elem_type = pp_backend_lower_type(cg, elem_type);
@@ -1909,6 +1909,19 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
         LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, llvm_elem_type, data_ptr, &llvm_index, 1, "list_elem_ptr");
         assert(elem_ptr);
         return elem_ptr;
+    } else if (base_type->kind == PP_TK_String) {
+        /* String indexing: load data pointer, then GEP to i8 */
+        LLVMTypeRef llvm_str_type = pp_environment_backend_lookup_type(cg, base_type);
+        assert(llvm_str_type);
+        LLVMValueRef ptr_ptr = LLVMBuildStructGEP2(cg->builder, llvm_str_type, llvm_base_ptr, 0, "str_ptr_ptr");
+        LLVMValueRef str_data_ptr = LLVMBuildLoad2(cg->builder, LLVMPointerTypeInContext(cg->ctx, 0), ptr_ptr, "str_ptr");
+        assert(str_data_ptr);
+        LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, LLVMInt8TypeInContext(cg->ctx), str_data_ptr, &llvm_index, 1, "str_elem_ptr");
+        assert(elem_ptr);
+        return elem_ptr;
+    } else {
+        assert(0 && "Unsupported base type");
+        return NULL;
     }
 }
 
@@ -1933,6 +1946,10 @@ static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeG
             element_type = element_type->type.pp_type_array.element_type;
         } else if (element_type->kind == PP_TK_List) {
             element_type = element_type->type.pp_type_list.element_type;
+        } else if (element_type->kind == PP_TK_String) {
+            /* string indexing yields uint8 */
+            element_type = pp_global_type_table_find_alias(cg->gtt, "uint8");
+            assert(element_type && "uint8 type must exist");
         }
         return pp_code_generator_l_value_to_r_value(cg, element_type, llvm_lval);
     }
@@ -2537,8 +2554,13 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
                 LLVMValueRef len_val = LLVMBuildExtractValue(cg->builder, llvm_operand, 1, "list_len");
                 // List len is i64 internally, truncate to uint32 as per PP type
                 llvm_val = LLVMBuildTrunc(cg->builder, len_val, LLVMInt32TypeInContext(cg->ctx), "len_u32");
+            } else if (op_type->kind == PP_TK_String) {
+                // String value is a struct { data_ptr, len }
+                LLVMValueRef len_val = LLVMBuildExtractValue(cg->builder, llvm_operand, 1, "str_len");
+                // String len is i64 internally, truncate to uint32 as per PP type
+                llvm_val = LLVMBuildTrunc(cg->builder, len_val, LLVMInt32TypeInContext(cg->ctx), "len_u32");
             } else {
-                assert(0 && "Unary '#' requires array or list");
+                assert(0 && "Unary '#' requires array, list, or string");
             }
             break;
         }
