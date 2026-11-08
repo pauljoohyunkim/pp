@@ -36,12 +36,12 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
   - [x] Compare `N` vs literal length, error if mismatch
   - [x] Error for too small: `let b :: [uint8 :5u] = @"hello";` must error
   - [x] Error for too large: `let c :: [uint8 :4u] = @"hello";` must error
-- [ ] Ensure const correctness for global/static arrays
+- [x] Ensure const correctness for global/static arrays
 - [ ] Support heap `string` type
   - [x] Register `PP_TK_String` type kind in `include/pp_type.h`
   - [x] Register builtin type `string` in semantic init
   - [x] Update `pp_type_needs_drop`, `pp_type_is_trivially_copyable` for `String` → needs drop, not trivially copyable
-  - [ ] Handle `PP_TT_STRING_LITERAL` for heap `string` with escaped length, no NUL
+  - [x] Handle `PP_TT_STRING_LITERAL` for heap `string` with escaped length, no NUL
   - [x] Global variables of `string` only allowed empty, local allowed
   - [ ] Codegen for heap string literals: allocate + copy
 - [x] Binary `+` and compound `+=` for `string`
@@ -50,8 +50,9 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 
 
 ### Code Generator
-- [ ] `pp_code_generator_generate_rvalue_literal` handle static string literal
-  - [ ] Emit LLVM constant array `[N x i8]` with bytes + NUL
+- [x] `pp_code_generator_generate_rvalue_literal` handle static string literal
+  - [x] Emit LLVM constant array `[N x i8]` with bytes + NUL
+  - [ ] Helper created; heap string literal placeholder only
 - [ ] Or transform literal to synthetic collection initializer to reuse existing codegen
 - [ ] Verify global vs local constant handling
 
@@ -72,6 +73,13 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 ### Ownership / Interop
 - [ ] Document C interop rule: NUL guaranteed only for literals initialized via `@` to `[uint8 : N]`
 - [ ] No changes to ownership model required
+
+### Future / TODO
+- [ ] Heap `string` indexing not supported yet – `string` is not an Array/List, so `s[0]` is disallowed for heap strings; decide on API/methods later
+- [ ] Codegen for heap string literals: allocate + copy
+- [ ] String concatenation codegen for `+` and `+=`
+- [ ] Tests for lexer/parser/semantic/codegen
+- [ ] Ponder: normalise static string literals into synthetic collection initializer at semantic analysis vs keep codegen helper `pp_codegen_static_string_literal_to_llvm_constant`
 
 ## Current Status
 - Design decided: static literals via `@"…"` → `[uint8 : N]` with implicit NUL, heap `string` type with `"…"` literals

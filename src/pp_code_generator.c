@@ -656,6 +656,16 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
             return LLVMInt128TypeInContext(cg->ctx);
         case PP_TK_Float:
             return LLVMFloatTypeInContext(cg->ctx);
+        case PP_TK_String: {
+            LLVMTypeRef existing = LLVMGetTypeByName2(cg->ctx, "pp.string");
+            if (existing) return existing;
+            LLVMTypeRef ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
+            LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
+            LLVMTypeRef fields[2] = {ptr_type, i64_type};
+            LLVMTypeRef str_struct = LLVMStructCreateNamed(cg->ctx, "pp.string");
+            LLVMStructSetBody(str_struct, fields, 2, 0);
+            return str_struct;
+        }
 
         case PP_TK_Newtype:
             return pp_backend_lower_type(cg, type->type.pp_type_newtype.underlying);
@@ -1761,6 +1771,8 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
 
     LLVMTypeRef llvm_var_type = pp_environment_backend_lookup_type(cg, var_type);
     assert(llvm_var_type);
+    // Debug print types
+    printf("Global %s: PP type %d -> LLVM type %s\n", var_name, var_type->kind, LLVMPrintTypeToString(llvm_var_type));
 
     LLVMValueRef llvm_global_var = LLVMAddGlobal(cg->mod, llvm_var_type, var_name);
 
@@ -1771,6 +1783,12 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
         LLVMValueRef llvm_initializer =
             pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->variable_declaration.initializer);
         assert(llvm_initializer);
+        // Debug print
+        char* init_str = LLVMPrintValueToString(llvm_initializer);
+        if (init_str) {
+            printf("Global %s initializer: %s\n", var_name, init_str);
+            LLVMDisposeMessage(init_str);
+        }
         LLVMSetInitializer(llvm_global_var, llvm_initializer);
     } else {
         LLVMSetInitializer(llvm_global_var, LLVMConstNull(llvm_var_type));
@@ -2498,6 +2516,94 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
     return llvm_val;
 }
 
+/* Helper to unescape a PP string lexeme into a byte buffer.
+ * Returns number of bytes written on success, -1 on error.
+ * The buffer must be large enough for the unescaped content.
+ */
+static ssize_t pp_codegen_unescape_lexeme_to_buf(const char* lexeme, unsigned char* buf, size_t bufsize) {
+    if (!lexeme || !buf) return -1;
+    size_t i = 0;
+    size_t len = strlen(lexeme);
+    size_t out = 0;
+    if (len >= 2 && lexeme[0] == '@' && lexeme[1] == '"') {
+        i = 2;
+    } else if (len >= 2 && lexeme[0] == '"') {
+        i = 1;
+    } else {
+        return -1;
+    }
+    while (i < len) {
+        char c = lexeme[i];
+        if (c == '"') {
+            break;
+        }
+        if (c == '\\') {
+            if (i + 1 >= len) return -1;
+            char esc = lexeme[i + 1];
+            unsigned char value = 0;
+            switch (esc) {
+                case 'n': value = '\n'; break;
+                case 't': value = '\t'; break;
+                case 'r': value = '\r'; break;
+                case '"': value = '"'; break;
+                case '\\': value = '\\'; break;
+                case '0': value = '\0'; break;
+                case 'x': {
+                    if (i + 3 >= len) return -1;
+                    char h1 = lexeme[i+2];
+                    char h2 = lexeme[i+3];
+                    if (!isxdigit((unsigned char)h1) || !isxdigit((unsigned char)h2)) return -1;
+                    char hex[3] = {h1, h2, 0};
+                    value = (unsigned char)strtoul(hex, NULL, 16);
+                    if (out >= bufsize) return -1;
+                    buf[out++] = value;
+                    i += 4;
+                    continue;
+                }
+                default:
+                    return -1;
+            }
+            if (out >= bufsize) return -1;
+            buf[out++] = value;
+            i += 2;
+            continue;
+        }
+        if (out >= bufsize) return -1;
+        buf[out++] = (unsigned char)c;
+        i += 1;
+    }
+    return (ssize_t)out;
+}
+
+/* Helper to materialise a static string literal as an LLVM constant array of i8 with trailing NUL. */
+static LLVMValueRef pp_codegen_static_string_literal_to_llvm_constant(LLVMContextRef ctx, const char* lexeme) {
+    if (!lexeme) return NULL;
+    size_t lex_len = strlen(lexeme);
+    /* Unescaped length cannot exceed lexeme length */
+    unsigned char* buf = (unsigned char*)malloc(lex_len + 1);
+    if (!buf) return NULL;
+    ssize_t n = pp_codegen_unescape_lexeme_to_buf(lexeme, buf, lex_len + 1);
+    if (n < 0) {
+        free(buf);
+        return NULL;
+    }
+    size_t total = (size_t)n + 1; /* implicit NUL */
+    buf[n] = '\0';
+    LLVMValueRef* vals = (LLVMValueRef*)calloc(total, sizeof(LLVMValueRef));
+    if (!vals) {
+        free(buf);
+        return NULL;
+    }
+    LLVMTypeRef i8_ty = LLVMInt8TypeInContext(ctx);
+    for (size_t i = 0; i < total; ++i) {
+        vals[i] = LLVMConstInt(i8_ty, (unsigned long)buf[i], true);
+    }
+    LLVMValueRef arr = LLVMConstArray(i8_ty, vals, total);
+    free(vals);
+    free(buf);
+    return arr;
+}
+
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                               PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     LLVMValueRef llvm_val = NULL;
@@ -2534,6 +2640,17 @@ static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* 
         case PP_TT_FALSE:
             llvm_val = LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 0, false);
             break;
+        case PP_TT_STATIC_STRING_LITERAL: {
+            llvm_val = pp_codegen_static_string_literal_to_llvm_constant(cg->ctx, node->literal.lexeme);
+            if (!llvm_val) return NULL;
+        } break;
+        case PP_TT_STRING_LITERAL: {
+            /* Heap string literal: for now emit undef / placeholder – runtime materialisation to be wired later */
+            const PPType* heap_type = lit_type->type.pp_type_const.const_of;
+            LLVMTypeRef llvm_ty = pp_environment_backend_lookup_type(cg, heap_type);
+            if (!llvm_ty) return NULL;
+            llvm_val = LLVMGetUndef(llvm_ty);
+        } break;
         default:
             assert(0 && "Invalid literal");
     }

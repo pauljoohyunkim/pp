@@ -1277,5 +1277,60 @@ TEST(CodeGenTest, IntegerLiteralSuffixCodegen) {
     assert_ir_contains(cg.get(), "@main");
 }
 
+TEST(CodeGenTest, StaticStringLiteralLocal) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    let a :: [uint8 : 6u] = @\"hello\";\n"
+        "    let b :: [uint8 : 1u] = @\"\";\n"
+        "    let c :: [uint8 : 7u] = @\"hello\\n\";\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    // Constants should be emitted for static string literals
+    assert_ir_contains(cg.get(), "[6 x i8]");
+    assert_ir_contains(cg.get(), "c\"hello\\00\"");
+    assert_ir_contains(cg.get(), "[1 x i8]");
+    assert_ir_contains(cg.get(), "[7 x i8]");
+    assert_ir_contains(cg.get(), "c\"hello\\0A\\00\"");
+    assert_ir_not_contains(cg.get(), "unreachable");
+}
+
+TEST(CodeGenTest, StaticStringLiteralGlobal) {
+    const char* source =
+        "let g :: [uint8 : 6u] = @\"hello\";\n"
+        "func main :: () -> void {\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    // Global constant should be emitted
+    assert_ir_contains(cg.get(), "g");
+    assert_ir_contains(cg.get(), "[6 x i8]");
+    assert_ir_contains(cg.get(), "c\"hello\\00\"");
+}
+
 
 
