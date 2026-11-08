@@ -15,11 +15,30 @@ static inline void advance_pp(PP_Lexer* lexer, unsigned int n);
 static inline char peek_pp(PP_Lexer* lexer, unsigned int n);
 static int pp_lexer_push_token_helper(PP_Lexer* lexer, PP_TokenType type, size_t length);
 static bool pp_lexer_exactly_match_keyword(PP_Lexer* lexer, const char* keyword);
+static size_t pp_lexer_scan_until_quote(PP_Lexer* lexer, size_t start_offset);
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
         if ((ptr) == NULL) goto error_cleanup; \
     } while (0)
+
+static size_t pp_lexer_scan_until_quote(PP_Lexer* lexer, size_t start_offset) {
+    size_t pos = start_offset;
+    while (lexer->idx + pos < lexer->code_length && peek_pp(lexer, pos) != '"') {
+        char ch = peek_pp(lexer, pos);
+        if (ch == '\n' || ch == '\r') {
+            break;  // forbid multiline
+        }
+        if (ch == '\\')
+            pos += 2;
+        else
+            pos++;
+    }
+    if (lexer->idx + pos < lexer->code_length) {
+        pos += 1;  // include closing quote if present
+    }
+    return pos;
+}
 
 PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
     PP_Lexer* lexer = NULL;
@@ -329,6 +348,20 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     advance_pp(lexer, 1);
                 }
                 break;
+            case '@':
+                if (peek_pp(lexer, 1) == '"') {
+                    // static string literal: @"..."
+                    size_t len = pp_lexer_scan_until_quote(lexer, 2);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_STATIC_STRING_LITERAL, len)) return 0;
+                    advance_pp(lexer, len);
+                } else {
+                    // '@' alone is unknown for now
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_UNKNOWN, 1)) return 0;
+                    pp_error_list_push_error(lexer->error_list, lexer->filename, lexer->row, lexer->col,
+                                             "Unknown token");
+                    advance_pp(lexer, 1);
+                }
+                break;
             default:
                 if (isalpha((unsigned char)c) || c == '_') {
                     size_t len = 1;
@@ -405,6 +438,9 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     } else if (pp_lexer_exactly_match_keyword(lexer, "float")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_FLOAT, 5)) return 0;
                         advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "string")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_STRING, 6)) return 0;
+                        advance_pp(lexer, 6);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "struct")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_STRUCT, 6)) return 0;
                         advance_pp(lexer, 6);
@@ -437,10 +473,9 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                         while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer, len))) len++;
                     }
                     if (!is_float) {
-                        if (!is_at_end(lexer) && (peek_pp(lexer, len) == 'u' || peek_pp(lexer, len) == 'U')) {
-                            len++;
-                        }
-                        // Suffix parsing for integer literals: s, ss, l, ll case-insensitive, also allow overlong for error detection
+                        if (!is_at_end(lexer) && (peek_pp(lexer, len) == 'u' || peek_pp(lexer, len) == 'U')) { len++; }
+                        // Suffix parsing for integer literals: s, ss, l, ll case-insensitive, also allow overlong for
+                        // error detection
                         while (!is_at_end(lexer)) {
                             char c_suf = tolower(peek_pp(lexer, len));
                             if (c_suf == 's' || c_suf == 'l') {
@@ -458,14 +493,7 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     advance_pp(lexer, len);
                 } else if (c == '"') {
                     // simple string literal: skip until closing quote
-                    size_t len = 1;
-                    while (!is_at_end(lexer) && lexer->code[lexer->idx + len] != '"') {
-                        if (lexer->code[lexer->idx + len] == '\\')
-                            len += 2;
-                        else
-                            len++;
-                    }
-                    if (!is_at_end(lexer)) len++;  // closing quote
+                    size_t len = pp_lexer_scan_until_quote(lexer, 1);
                     if (!pp_lexer_push_token_helper(lexer, PP_TT_STRING_LITERAL, len)) return 0;
                     advance_pp(lexer, len);
                 } else {

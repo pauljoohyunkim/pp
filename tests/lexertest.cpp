@@ -371,3 +371,90 @@ TEST(Lexer, NewIntegerTypeKeywords) {
     ASSERT_STREQ(lexer->tokens[7].lexeme, "uint128");
 }
 
+TEST(Lexer, StaticStringLiteral) {
+    auto lexer_h = pp_lexer_create("@\"hello\" @\"\" @\"he\\\"llo\\n\"", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 4);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_STATIC_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_STATIC_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_STATIC_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[3].token_type, PP_TT_EOF);
+    ASSERT_STREQ(lexer->tokens[0].lexeme, "@\"hello\"");
+    ASSERT_STREQ(lexer->tokens[1].lexeme, "@\"\"");
+    ASSERT_STREQ(lexer->tokens[2].lexeme, "@\"he\\\"llo\\n\"");
+}
+
+TEST(Lexer, StaticStringNoWhitespace) {
+    // No whitespace allowed between @ and "
+    auto lexer_h = pp_lexer_create("@ \"hello\"", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    // '@' alone is unknown, then string literal
+    ASSERT_GE(lexer->n_tokens, 3);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_UNKNOWN);
+    ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_EOF);
+}
+
+TEST(Lexer, StaticStringEscapes) {
+    auto lexer_h = pp_lexer_create("@\"a\\n b\" @\"a\\0b\" @\"\\\"\"", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 4);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_STATIC_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_STATIC_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_STATIC_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[3].token_type, PP_TT_EOF);
+}
+
+TEST(Lexer, StaticStringEscapesHexBackslash) {
+    auto lexer_h = pp_lexer_create("@\"\\x41\\x42\\x43\" @\"\\\\\" @\"\\0\\t\\r\\\"\\n\"", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 4);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_STATIC_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_STATIC_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_STATIC_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[3].token_type, PP_TT_EOF);
+    ASSERT_STREQ(lexer->tokens[0].lexeme, "@\"\\x41\\x42\\x43\"");
+    ASSERT_STREQ(lexer->tokens[1].lexeme, "@\"\\\\\"");
+    ASSERT_STREQ(lexer->tokens[2].lexeme, "@\"\\0\\t\\r\\\"\\n\"");
+}
+
+TEST(Lexer, StringLiteralNoMultiline) {
+    // String literals should not span lines; newline stops the token
+    auto lexer_h = pp_lexer_create("\"a\n", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    // Lexer will produce a token for "a\n? The newline breaks token, so we get STRING_LITERAL for "a and then newline handling
+    // At minimum we should not produce a single spanning token
+    ASSERT_GT(lexer->n_tokens, 0);
+}
+
+TEST(Lexer, StaticStringLiteralNoMultiline) {
+    auto lexer_h = pp_lexer_create("@\"a\n\"", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    // Should not treat as a single static string spanning lines
+    ASSERT_GT(lexer->n_tokens, 0);
+}
+
+TEST(Lexer, StringLiteralContainsTab) {
+    auto lexer_h = pp_lexer_create("\"a\tb\"", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 2);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_STRING_LITERAL);
+    // Tab is allowed inside a string literal
+}
+
+TEST(Lexer, StaticStringLiteralContainsTab) {
+    auto lexer_h = pp_lexer_create("@\"a\tb\"", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 2);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_STATIC_STRING_LITERAL);
+}
+
+

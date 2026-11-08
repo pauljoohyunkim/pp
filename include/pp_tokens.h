@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+#include <sys/types.h>
 
 typedef enum {
     // Single-letter
@@ -81,6 +82,7 @@ typedef enum {
     PP_TT_INT128,
     PP_TT_UINT128,
     PP_TT_FLOAT,
+    PP_TT_STRING,
     PP_TT_STRUCT,
     PP_TT_TYPEDEF,
     PP_TT_NEWTYPE,
@@ -90,6 +92,7 @@ typedef enum {
     PP_TT_INTEGER_LITERAL,
     PP_TT_UNSIGNED_INTEGER_LITERAL,
     PP_TT_FLOAT_LITERAL,
+    PP_TT_STATIC_STRING_LITERAL,
     PP_TT_STRING_LITERAL,
     PP_TT_IDENTIFIER,
     PP_TT_UNKNOWN,
@@ -106,6 +109,7 @@ typedef struct {
 
 const char* pp_token_to_human_name(PP_TokenType token_type);
 bool pp_token_type_is_assignment(PP_TokenType token_type);
+ssize_t pp_tokens_unescape_string_length(const char* lexeme);
 
 #ifdef __cplusplus
 }

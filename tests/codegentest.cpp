@@ -988,7 +988,7 @@ TEST(CodeGenTest, ListCopyInitAndAssign) {
     assert_ir_contains(cg.get(), "@test_list_copy");
     assert_ir_contains(cg.get(), "%pp.list");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "list_copy_nonempty");
     assert_ir_contains(cg.get(), "call void @free");
 }
@@ -1008,7 +1008,7 @@ TEST(CodeGenTest, ListCopyNoAliasing) {
     assert_ir_contains(cg.get(), "@test_list_alias");
     assert_ir_contains(cg.get(), "%pp.list");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "list_copy_nonempty");
 }
 
@@ -1027,7 +1027,7 @@ TEST(CodeGenTest, ListAssignDropsOld) {
     assert_ir_contains(cg.get(), "@test_list_assign_drop");
     assert_ir_contains(cg.get(), "%pp.list");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "call void @free");
 }
 
@@ -1068,7 +1068,7 @@ TEST(CodeGenTest, StructInitCopy) {
     assert_ir_contains(cg.get(), "%S");
     assert_ir_contains(cg.get(), "%pp.list");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "call void @free");
 }
 
@@ -1105,7 +1105,7 @@ TEST(CodeGenTest, EarlyReturnAfterCopy) {
     assert_ir_contains(cg.get(), "@test_early_return");
     assert_ir_contains(cg.get(), "%pp.list");
     assert_ir_contains(cg.get(), "call ptr @malloc");
-    assert_ir_contains(cg.get(), "call ptr @memcpy");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
     assert_ir_contains(cg.get(), "call void @free");
 }
 
@@ -1277,5 +1277,249 @@ TEST(CodeGenTest, IntegerLiteralSuffixCodegen) {
     assert_ir_contains(cg.get(), "@main");
 }
 
+TEST(CodeGenTest, StaticStringLiteralLocal) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    let a :: [uint8 : 6u] = @\"hello\";\n"
+        "    let b :: [uint8 : 1u] = @\"\";\n"
+        "    let c :: [uint8 : 7u] = @\"hello\\n\";\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    // Constants should be emitted for static string literals
+    assert_ir_contains(cg.get(), "[6 x i8]");
+    assert_ir_contains(cg.get(), "c\"hello\\00\"");
+    assert_ir_contains(cg.get(), "[1 x i8]");
+    assert_ir_contains(cg.get(), "[7 x i8]");
+    assert_ir_contains(cg.get(), "c\"hello\\0A\\00\"");
+    assert_ir_not_contains(cg.get(), "unreachable");
+}
+
+TEST(CodeGenTest, StaticStringLiteralGlobal) {
+    const char* source =
+        "let g :: [uint8 : 6u] = @\"hello\";\n"
+        "func main :: () -> void {\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    // Global constant should be emitted
+    assert_ir_contains(cg.get(), "g");
+    assert_ir_contains(cg.get(), "[6 x i8]");
+    assert_ir_contains(cg.get(), "c\"hello\\00\"");
+}
+
+TEST(CodeGenTest, HeapStringLiteralLocal) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    let s :: string = \"hi\";\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "%pp.string");
+    assert_ir_contains(cg.get(), "call ptr @malloc");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
+    assert_ir_contains(cg.get(), "@.str.lit");
+    assert_ir_contains(cg.get(), "call void @pp.drop");
+}
+
+TEST(CodeGenTest, StringDropInStruct) {
+    const char* source =
+        "struct Person {\n"
+        "    name :: string;\n"
+        "    age :: int32;\n"
+        "}\n"
+        "func main :: () -> void {\n"
+        "    let p :: Person = Person{ .name = \"Alice\", .age = 30 };\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "%Person");
+    assert_ir_contains(cg.get(), "%pp.string");
+    assert_ir_contains(cg.get(), "call void @pp.drop");
+    assert_ir_contains(cg.get(), "call void @free");
+}
+
+TEST(CodeGenTest, ListOfStringsDrop) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    let ls :: [string] = [string; \"a\", \"bc\"];\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "%pp.list");
+    assert_ir_contains(cg.get(), "%pp.string");
+    assert_ir_contains(cg.get(), "call void @pp.drop");
+    assert_ir_contains(cg.get(), "call void @free");
+}
+
+TEST(CodeGenTest, StringConcat) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    let a :: string = \"foo\";\n"
+        "    let b :: string = \"bar\";\n"
+        "    let c :: string = a + b;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "%pp.string");
+    assert_ir_contains(cg.get(), "call ptr @malloc");
+    assert_ir_contains(cg.get(), "str_total_len");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
+}
+
+TEST(CodeGenTest, StringConcatPlusEq) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    let a :: string = \"foo\";\n"
+        "    let b :: string = \"bar\";\n"
+        "    a += b;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "%pp.string");
+    assert_ir_contains(cg.get(), "call ptr @malloc");
+    assert_ir_contains(cg.get(), "str_total_len");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
+    assert_ir_contains(cg.get(), "llvm.memcpy.p0.p0.i64");
+    assert_ir_contains(cg.get(), "call void @free");
+}
 
 
+
+
+TEST(CodeGenTest, StringIndexing) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    let s :: string = \"hi\";\n"
+        "    let c :: uint8 = s[0u];\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "%pp.string");
+    assert_ir_contains(cg.get(), "str_ptr");
+    assert_ir_contains(cg.get(), "str_elem_ptr");
+    assert_ir_contains(cg.get(), "load i8");
+}
+
+TEST(CodeGenTest, StringLength) {
+    const char* source =
+        "func main :: () -> void {\n"
+        "    let s :: string = \"hi\";\n"
+        "    let l :: uint32 = #s;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) { std::string msg = error_msg ? error_msg : "unknown"; if (error_msg) LLVMDisposeMessage(error_msg); FAIL() << "LLVMVerifyModule failed: " << msg; }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "%pp.string");
+    assert_ir_contains(cg.get(), "extractvalue");
+    assert_ir_contains(cg.get(), "str_len");
+    assert_ir_contains(cg.get(), "trunc i64");
+}
