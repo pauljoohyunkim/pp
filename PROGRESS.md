@@ -81,7 +81,7 @@ Implement compile-time static string literals via `@"text"` that initialize `[ui
 - [ ] Heap `string` indexing not supported yet – `string` is not an Array/List, so `s[0]` is disallowed for heap strings; decide on API/methods later
 - [x] Codegen for heap string literals: allocate + copy
 - [x] String concatenation codegen for `+`
-- [ ] String concatenation codegen for `+=`
+- [x] String concatenation codegen for `+=`
 - [x] Tests for lexer/parser/semantic/codegen
 - [ ] Ponder: normalise static string literals into synthetic collection initializer at semantic analysis vs keep codegen helper `pp_codegen_static_string_literal_to_llvm_constant`
 - [ ] Use LLVM `memcpy` intrinsic `llvm.memcpy.p0.p0.i64` instead of libc `memcpy` for heap string materialisation
