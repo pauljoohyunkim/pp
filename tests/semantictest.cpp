@@ -1136,3 +1136,39 @@ TEST(SemanticTest, OperatorAliasCollisionRejected) {
     EXPECT_EQ(lexer_errors + parser_errors, 0);
     EXPECT_GT(semantic_errors, 0);
 }
+
+TEST(SemanticTest, OperatorReferenceReturnRejected) {
+    const char* source =
+        "struct S { x :: int32; }\n"
+        "operator + :: (a :: const S&, b :: const S&) -> const S& { return a; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, OperatorBuiltinStringConcatRejected) {
+    const char* source =
+        "operator + :: (a :: const string&, b :: const string&) -> string { return a; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, OperatorValidOverloadDifferentTypes) {
+    const char* source =
+        "struct A { x :: int32; }\n"
+        "struct B { x :: int32; }\n"
+        "operator + :: (a :: const A&, b :: const A&) -> A { return A { .x = 0 }; }\n"
+        "operator + :: (a :: const A&, b :: const B&) -> B { return B { .x = 0 }; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(analyze_result, 1);
+}
+

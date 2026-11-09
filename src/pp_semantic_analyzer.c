@@ -1276,7 +1276,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
     char mangle_buf[128];
     size_t pos = 0;
     int written = snprintf(mangle_buf, sizeof(mangle_buf), "__pp@op@%s@n%zu", node->function_declaration.name,
-                           node->function_declaration.param_count);
+                           (size_t)node->function_declaration.param_count);
     if (written < 0 || (size_t)written >= sizeof(mangle_buf)) goto error_cleanup;
     pos = (size_t)written;
     for (size_t i = 0; i < node->function_declaration.param_count && i < 2; i++) {

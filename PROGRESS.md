@@ -55,5 +55,5 @@
 
 ## 6. Parser-side operator resolution
 - [x] Confirm operator lookup does not clash with functions ( overload dispatch implemented)
-- [ ] Document precedence, associativity, and overload behavior
+- [x] Document precedence, associativity, and overload behavior
 - Builtin operator shadowing now rejected for binary and unary core types.
