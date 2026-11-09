@@ -1447,8 +1447,7 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
                     LLVMValueRef raw_ptr =
                         LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &total_len, 1, "str_concat_malloc");
                     LLVMValueRef offset_ptr =
-                        LLVMBuildGEP2(cg->builder, LLVMArrayType(LLVMInt8TypeInContext(cg->ctx), 0), raw_ptr,
-                                      &lhs_len_val, 1, "str_concat_offset");
+                        LLVMBuildGEP2(cg->builder, LLVMInt8TypeInContext(cg->ctx), raw_ptr, &lhs_len_val, 1, "str_concat_offset");
                     pp_code_generator_emit_memcpy(cg, raw_ptr, lhs_ptr_val, lhs_len_val, "str_concat_memcpy1");
                     pp_code_generator_emit_memcpy(cg, offset_ptr, rhs_ptr_val, rhs_len_val, "str_concat_memcpy2");
                     // Drop old lhs string to avoid leak
@@ -2370,7 +2369,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 LLVMTypeRef malloc_type = LLVMFunctionType(LLVMPointerTypeInContext(cg->ctx, 0), &i64_ty, 1, 0);
                 LLVMValueRef raw_ptr =
                     LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &total_len, 1, "str_concat_malloc");
-                LLVMValueRef offset_ptr = LLVMBuildGEP2(cg->builder, LLVMArrayType(LLVMInt8TypeInContext(cg->ctx), 0),
+                LLVMValueRef offset_ptr = LLVMBuildGEP2(cg->builder, LLVMInt8TypeInContext(cg->ctx),
                                                         raw_ptr, &lhs_len, 1, "str_concat_offset");
                 pp_code_generator_emit_memcpy(cg, raw_ptr, lhs_ptr, lhs_len, "str_concat_memcpy1");
                 pp_code_generator_emit_memcpy(cg, offset_ptr, rhs_ptr, rhs_len, "str_concat_memcpy2");
