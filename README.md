@@ -9,6 +9,15 @@ You can think of this language as a amalgamation of the simplicity of the C lang
 
 This repository is a compiler attempted in C with LLVM backend.
 
+## Cloning Repo
+To clone this repo, you run the following command
+```
+git clone [https/ssh repo url]
+
+# Submodule pp_std requires a separate step when cloning
+git submodule update --init --recursive
+```
+
 ## Building Compiler
 
 You need the following tools to build this compiler:
@@ -66,8 +75,11 @@ make && make -j
 Options:
 * `-h` Show help
 * `-v` Verbose output
-* `-c` Compile to object file, requires `-o`
-* `-o <file>` Output filename
+* `-c` Compile to object file
+* `-S` Compile to assembly file
+* `--emit-llvm` Emit LLVM IR
+* `-o <file>` Output filename (default: `a.out`, or `a.s` with `-S`, or `a.ll` with `--emit-llvm`)
+* `-O <level>` Optimization level: `0`, `1`, `2`, `3` (size opts TODO)
 
 Example files:
 ```bash
@@ -77,6 +89,10 @@ Example files:
 
 ### Language guide
 Look into [docs](docs/) for simple documentation.
+
+## PP Standard Library
+A separate repo called [pp_std](https://github.com/pauljoohyunkim/pp_std) is maintained for exposing functions requiring libc.
+Currently in development.
 
 ## Development
 
