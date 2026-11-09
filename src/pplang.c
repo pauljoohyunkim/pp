@@ -53,6 +53,7 @@ int main(int argc, char** argv) {
     bool to_object = false;
     bool to_assembly = false;
     bool verbose = false;
+    bool output_specified = false;
     char output_filename[BUFSIZ] = {0};
     strcpy(output_filename, "a.out");
     PPLang_InputList* input_list = NULL;
@@ -73,6 +74,7 @@ int main(int argc, char** argv) {
                 verbose = true;
                 break;
             case 'o':
+                output_specified = true;
                 memset(output_filename, 0, sizeof(output_filename));
                 strncpy(output_filename, optarg, BUFSIZ - 1);
                 break;
@@ -107,7 +109,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (to_assembly && strcmp(output_filename, "a.out") == 0) { strcpy(output_filename, "a.s"); }
+    if (to_assembly && !output_specified) { strcpy(output_filename, "a.s"); }
     input_list = pplang_input_list_create();
     if (!input_list) {
         fprintf(stderr, "Failed to create input list\n");
