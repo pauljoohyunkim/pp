@@ -1156,6 +1156,19 @@ int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBu
     return pp_code_generator_emit_internal(module, NULL, out_buf, 1);
 }
 
+int pp_code_generator_emit_ir_file(LLVMModuleRef module, const char* output_filename) {
+    if (!module || !output_filename) return 0;
+    char* error = NULL;
+    if (LLVMPrintModuleToFile(module, (char*)output_filename, &error)) {
+        if (error) {
+            fprintf(stderr, "Failed to emit IR file: %s\n", error);
+            LLVMDisposeMessage(error);
+        }
+        return 0;
+    }
+    return 1;
+}
+
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
     PP_Environment_Backend* body_env_b = NULL;
