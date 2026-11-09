@@ -4,7 +4,7 @@ extern func pp_std_print_string :: (str :: string) -> void;
 func main :: () -> int32 {
     let sum :: float = 0.0;
 
-    for (let i :: int32 = 1; i < 100000; i += 1) {
+    for (let i :: int32 = 1; i < 1000000; i += 1) {
         let denom :: int32 = 2 * i - 1;
         let parity :: bool = i % 2 != 0;
         if (parity) {
