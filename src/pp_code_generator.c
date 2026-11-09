@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+static LLVMValueRef pp_code_generator_entry_alloca(PP_CodeGenerator* cg, LLVMTypeRef type, const char* name);
 static PP_Environment_Backend* pp_environment_backend_enter_scope(const PP_Environment_Backend* current_env_b);
 static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
@@ -199,7 +200,7 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
                     LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)),
                                                   "list_drop_loop_after");
                 // i = 0
-                LLVMValueRef i_alloca = LLVMBuildAlloca(cg->builder, LLVMInt64TypeInContext(cg->ctx), "list_drop_i");
+                LLVMValueRef i_alloca = pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "list_drop_i");
                 LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), i_alloca);
                 LLVMBuildBr(cg->builder, loop_cond_bb);
                 LLVMPositionBuilderAtEnd(cg->builder, loop_cond_bb);
@@ -418,7 +419,7 @@ static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, 
                 LLVMBasicBlockRef loop_after_bb =
                     LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)),
                                                   "list_copy_loop_after");
-                LLVMValueRef i_alloca = LLVMBuildAlloca(cg->builder, LLVMInt64TypeInContext(cg->ctx), "list_copy_i");
+                LLVMValueRef i_alloca = pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "list_copy_i");
                 LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), i_alloca);
                 LLVMBuildBr(cg->builder, loop_cond_bb);
                 LLVMPositionBuilderAtEnd(cg->builder, loop_cond_bb);
@@ -1013,6 +1014,19 @@ static uint64_t pp_code_generator_type_store_size(PP_CodeGenerator* cg, LLVMType
     return (uint64_t)sz;
 }
 
+static LLVMValueRef pp_code_generator_entry_alloca(PP_CodeGenerator* cg, LLVMTypeRef type, const char* name) {
+    LLVMBasicBlockRef entry_bb = LLVMGetFirstBasicBlock(LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)));
+    LLVMBuilderRef tmp_builder = LLVMCreateBuilderInContext(cg->ctx);
+    if (LLVMGetFirstInstruction(entry_bb)) {
+        LLVMPositionBuilderBefore(tmp_builder, LLVMGetFirstInstruction(entry_bb));
+    } else {
+        LLVMPositionBuilderAtEnd(tmp_builder, entry_bb);
+    }
+    LLVMValueRef alloca = LLVMBuildAlloca(tmp_builder, type, name);
+    LLVMDisposeBuilder(tmp_builder);
+    return alloca;
+}
+
 int pp_code_generator_generate(PP_CodeGenerator* cg) {
     assert(cg);
     assert(cg->program);
@@ -1236,7 +1250,7 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
         LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
         assert(llvm_param_type);
 
-        LLVMValueRef llvm_alloca_slot = LLVMBuildAlloca(cg->builder, llvm_param_type, param_name);
+        LLVMValueRef llvm_alloca_slot = pp_code_generator_entry_alloca(cg, llvm_param_type, param_name);
         LLVMBuildStore(cg->builder, llvm_param_val, llvm_alloca_slot);
 
         if (!pp_environment_backend_push_val_map(body_env_b, param_symbol, llvm_alloca_slot)) { goto error_cleanup; }
@@ -1351,7 +1365,7 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
     } else {
         LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
     }
-    LLVMValueRef llvm_var_alloca = LLVMBuildAlloca(cg->builder, llvm_var_type, var_name);
+    LLVMValueRef llvm_var_alloca = pp_code_generator_entry_alloca(cg, llvm_var_type, var_name);
     assert(llvm_var_alloca);
     LLVMPositionBuilderAtEnd(cg->builder, cur_bb);
 
@@ -2205,7 +2219,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                     // Create a temporary alloca for the param value
                     LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
                     assert(llvm_param_type);
-                    LLVMValueRef tmp_alloca = LLVMBuildAlloca(cg->builder, llvm_param_type, "param_tmp");
+                    LLVMValueRef tmp_alloca = pp_code_generator_entry_alloca(cg, llvm_param_type, "param_tmp");
                     LLVMValueRef src_ptr =
                         pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
                     pp_code_generator_emit_copy(cg, tmp_alloca, src_ptr, param_type);
@@ -3366,7 +3380,7 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
                     LLVMBasicBlockRef loop_after_bb =
                         LLVMAppendBasicBlockInContext(cg->ctx, func, "list_copy_loop_after");
                     LLVMValueRef i_alloca =
-                        LLVMBuildAlloca(cg->builder, LLVMInt64TypeInContext(cg->ctx), "list_copy_i");
+                        pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "list_copy_i");
                     LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), i_alloca);
                     LLVMBuildBr(cg->builder, loop_cond_bb);
                     LLVMPositionBuilderAtEnd(cg->builder, loop_cond_bb);
@@ -3440,7 +3454,7 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
                     LLVMBasicBlockRef loop_after_bb =
                         LLVMAppendBasicBlockInContext(cg->ctx, func, "array_copy_loop_after");
                     LLVMValueRef i_alloca =
-                        LLVMBuildAlloca(cg->builder, LLVMInt64TypeInContext(cg->ctx), "array_copy_i");
+                        pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "array_copy_i");
                     LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), i_alloca);
                     LLVMBuildBr(cg->builder, loop_cond_bb);
                     LLVMPositionBuilderAtEnd(cg->builder, loop_cond_bb);
@@ -3569,7 +3583,7 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
                     LLVMBasicBlockRef loop_after_bb =
                         LLVMAppendBasicBlockInContext(cg->ctx, func, "list_drop_loop_after");
                     LLVMValueRef i_alloca =
-                        LLVMBuildAlloca(cg->builder, LLVMInt64TypeInContext(cg->ctx), "list_drop_i");
+                        pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "list_drop_i");
                     LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), i_alloca);
                     LLVMBuildBr(cg->builder, loop_cond_bb);
                     LLVMPositionBuilderAtEnd(cg->builder, loop_cond_bb);
@@ -3627,7 +3641,7 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
                 LLVMBasicBlockRef loop_cond_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "array_drop_loop_cond");
                 LLVMBasicBlockRef loop_body_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "array_drop_loop_body");
                 LLVMBasicBlockRef loop_after_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "array_drop_loop_after");
-                LLVMValueRef i_alloca = LLVMBuildAlloca(cg->builder, LLVMInt64TypeInContext(cg->ctx), "array_drop_i");
+                LLVMValueRef i_alloca = pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "array_drop_i");
                 LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), i_alloca);
                 LLVMBuildBr(cg->builder, loop_cond_bb);
                 LLVMPositionBuilderAtEnd(cg->builder, loop_cond_bb);
