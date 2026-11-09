@@ -1,5 +1,5 @@
 extern lambda fibo :: (x :: uint32) -> uint32;
-extern func pp_std_print_uint64 :: (str :: uint64) -> void;
+extern func pp_std_print_uint64 :: (val :: uint64) -> void;
 extern func pp_std_print_string :: (str :: string) -> void;
 // extern func pp_std_print_string_ref :: (str :: const string&) -> void;
 // Printing with reference to string is more performant,
