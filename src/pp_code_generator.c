@@ -331,7 +331,7 @@ static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, 
     if (pp_type_is_trivially_copyable(type)) {
         // Bitwise copy for trivial types
         LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, type);
-        if (!llvm_type) return;
+        assert(llvm_type && "type lookup failed");
         // For now emit a store/load for trivial scalars
         LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_type, src, "copy_src");
         LLVMBuildStore(cg->builder, loaded, dst);
@@ -472,10 +472,12 @@ static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, 
         }
         default:
             // Fallback bitwise
-            LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, type);
-            if (!llvm_type) return;
-            LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_type, src, "copy_src");
-            LLVMBuildStore(cg->builder, loaded, dst);
+            {
+                LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, type);
+                assert(llvm_type && "type lookup failed");
+                LLVMValueRef loaded = LLVMBuildLoad2(cg->builder, llvm_type, src, "copy_src");
+                LLVMBuildStore(cg->builder, loaded, dst);
+            }
             break;
     }
 }
@@ -1056,6 +1058,7 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
             case PP_AST_NewtypeDeclarationNode:
                 break;
             default:
+                abort();
                 break;
         }
     }
