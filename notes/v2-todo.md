@@ -58,13 +58,13 @@ Design principle: stay away from builtin functions, prefer operators
 - [x] Global list initialization policy: allow empty list as constexpr, reject non-empty list at global scope
   - Semantic analyzer marks empty list constexpr, explicit error for non-empty global list
   - Code generator emits constant zeroed handle for empty global list
-- [ ] Length operator: `#expr`
+- [x] Length operator: `#expr`
   - For arrays: compile-time constant where possible
   - For lists: runtime length
-  - Lexer: `#` as unary operator token
-  - Parser: unary `#` expression
-  - Semantic analyzer: type check, array length constant folding
-  - Code generator: array -> constant / metadata, list -> runtime call
+  - [x] Lexer: `#` as unary operator token
+  - [x] Parser: unary `#` expression
+  - [x] Semantic analyzer: type check, array length constant folding
+  - [x] Code generator: array -> constant / metadata, list -> runtime call
 - [ ] Indexing / access operator: `list[i]` already exists, ensure const correctness
 - [ ] Append operator: `list << value` or `list += value`
   - Choose syntax, document in notes
