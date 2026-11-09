@@ -38,8 +38,8 @@ static PPLang_InputList* pplang_input_list_create(void);
 static void pplang_input_list_free(PPLang_InputList* list);
 static int pplang_input_list_push(PPLang_InputList* list, PPLang_Input input);
 static PPLang_Filetype detect_filetype(const char* path);
-static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose, char optimization_mode,
-                             LLVMTargetMachineRef tm);
+static int compile_pp_source(const char* src_path, const char* asm_path, bool verbose, char optimization_mode,
+                             LLVMTargetMachineRef tm, bool to_assembly);
 static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose,
                                        char optimization_mode, LLVMTargetMachineRef tm);
 static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGenerator** out_cg);
@@ -51,19 +51,23 @@ int main(int argc, char** argv) {
     int exit_code = 0;
 
     bool to_object = false;
+    bool to_assembly = false;
     bool verbose = false;
     char output_filename[BUFSIZ] = {0};
     strcpy(output_filename, "a.out");
     PPLang_InputList* input_list = NULL;
     char optimization_mode = '\0';
     int opt;
-    while ((opt = getopt(argc, argv, "hcvo:O:")) != -1) {
+    while ((opt = getopt(argc, argv, "hcSvo:O:")) != -1) {
         switch (opt) {
             case 'h':
                 print_help();
                 return 1;
             case 'c':
                 to_object = true;
+                break;
+            case 'S':
+                to_assembly = true;
                 break;
             case 'v':
                 verbose = true;
@@ -103,6 +107,7 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (to_assembly && strcmp(output_filename, "a.out") == 0) { strcpy(output_filename, "a.s"); }
     input_list = pplang_input_list_create();
     if (!input_list) {
         fprintf(stderr, "Failed to create input list\n");
@@ -117,7 +122,7 @@ int main(int argc, char** argv) {
         input.type = detect_filetype(argv[i]);
         if (input.type == PP_SOURCE) {
             source_count++;
-            if (to_object) {
+            if (to_object || to_assembly) {
                 input.obj_path = strdup(output_filename);
             } else {
                 /* Object will be materialised later via mkstemp */
@@ -135,8 +140,14 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (to_object && source_count != 1) {
-        fprintf(stderr, "-c requires exactly one source file, got %u\n", source_count);
+    if ((to_object || to_assembly) && source_count != 1) {
+        fprintf(stderr, "-c/-S requires exactly one source file, got %u\n", source_count);
+        pplang_input_list_free(input_list);
+        return 1;
+    }
+
+    if (to_object && to_assembly) {
+        fprintf(stderr, "Cannot specify both -c and -S\n");
         pplang_input_list_free(input_list);
         return 1;
     }
@@ -158,10 +169,10 @@ int main(int argc, char** argv) {
     for (unsigned int i = 0; i < input_list->count; i++) {
         PPLang_Input* inp = &input_list->inputs[i];
         if (inp->type == PP_SOURCE) {
-            if (to_object) {
+            if (to_object || to_assembly) {
                 if (inp->obj_path) {
                     if (!compile_pp_source(inp->src_path, inp->obj_path, verbose, optimization_mode,
-                                           input_list->target_machine)) {
+                                           input_list->target_machine, to_assembly)) {
                         fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
                         pplang_input_list_free(input_list);
                         return 1;
@@ -248,7 +259,7 @@ int main(int argc, char** argv) {
         return exit_code;
     }
 
-    if (to_object) {
+    if (to_object || to_assembly) {
         pplang_input_list_free(input_list);
         return exit_code;
     }
@@ -465,7 +476,7 @@ error_cleanup:
 }
 
 static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose, char optimization_mode,
-                             LLVMTargetMachineRef tm) {
+                             LLVMTargetMachineRef tm, bool to_assembly) {
     PP_CodeGenerator* cg = NULL;
     if (!compile_pp_source_core(src_path, verbose, &cg)) return 0;
     int ok = 0;
@@ -476,7 +487,11 @@ static int compile_pp_source(const char* src_path, const char* obj_path, bool ve
             return 0;
         }
     }
-    ok = pp_code_generator_emit_object_file(cg->mod, obj_path);
+    if (to_assembly) {
+        ok = pp_code_generator_emit_assembly_file(cg->mod, obj_path);
+    } else {
+        ok = pp_code_generator_emit_object_file(cg->mod, obj_path);
+    }
     pp_code_generator_free(cg);
     return ok;
 }
@@ -516,10 +531,11 @@ static long get_file_size(const char* filename) {
 }
 
 static void print_help(void) {
-    printf("Usage: pplang [-h] [-v] [-c] [-o filename] [-O 0123] src.pp\n");
+    printf("Usage: pplang [-h] [-v] [-c] [-S] [-o filename] [-O 0123] src.pp\n");
     printf("-h\t\t\t\tShow this help menu\n");
     printf("-v\t\t\t\tShow verbose output\n");
     printf("-c\t\t\t\tCompile to object file.\n");
+    printf("-S\t\t\t\tCompile to assembly file.\n");
     printf("-o filename\t\t\tOutput filename (default: a.out)\n");
     printf(
         "-O level\t\t\tOptimization level: 0=no opt, 1=less, 2=default, 3=aggressive. Size optimisation (-Os, -Oz) "
