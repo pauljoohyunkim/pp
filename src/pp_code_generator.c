@@ -54,6 +54,7 @@ static PP_TypeCacheEntry* pp_code_generator_find_cache_entry(PP_CodeGenerator* c
 static PP_TypeCacheEntry* pp_code_generator_get_or_create_cache_entry(PP_CodeGenerator* cg, const PPType* type);
 static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_TypeCacheEntry* entry);
 static LLVMValueRef pp_code_generator_ensure_drop_fn(PP_CodeGenerator* cg, PP_TypeCacheEntry* entry);
+static uint64_t pp_code_generator_type_store_size(PP_CodeGenerator* cg, LLVMTypeRef type);
 static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type);
 static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type);
 static LLVMBasicBlockRef pp_code_generator_save_builder_insert_block(PP_CodeGenerator* cg);
@@ -122,19 +123,6 @@ error_cleanup:
 static void pp_code_generator_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block) {
     LLVMBasicBlockRef cur = LLVMGetInsertBlock(cg->builder);
     if (cur && LLVMGetBasicBlockTerminator(cur) == NULL) { LLVMBuildBr(cg->builder, merge_block); }
-}
-
-static LLVMValueRef pp_code_generator_get_memcpy_intrinsic(PP_CodeGenerator* cg) {
-    LLVMValueRef fn = LLVMGetNamedFunction(cg->mod, "llvm.memcpy.p0.p0.i64");
-    if (!fn) {
-        LLVMTypeRef i8ptr = LLVMPointerTypeInContext(cg->ctx, 0);
-        LLVMTypeRef i64 = LLVMInt64TypeInContext(cg->ctx);
-        LLVMTypeRef i32 = LLVMInt32TypeInContext(cg->ctx);
-        LLVMTypeRef params[4] = {i8ptr, i8ptr, i64, i32};
-        LLVMTypeRef ty = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), params, 4, 0);
-        fn = LLVMAddFunction(cg->mod, "llvm.memcpy.p0.p0.i64", ty);
-    }
-    return fn;
 }
 
 static void pp_code_generator_emit_memcpy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, LLVMValueRef size,
@@ -767,9 +755,9 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
             /* Create the shared List handle struct */
             LLVMTypeRef ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
             LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
-            LLVMTypeRef field_types[3] = {ptr_type, i64_type, i64_type};
+            LLVMTypeRef field_types[4] = {ptr_type, i64_type, i64_type, i64_type};
             LLVMTypeRef list_struct = LLVMStructCreateNamed(cg->ctx, "pp.list");
-            LLVMStructSetBody(list_struct, field_types, 3, 0);
+            LLVMStructSetBody(list_struct, field_types, 4, 0);
             return list_struct;
         }
         case PP_TK_Function:
@@ -1000,6 +988,27 @@ static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg) {
 error_cleanup:
     free(llvm_types);
     return 0;
+}
+
+static uint64_t pp_code_generator_type_store_size(PP_CodeGenerator* cg, LLVMTypeRef type) {
+    (void)cg;
+    LLVMInitializeNativeTarget();
+    char* triple = LLVMGetDefaultTargetTriple();
+    LLVMTargetRef target = NULL;
+    char* err = NULL;
+    if (LLVMGetTargetFromTriple(triple, &target, &err)) {
+        if (err) LLVMDisposeMessage(err);
+        if (triple) LLVMDisposeMessage(triple);
+        return 0;
+    }
+    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(target, triple, "generic", "", LLVMCodeGenLevelDefault,
+                                                      LLVMRelocPIC, LLVMCodeModelDefault);
+    LLVMTargetDataRef dl = LLVMCreateTargetDataLayout(tm);
+    size_t sz = LLVMStoreSizeOfType(dl, type);
+    LLVMDisposeTargetData(dl);
+    LLVMDisposeTargetMachine(tm);
+    if (triple) LLVMDisposeMessage(triple);
+    return (uint64_t)sz;
 }
 
 int pp_code_generator_generate(PP_CodeGenerator* cg) {
@@ -1446,9 +1455,8 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
                     LLVMTypeRef malloc_type = LLVMFunctionType(LLVMPointerTypeInContext(cg->ctx, 0), &i64_ty, 1, 0);
                     LLVMValueRef raw_ptr =
                         LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &total_len, 1, "str_concat_malloc");
-                    LLVMValueRef offset_ptr =
-                        LLVMBuildGEP2(cg->builder, LLVMArrayType(LLVMInt8TypeInContext(cg->ctx), 0), raw_ptr,
-                                      &lhs_len_val, 1, "str_concat_offset");
+                    LLVMValueRef offset_ptr = LLVMBuildGEP2(cg->builder, LLVMInt8TypeInContext(cg->ctx), raw_ptr,
+                                                            &lhs_len_val, 1, "str_concat_offset");
                     pp_code_generator_emit_memcpy(cg, raw_ptr, lhs_ptr_val, lhs_len_val, "str_concat_memcpy1");
                     pp_code_generator_emit_memcpy(cg, offset_ptr, rhs_ptr_val, rhs_len_val, "str_concat_memcpy2");
                     // Drop old lhs string to avoid leak
@@ -2202,7 +2210,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
     }
 
     llvm_val =
-        LLVMBuildCall2(cg->builder, llvm_callee_func_type, llvm_callee_func, llvm_args, param_count, "func_call");
+        LLVMBuildCall2(cg->builder, llvm_callee_func_type, llvm_callee_func, llvm_args, param_count,
+                       LLVMGetReturnType(llvm_callee_func_type) == LLVMVoidTypeInContext(cg->ctx) ? "" : "func_call");
 
     free(llvm_args);
     return llvm_val;
@@ -2369,8 +2378,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 LLVMTypeRef malloc_type = LLVMFunctionType(LLVMPointerTypeInContext(cg->ctx, 0), &i64_ty, 1, 0);
                 LLVMValueRef raw_ptr =
                     LLVMBuildCall2(cg->builder, malloc_type, malloc_fn, &total_len, 1, "str_concat_malloc");
-                LLVMValueRef offset_ptr = LLVMBuildGEP2(cg->builder, LLVMArrayType(LLVMInt8TypeInContext(cg->ctx), 0),
-                                                        raw_ptr, &lhs_len, 1, "str_concat_offset");
+                LLVMValueRef offset_ptr = LLVMBuildGEP2(cg->builder, LLVMInt8TypeInContext(cg->ctx), raw_ptr, &lhs_len,
+                                                        1, "str_concat_offset");
                 pp_code_generator_emit_memcpy(cg, raw_ptr, lhs_ptr, lhs_len, "str_concat_memcpy1");
                 pp_code_generator_emit_memcpy(cg, offset_ptr, rhs_ptr, rhs_len, "str_concat_memcpy2");
                 LLVMTypeRef str_struct_ty = pp_environment_backend_lookup_type(cg, lhs_type);
@@ -3068,6 +3077,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
         LLVMValueRef len_val = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), n, 0);
         list_val = LLVMBuildInsertValue(cg->builder, list_val, len_val, 1, "list_len");
         list_val = LLVMBuildInsertValue(cg->builder, list_val, len_val, 2, "list_cap");
+        uint64_t sz = pp_code_generator_type_store_size(cg, llvm_elem_type);
+        LLVMValueRef elem_size_field = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), sz, 0);
+        list_val = LLVMBuildInsertValue(cg->builder, list_val, elem_size_field, 3, "list_elem_size");
         return list_val;
     }
 
