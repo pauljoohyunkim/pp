@@ -131,12 +131,28 @@ int pp_code_generator_generate(PP_CodeGenerator* cg);
 int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename);
 
 /**
+ * @brief Emit LLVM module to an assembly file.
+ * @param module LLVM module.
+ * @param output_filename Output file name.
+ * @return 1 on success, 0 otherwise.
+ */
+int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* output_filename);
+
+/**
  * @brief Emit LLVM module to an in-memory buffer.
  * @param module LLVM module.
  * @param out_buf Output memory buffer, caller must dispose with LLVMDisposeMemoryBuffer.
  * @return 1 on success, 0 otherwise.
  */
 int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf);
+
+/**
+ * @brief Emit LLVM module IR to a file.
+ * @param module LLVM module.
+ * @param output_filename Output file name.
+ * @return 1 on success, 0 otherwise.
+ */
+int pp_code_generator_emit_ir_file(LLVMModuleRef module, const char* output_filename);
 
 /**
  * @brief Create a default native target machine for the given module.
