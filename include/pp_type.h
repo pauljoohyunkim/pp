@@ -44,6 +44,7 @@ typedef enum {
     PP_TK_Reference,
     PP_TK_Newtype,
     PP_TK_Function,
+    PP_TK_String,
     PP_TK_Lambda
 } PPTypeKind;
 

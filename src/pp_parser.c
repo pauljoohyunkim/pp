@@ -389,6 +389,7 @@ static PP_AST_Node* pp_parser_create_primary(PP_Parser* parser) {
         case PP_TT_TRUE:
         case PP_TT_FALSE:
         case PP_TT_STRING_LITERAL:
+        case PP_TT_STATIC_STRING_LITERAL:
             return pp_parser_create_literal(parser);
         case PP_TT_LEFT_PARENTHESIS: {
             pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
@@ -550,6 +551,9 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
                 break;
             case PP_TT_BOOL:
                 kind = PP_AST_TYPE_KIND_BOOL;
+                break;
+            case PP_TT_STRING:
+                kind = PP_AST_TYPE_KIND_STRING;
                 break;
             case PP_TT_IDENTIFIER:
                 kind = PP_AST_TYPE_KIND_IDENTIFIER;

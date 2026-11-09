@@ -85,6 +85,9 @@ bool pp_type_equal(const PPType* a, const PPType* b) {
         case PP_TK_Bool:
             return true;
 
+        case PP_TK_String:
+            return true;
+
         case PP_TK_Struct:
             /* nominal equality – compare name,
                optionally layout -> Not applied */
@@ -291,6 +294,7 @@ const PPType* pp_type_decay(PP_GlobalTypeTable* gtt, const PPType* type) {
         case PP_TK_Void:
         case PP_TK_Struct:
         case PP_TK_Newtype:
+        case PP_TK_String:
             return type;
         default:
             assert(0 && "Not available (yet) for Function, Lambda");
@@ -362,6 +366,7 @@ const PPType* pp_type_decay_cg(const PP_GlobalTypeTable* gtt, const PPType* type
         case PP_TK_Void:
         case PP_TK_Struct:
         case PP_TK_Newtype:
+        case PP_TK_String:
             return type;
         default:
             goto error_cleanup;

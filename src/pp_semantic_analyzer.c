@@ -115,6 +115,9 @@ static bool pp_type_contains_reference_impl(const PPType* t, const PPType** stac
 static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node);
 static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, unsigned int line,
                                                unsigned int col);
+static int pp_semantic_check_static_string_size_mismatch(PP_SemanticAnalyzer* sa, const char* filename,
+                                                         unsigned int line, unsigned int col, const char* context,
+                                                         const PPType* lhs_type, const PPType* rhs_type);
 /* Pass I */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
 static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
@@ -357,6 +360,15 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
             if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
             t = NULL;
         }
+        t = pp_type_create(PP_TK_String);
+        if (t) {
+            const char* type_name = pp_string_pool_push(sa->sp, "string", 6);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
+        }
     }
 
     return sa;
@@ -501,6 +513,29 @@ static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node) {
         default:
             return false;
     }
+}
+
+static int pp_semantic_check_static_string_size_mismatch(PP_SemanticAnalyzer* sa, const char* filename,
+                                                         unsigned int line, unsigned int col, const char* context,
+                                                         const PPType* lhs_type, const PPType* rhs_type) {
+    const PPType* dl = pp_type_decay(sa->gtt, lhs_type);
+    const PPType* dr = pp_type_decay(sa->gtt, rhs_type);
+    if (!dl || !dr) return 1;
+    if (dl->kind != PP_TK_Array || dr->kind != PP_TK_Array) return 1;
+    const PPType* lhs_elem = dl->type.pp_type_array.element_type;
+    const PPType* rhs_elem = dr->type.pp_type_array.element_type;
+    if (!lhs_elem || !rhs_elem) return 1;
+    if (lhs_elem->kind != PP_TK_UInt8 || rhs_elem->kind != PP_TK_UInt8) return 1;
+    size_t lhs_size = dl->type.pp_type_array.size;
+    size_t rhs_size = dr->type.pp_type_array.size;
+    if (lhs_size != rhs_size) {
+        pp_error_list_push_error(sa->error_list, filename, line, col,
+                                 "Static string literal size mismatch %s: target array size is %zu but literal "
+                                 "requires %zu",
+                                 context, lhs_size, rhs_size);
+        return 0;
+    }
+    return 1;
 }
 
 static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_Node* simple_expr_node, size_t* val) {
@@ -762,6 +797,9 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 break;
             case PP_AST_TYPE_KIND_BOOL:
                 temp_type = pp_type_create(PP_TK_Bool);
+                break;
+            case PP_AST_TYPE_KIND_STRING:
+                temp_type = pp_type_create(PP_TK_String);
                 break;
             case PP_AST_TYPE_KIND_IDENTIFIER:
                 gtt_lookedup_type = pp_global_type_table_find_by_name(sa->gtt, base_identifier);
@@ -2093,6 +2131,20 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_Semanti
         // Decay/type equality check
         const PPType* decayed_field_type = pp_type_decay(sa->gtt, field_type);
         const PPType* decayed_initializer_type = pp_type_decay(sa->gtt, initializer_decoration->resolved_type);
+
+        // Static string literal size check for [uint8 : N] field initializer
+        if (field->initializer && field->initializer->node_type == PP_AST_LiteralNode &&
+            field->initializer->literal.literal_type == PP_TT_STATIC_STRING_LITERAL) {
+            char context[256];
+            snprintf(context, sizeof(context), "for struct field '%s'", field->field->param_declaration.identifier);
+            if (!pp_semantic_check_static_string_size_mismatch(sa, sa->filename,
+                                                               field->field->param_declaration.type_expr->line,
+                                                               field->field->param_declaration.type_expr->col, context,
+                                                               field_type, initializer_decoration->resolved_type)) {
+                goto error_cleanup;
+            }
+        }
+
         if (!pp_type_equal(decayed_field_type, decayed_initializer_type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line,
                                      field->field->param_declaration.type_expr->col,
@@ -2178,7 +2230,9 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         const PP_AST_Decoration* decor = pp_ast_get_decoration(node->variable_declaration.initializer);
         NULL_POINTER_ERROR_HANDLE(decor);
         // Explicitly reject non-empty list initializers at global scope
-        if (variable_symbol->type->kind == PP_TK_List &&
+        const PPType* decayed_type = pp_type_decay(sa->gtt, variable_symbol->type);
+        NULL_POINTER_ERROR_HANDLE(decayed_type);
+        if (decayed_type->kind == PP_TK_List &&
             node->variable_declaration.initializer->node_type == PP_AST_CollectionInitializerNode &&
             node->variable_declaration.initializer->collection_initializer.element_count > 0) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
@@ -2186,11 +2240,37 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
                                      "list is permitted at global scope.");
             goto error_cleanup;
         }
+        if (decayed_type->kind == PP_TK_String &&
+            node->variable_declaration.initializer->node_type == PP_AST_LiteralNode &&
+            node->variable_declaration.initializer->literal.literal_type == PP_TT_STRING_LITERAL) {
+            const char* lexeme = node->variable_declaration.initializer->literal.lexeme;
+            assert(lexeme);
+            if (strlen(lexeme) > 2) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Global string initialization with non-empty initializer is not allowed; only "
+                                         "empty "
+                                         "string is permitted at global scope.");
+                goto error_cleanup;
+            }
+        }
         if (!decor->is_constexpr) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Global variable \"%s\" has a non constexpr initializer.",
                                      node->variable_declaration.var_decl->param_declaration.identifier);
             goto error_cleanup;
+        }
+
+        // Static string literal size check for [uint8 : N] initialization
+        if (node->variable_declaration.initializer &&
+            node->variable_declaration.initializer->node_type == PP_AST_LiteralNode &&
+            node->variable_declaration.initializer->literal.literal_type == PP_TT_STATIC_STRING_LITERAL) {
+            char context[256];
+            snprintf(context, sizeof(context), "for variable '%s'",
+                     node->variable_declaration.var_decl->param_declaration.identifier);
+            if (!pp_semantic_check_static_string_size_mismatch(sa, sa->filename, node->line, node->col, context,
+                                                               variable_symbol->type, decor->resolved_type)) {
+                goto error_cleanup;
+            }
         }
 
         // Check if types match
@@ -2365,6 +2445,19 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         const PPType* decayed_initializer_type = pp_type_decay(sa->gtt, initializer_decor->resolved_type);
         assert(decayed_symbol_type);
         assert(decayed_initializer_type);
+
+        // Static string literal size check for [uint8 : N] initialization
+        if (node->variable_declaration.initializer &&
+            node->variable_declaration.initializer->node_type == PP_AST_LiteralNode &&
+            node->variable_declaration.initializer->literal.literal_type == PP_TT_STATIC_STRING_LITERAL) {
+            char context[256];
+            snprintf(context, sizeof(context), "for variable '%s'", symbol_name);
+            if (!pp_semantic_check_static_string_size_mismatch(sa, sa->filename, node->line, node->col, context,
+                                                               symbol_type, initializer_decor->resolved_type)) {
+                goto error_cleanup;
+            }
+        }
+
         if (!pp_type_equal(decayed_symbol_type, decayed_initializer_type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Type of variable \"%s\" does not match its initializer", symbol_name);
@@ -2372,8 +2465,8 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         }
 
         // Copyability check: if source is lvalue and type needs drop, ensure type is copyable
-        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE &&
-            pp_type_needs_drop(decayed_symbol_type) && !pp_type_is_copyable(decayed_symbol_type)) {
+        if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_symbol_type) &&
+            !pp_type_is_copyable(decayed_symbol_type)) {
             pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                      "Cannot copy initialize variable \"%s\": type is move-only or contains "
                                      "non-copyable elements",
@@ -2536,6 +2629,16 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     const PPType* decayed_rhs_type = pp_type_decay(sa->gtt, rhs_decor->resolved_type);
     NULL_POINTER_ERROR_HANDLE(decayed_lhs_type);
     NULL_POINTER_ERROR_HANDLE(decayed_rhs_type);
+
+    // Static string literal size check for [uint8 : N] assignment
+    if (node->assignment.rhs && node->assignment.rhs->node_type == PP_AST_LiteralNode &&
+        node->assignment.rhs->literal.literal_type == PP_TT_STATIC_STRING_LITERAL) {
+        if (!pp_semantic_check_static_string_size_mismatch(sa, sa->filename, node->line, node->col, "in assignment",
+                                                           lhs_decor->resolved_type, rhs_decor->resolved_type)) {
+            goto error_cleanup;
+        }
+    }
+
     if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "LHS and RHS of assignment must have the same type.");
@@ -2566,11 +2669,12 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
                 (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
                 (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128) ||
+                (decayed_lhs_type->kind == PP_TK_String && decayed_rhs_type->kind == PP_TK_String)) {
                 // Valid
             } else {
                 pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                         "+= only defined for numeric types.");
+                                         "+= only defined for numeric and string types.");
                 goto error_cleanup;
             }
             break;
@@ -3293,7 +3397,8 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
                 (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
                 (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
                 (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128) ||
+                (decayed_lhs_type->kind == PP_TK_String && decayed_rhs_type->kind == PP_TK_String)) {
                 binary_type = pp_type_create(decayed_lhs_type->kind);
             }
             break;
@@ -3470,11 +3575,12 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
             }
             break;
         case PP_TT_HASH:
-            if (decayed_operand_type->kind == PP_TK_Array || decayed_operand_type->kind == PP_TK_List) {
+            if (decayed_operand_type->kind == PP_TK_Array || decayed_operand_type->kind == PP_TK_List ||
+                decayed_operand_type->kind == PP_TK_String) {
                 unary_type = pp_type_create(PP_TK_UInt32);
             } else {
                 pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-                                         "Unary operator '#' requires array or list");
+                                         "Unary operator '#' requires array, list, or string");
                 goto error_cleanup;
             }
             break;
@@ -3542,35 +3648,61 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
         case PP_TT_INTEGER_LITERAL: {
             const char* lexeme = expr->literal.lexeme;
             if (!lexeme) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Integer literal lexeme is NULL");
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Integer literal lexeme is NULL");
                 goto error_cleanup;
             }
             PPTypeKind kind = pp_type_parse_int_literal_suffix(lexeme, NULL);
             if (kind == PP_TK_Void) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Unsupported integer literal suffix");
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Unsupported integer literal suffix");
                 goto error_cleanup;
             }
             const char* type_name = NULL;
             switch (kind) {
-                case PP_TK_Int8: type_name = "int8"; break;
-                case PP_TK_UInt8: type_name = "uint8"; break;
-                case PP_TK_Int16: type_name = "int16"; break;
-                case PP_TK_UInt16: type_name = "uint16"; break;
-                case PP_TK_Int32: type_name = "int32"; break;
-                case PP_TK_UInt32: type_name = "uint32"; break;
-                case PP_TK_Int64: type_name = "int64"; break;
-                case PP_TK_UInt64: type_name = "uint64"; break;
-                case PP_TK_Int128: type_name = "int128"; break;
-                case PP_TK_UInt128: type_name = "uint128"; break;
-                default: type_name = NULL; break;
+                case PP_TK_Int8:
+                    type_name = "int8";
+                    break;
+                case PP_TK_UInt8:
+                    type_name = "uint8";
+                    break;
+                case PP_TK_Int16:
+                    type_name = "int16";
+                    break;
+                case PP_TK_UInt16:
+                    type_name = "uint16";
+                    break;
+                case PP_TK_Int32:
+                    type_name = "int32";
+                    break;
+                case PP_TK_UInt32:
+                    type_name = "uint32";
+                    break;
+                case PP_TK_Int64:
+                    type_name = "int64";
+                    break;
+                case PP_TK_UInt64:
+                    type_name = "uint64";
+                    break;
+                case PP_TK_Int128:
+                    type_name = "int128";
+                    break;
+                case PP_TK_UInt128:
+                    type_name = "uint128";
+                    break;
+                default:
+                    type_name = NULL;
+                    break;
             }
             if (!type_name) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Unknown integer literal type");
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Unknown integer literal type");
                 goto error_cleanup;
             }
             resolved_type = pp_global_type_table_find_alias(sa->gtt, type_name);
             if (!resolved_type) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Unknown integer literal type '%s'", type_name);
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Unknown integer literal type '%s'", type_name);
                 goto error_cleanup;
             }
             break;
@@ -3584,6 +3716,46 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
             resolved_type = pp_global_type_table_find_alias(sa->gtt, "float");
             assert(resolved_type);
             break;
+        case PP_TT_STRING_LITERAL:
+            resolved_type = pp_global_type_table_find_alias(sa->gtt, "string");
+            assert(resolved_type);
+            {
+                const char* lexeme = expr->literal.lexeme;
+                assert(lexeme);
+                ssize_t len = pp_tokens_unescape_string_length(lexeme);
+                if (len < 0) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                             "Invalid escape sequence in string literal");
+                    goto error_cleanup;
+                }
+            }
+            break;
+        case PP_TT_STATIC_STRING_LITERAL: {
+            const char* lexeme = expr->literal.lexeme;
+            assert(lexeme);
+            ssize_t len = pp_tokens_unescape_string_length(lexeme);
+            if (len < 0) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Invalid escape sequence in static string literal");
+                goto error_cleanup;
+            }
+            size_t total_size = (size_t)(len + 1); /* implicit NUL */
+            const PPType* uint8_type = pp_global_type_table_find_alias(sa->gtt, "uint8");
+            assert(uint8_type);
+
+            PPType* arr_type = pp_type_create(PP_TK_Array);
+            if (!arr_type) goto error_cleanup;
+            arr_type->type.pp_type_array.element_type = uint8_type;
+            arr_type->type.pp_type_array.size = total_size;
+            resolved_type = pp_global_type_table_intern(sa->gtt, arr_type);
+            arr_type = NULL;
+
+            if (!resolved_type) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Failed to intern array type for static string literal");
+                goto error_cleanup;
+            }
+        } break;
         default:
             goto error_cleanup;
     }
@@ -3596,7 +3768,9 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
     resolved_type = pp_global_type_table_intern(sa->gtt, literal_type);
     literal_type = NULL;
 
-    decoration = pp_ast_decoration_create(resolved_type, PP_VALUE_CATEGORY_RVALUE, true, false);
+    bool is_constexpr = true;
+    if (expr->literal.literal_type == PP_TT_STRING_LITERAL) { is_constexpr = false; }
+    decoration = pp_ast_decoration_create(resolved_type, PP_VALUE_CATEGORY_RVALUE, is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
 
     expr->literal.decoration = decoration;
@@ -3716,9 +3890,10 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     const PPType* decayed_base_type = pp_type_decay(sa->gtt, base_decoration->resolved_type);
     NULL_POINTER_ERROR_HANDLE(decayed_base_type);
 
-    if (decayed_base_type->kind != PP_TK_Array && decayed_base_type->kind != PP_TK_List) {
+    if (decayed_base_type->kind != PP_TK_Array && decayed_base_type->kind != PP_TK_List &&
+        decayed_base_type->kind != PP_TK_String) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-                                 "Array/list access requires an array or list base type.");
+                                 "Array/list/string access requires an array, list, or string base type.");
         goto error_cleanup;
     }
 
@@ -3759,8 +3934,13 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     const PPType* element_type = NULL;
     if (decayed_base_type->kind == PP_TK_Array) {
         element_type = decayed_base_type->type.pp_type_array.element_type;
-    } else {  // List
+    } else if (decayed_base_type->kind == PP_TK_List) {
         element_type = decayed_base_type->type.pp_type_list.element_type;
+    } else if (decayed_base_type->kind == PP_TK_String) {
+        /* string indexing yields uint8 */
+        const PPType* uint8_type = pp_global_type_table_find_alias(sa->gtt, "uint8");
+        assert(uint8_type && "uint8 type must exist");
+        element_type = uint8_type;
     }
     NULL_POINTER_ERROR_HANDLE(element_type);
 

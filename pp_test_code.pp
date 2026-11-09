@@ -1,6 +1,2 @@
-struct Node { v :: int32; kids :: [Node]; }
-
-func main :: () -> void {
-  let n1 :: Node;
-  let n2 :: Node = n1;
-}
+let g :: [uint8 : 6u] = @"hello";
+func main :: () -> void {}

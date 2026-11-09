@@ -429,11 +429,7 @@ static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGen
     cg = pp_code_generator_create(sa);
     NULL_POINTER_ERROR_HANDLE(cg);
     if (verbose) { printf("Code generator created successfully.\n"); }
-    if (!pp_code_generator_generate(cg)) {
-        fprintf(stderr, "Code generation failure\n");
-        goto error_cleanup;
-    }
-    if (verbose) { printf("Code generation succeeded.\n"); }
+    int gen_res = pp_code_generator_generate(cg);
     if (verbose) {
         char* ir_str = LLVMPrintModuleToString(cg->mod);
         if (ir_str) {
@@ -441,6 +437,11 @@ static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGen
             LLVMDisposeMessage(ir_str);
         }
     }
+    if (!gen_res) {
+        fprintf(stderr, "Code generation failure\n");
+        goto error_cleanup;
+    }
+    if (verbose) { printf("Code generation succeeded.\n"); }
 
     *out_cg = cg;
     cg = NULL;
