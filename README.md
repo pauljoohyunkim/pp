@@ -87,6 +87,13 @@ Example files:
 ./test_out   # prints exit code 45
 ```
 
+A demo is available in `demo/01_fibo/`:
+```bash
+cd demo/01_fibo
+make
+./fibo_demo
+```
+
 ### Language guide
 Look into [docs](docs/) for simple documentation.
 
