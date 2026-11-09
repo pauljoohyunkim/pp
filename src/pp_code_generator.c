@@ -1056,6 +1056,8 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
                 break;
             case PP_AST_TypedefDeclarationNode:
             case PP_AST_NewtypeDeclarationNode:
+            case PP_AST_ExternFunctionDeclarationNode:
+            case PP_AST_ExternLambdaDeclarationNode:
                 break;
             default:
                 abort();
@@ -2662,6 +2664,10 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
             llvm_val = LLVMBuildSIToFP(cg->builder, llvm_val_to_cast, llvm_dest_type, "sitofp_tmp");
         } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMIntegerTypeKind) {
             llvm_val = LLVMBuildFPToSI(cg->builder, llvm_val_to_cast, llvm_dest_type, "fptosi_tmp");
+        } else if (src_kind == LLVMIntegerTypeKind && dest_kind == LLVMIntegerTypeKind) {
+            llvm_val = LLVMBuildIntCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "intcast_tmp");
+        } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMFloatTypeKind) {
+            llvm_val = LLVMBuildFPCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "fpcast_tmp");
         } else {
             abort();
         }
