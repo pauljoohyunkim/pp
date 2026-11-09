@@ -51,6 +51,7 @@ typedef struct {
     LLVMContextRef ctx;
     LLVMModuleRef mod;
     LLVMBuilderRef builder;
+    unsigned int str_lit_counter;
 
     PP_AST_Node* program;
     PPSymbolTable* gst;

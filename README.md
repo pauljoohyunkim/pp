@@ -186,3 +186,7 @@ Agentic coding tool of choice was [Pi Coding Agent](https://pi.dev/). You can se
 ### Third-party Licenses
 
 This project uses LLVM as its backend. See [THIRD-PARTY-LICENSES](THIRD-PARTY-LICENSES) for license notices.
+
+## Custom operators (v1)
+- Use const-reference parameters only, non-reference return.
+- Operators are global functions with operator-specific mangling keys.

@@ -1523,3 +1523,40 @@ TEST(CodeGenTest, StringLength) {
     assert_ir_contains(cg.get(), "str_len");
     assert_ir_contains(cg.get(), "trunc i64");
 }
+
+TEST(CodeGenTest, CustomBinaryOperatorInt) {
+    const char* source =
+        "operator + :: (x :: const int32&, y :: const int32&) -> int32 { return 99; }\n"
+        "func main :: () -> int32 { return 1 + 2; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    // Redefining int32 + int32 is now rejected; cg may be null.
+    EXPECT_EQ(semantic_errors, 1);
+    EXPECT_EQ(codegen_result, 0);
+}
+
+TEST(CodeGenTest, CustomUnaryOperatorInt) {
+    const char* source =
+        "operator - :: (x :: const int32&) -> int32 { return 100 - x; }\n"
+        "func main :: () -> int32 { return -5; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    // Unary minus on int32 redefines a built-in unary operator; reject.
+    EXPECT_EQ(semantic_errors, 1);
+    EXPECT_EQ(codegen_result, 0);
+}
+
+TEST(CodeGenTest, CustomBinaryVectorPlusFloat) {
+    const char* source =
+        "struct Vector2D { x :: float; y :: float; }\n"
+        "operator + :: (v :: const Vector2D&, s :: const float&) -> Vector2D { return v; }\n"
+        "let v :: Vector2D = Vector2D { .x = 1.0, .y = 2.0 };\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "Vector2D");
+}

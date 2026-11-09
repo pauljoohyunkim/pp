@@ -48,6 +48,7 @@ void pp_type_free(PPType* type) {
                 break;
             case PP_TK_Function:
             case PP_TK_Lambda:
+            case PP_TK_Operator:
                 free(type->type.pp_type_function.param_types);
                 break;
             default:
@@ -100,7 +101,7 @@ int pp_struct_layout_push_field(PP_StructLayout* layout, const char* field_name,
  * param_types array. Returns 1 on success, 0 on failure. */
 int pp_type_push_param(PPType* type, const PPType* param_type) {
     if (type == NULL || param_type == NULL) return 0;
-    if (type->kind != PP_TK_Function && type->kind != PP_TK_Lambda) return 0;
+    if (type->kind != PP_TK_Function && type->kind != PP_TK_Lambda && type->kind != PP_TK_Operator) return 0;
     size_t new_count = type->type.pp_type_function.param_count + 1;
     const PPType** new_params =
         (const PPType**)realloc(type->type.pp_type_function.param_types, new_count * sizeof(PPType*));

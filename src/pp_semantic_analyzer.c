@@ -121,6 +121,8 @@ static int pp_semantic_check_static_string_size_mismatch(PP_SemanticAnalyzer* sa
 /* Pass I */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
 static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_builtin_unary_supported(const char* op, PPTypeKind lk);
 static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_SemanticAnalyzer* sa,
                                                                         const PP_AST_Node* node);
@@ -137,6 +139,7 @@ static int pp_semantic_analyzer_struct_cycle_detect(PP_SemanticAnalyzer* sa, con
                                                     PP_StructRecursiveCycleState* states);
 static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_operator_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 
@@ -371,6 +374,12 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
         }
     }
 
+    sa->operator_overloads = (PP_OperatorOverloadRegistry*)calloc(1, sizeof(PP_OperatorOverloadRegistry));
+    if (!sa->operator_overloads) {
+        pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Failed to allocate operator overload registry");
+        goto error_cleanup;
+    }
+
     return sa;
 error_cleanup:
     if (sa) {
@@ -378,6 +387,8 @@ error_cleanup:
         free(sa->tokens);
         if (sa->error_list) { pp_error_list_free(sa->error_list); }
         pp_global_type_table_free(sa->gtt);
+        if (sa->operator_overloads) free(sa->operator_overloads->entries);
+        free(sa->operator_overloads);
         pp_symbol_table_free(sa->gst);
     }
     free(sa);
@@ -397,6 +408,11 @@ void pp_semantic_analyzer_free(PP_SemanticAnalyzer* sa) {
     pp_error_list_free(sa->error_list);
     pp_global_type_table_free(sa->gtt);
     pp_symbol_table_free(sa->gst);
+
+    if (sa->operator_overloads) {
+        free(sa->operator_overloads->entries);
+        free(sa->operator_overloads);
+    }
 
     free(sa);
 }
@@ -494,7 +510,7 @@ static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node) {
     if (!node) return false;
     switch (node->node_type) {
         case PP_AST_StatementListNode:
-            for (unsigned int i = 0; i < node->statement_list.stmt_count; ++i) {
+            for (unsigned int i = 0; i < node->statement_list.stmt_count; i++) {
                 if (pp_ast_node_returns_on_all_paths(node->statement_list.stmts[i])) return true;
             }
             return false;
@@ -915,10 +931,16 @@ static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa) {
             case PP_AST_FunctionDeclarationNode:
                 pp_semantic_analyzer_build_global_table_function_decl(sa, decl);
                 break;
+            case PP_AST_OperatorDeclarationNode:
+                pp_semantic_analyzer_build_global_table_operator_decl(sa, decl);
+                break;
             case PP_AST_LambdaDeclarationNode:
                 pp_semantic_analyzer_build_global_table_lambda_decl(sa, decl);
                 break;
             case PP_AST_ExternFunctionDeclarationNode:
+                pp_semantic_analyzer_build_global_table_extern_function_decl(sa, decl);
+                break;
+            case PP_AST_ExternOperatorDeclarationNode:
                 pp_semantic_analyzer_build_global_table_extern_function_decl(sa, decl);
                 break;
             case PP_AST_ExternLambdaDeclarationNode:
@@ -946,6 +968,16 @@ static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa) {
 
 error_cleanup:
     return 0;
+}
+
+static bool pp_semantic_analyzer_is_operator_symbol(const char* name) {
+    if (!name) return false;
+    const char* const operator_symbols[] = {"+",  "-",  "*",  "/",  "%", "&", "|",  "^",
+                                            "<<", ">>", "==", "!=", "<", ">", "<=", ">="};
+    for (size_t i = 0; i < sizeof(operator_symbols) / sizeof(operator_symbols[0]); i++) {
+        if (strcmp(name, operator_symbols[i]) == 0) return true;
+    }
+    return false;
 }
 
 /* Pass 1 - Function Declaration Checklist:
@@ -1040,6 +1072,296 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
     }
+    func_symbol = NULL;
+
+    return 1;
+
+error_cleanup:
+    pp_type_free(tmp_func);
+    pp_symbol_free(func_symbol);
+    return 0;
+}
+
+static int pp_builtin_binary_supported(const char* op, PPTypeKind lk, PPTypeKind rk) {
+    if (!op) return 0;
+    if (strcmp(op, "+") == 0) {
+        if (lk == PP_TK_Float && rk == PP_TK_Float) return 1;
+        if (lk == PP_TK_String && rk == PP_TK_String) return 1;
+        for (PPTypeKind k = PP_TK_Int8; k <= PP_TK_UInt128; k += 1) {
+            /* only matching int kinds; fall through discrete below */
+        }
+        /* explicit integer kinds */
+        const PPTypeKind kinds[] = {PP_TK_Int8,   PP_TK_UInt8, PP_TK_Int16,  PP_TK_UInt16, PP_TK_Int32,
+                                    PP_TK_UInt32, PP_TK_Int64, PP_TK_UInt64, PP_TK_Int128, PP_TK_UInt128};
+        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+            if (lk == kinds[i] && rk == kinds[i]) return 1;
+        }
+        return 0;
+    }
+    if (strcmp(op, "-") == 0 || strcmp(op, "*") == 0 || strcmp(op, "/") == 0) {
+        if (lk == PP_TK_Float && rk == PP_TK_Float) return 1;
+        const PPTypeKind kinds[] = {PP_TK_Int8,   PP_TK_UInt8, PP_TK_Int16,  PP_TK_UInt16, PP_TK_Int32,
+                                    PP_TK_UInt32, PP_TK_Int64, PP_TK_UInt64, PP_TK_Int128, PP_TK_UInt128};
+        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+            if (lk == kinds[i] && rk == kinds[i]) return 1;
+        }
+        return 0;
+    }
+    if (strcmp(op, "%") == 0) {
+        const PPTypeKind kinds[] = {PP_TK_Int8,   PP_TK_UInt8, PP_TK_Int16,  PP_TK_UInt16, PP_TK_Int32,
+                                    PP_TK_UInt32, PP_TK_Int64, PP_TK_UInt64, PP_TK_Int128, PP_TK_UInt128};
+        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+            if (lk == kinds[i] && rk == kinds[i]) return 1;
+        }
+        return 0;
+    }
+    if (strcmp(op, "<<") == 0 || strcmp(op, ">>") == 0) {
+        const PPTypeKind kinds[] = {PP_TK_Int8,   PP_TK_UInt8, PP_TK_Int16,  PP_TK_UInt16, PP_TK_Int32,
+                                    PP_TK_UInt32, PP_TK_Int64, PP_TK_UInt64, PP_TK_Int128, PP_TK_UInt128};
+        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+            if (lk == kinds[i] && rk == kinds[i]) return 1;
+        }
+        return 0;
+    }
+    if (strcmp(op, "==") == 0 || strcmp(op, "!=") == 0) {
+        if (lk == PP_TK_Bool && rk == PP_TK_Bool) return 1;
+        if (lk == PP_TK_Float && rk == PP_TK_Float) return 1;
+        const PPTypeKind kinds[] = {PP_TK_Int8,   PP_TK_UInt8, PP_TK_Int16,  PP_TK_UInt16, PP_TK_Int32,
+                                    PP_TK_UInt32, PP_TK_Int64, PP_TK_UInt64, PP_TK_Int128, PP_TK_UInt128};
+        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+            if (lk == kinds[i] && rk == kinds[i]) return 1;
+        }
+        return 0;
+    }
+    if (strcmp(op, "<") == 0 || strcmp(op, ">") == 0 || strcmp(op, "<=") == 0 || strcmp(op, ">=") == 0) {
+        if (lk == PP_TK_Float && rk == PP_TK_Float) return 1;
+        const PPTypeKind kinds[] = {PP_TK_Int8,   PP_TK_UInt8, PP_TK_Int16,  PP_TK_UInt16, PP_TK_Int32,
+                                    PP_TK_UInt32, PP_TK_Int64, PP_TK_UInt64, PP_TK_Int128, PP_TK_UInt128};
+        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+            if (lk == kinds[i] && rk == kinds[i]) return 1;
+        }
+        return 0;
+    }
+    if (strcmp(op, "&") == 0 || strcmp(op, "|") == 0 || strcmp(op, "^") == 0) {
+        const PPTypeKind kinds[] = {PP_TK_Int8,   PP_TK_UInt8, PP_TK_Int16,  PP_TK_UInt16, PP_TK_Int32,
+                                    PP_TK_UInt32, PP_TK_Int64, PP_TK_UInt64, PP_TK_Int128, PP_TK_UInt128};
+        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+            if (lk == kinds[i] && rk == kinds[i]) return 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+static int pp_builtin_unary_supported(const char* op, PPTypeKind lk) {
+    if (!op) return 0;
+    if (strcmp(op, "-") == 0) {
+        const PPTypeKind kinds[] = {PP_TK_Int8, PP_TK_Int16, PP_TK_Int32, PP_TK_Int64, PP_TK_Int128, PP_TK_Float};
+        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+            if (lk == kinds[i]) return 1;
+        }
+        return 0;
+    }
+    if (strcmp(op, "!") == 0) { return lk == PP_TK_Bool; }
+    return 0;
+}
+
+static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_OperatorDeclarationNode);
+    const char* original_spelling = node->function_declaration.name;
+    PPType* tmp_func = NULL;
+    const PPType* func_type = NULL;
+    PPSymbol* func_symbol = NULL;
+
+    tmp_func = pp_type_create(PP_TK_Operator);
+    if (!tmp_func) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to allocate memory for function type");
+        goto error_cleanup;
+    }
+
+    const PPType* return_type = pp_type_from_type_node(sa, node->function_declaration.return_type);
+    if (!return_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Invalid return type for function '%s'",
+                                 node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+
+    // Assign read-only return_type pointer.
+    tmp_func->type.pp_type_function.return_type = return_type;
+
+    // Add parameters
+    for (size_t i = 0; i < node->function_declaration.param_count; i++) {
+        const PPType* param_type =
+            pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
+        if (!param_type) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Invalid parameter type for function '%s'",
+                                     node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+        if (!pp_type_push_param(tmp_func, param_type)) { goto error_cleanup; }
+    }
+
+    if (pp_semantic_analyzer_is_operator_symbol(node->function_declaration.name)) {
+        for (size_t i = 0; i < node->function_declaration.param_count; i++) {
+            const PPType* param_type = tmp_func->type.pp_type_function.param_types[i];
+            if (!pp_type_is_const(param_type) || !pp_type_is_reference(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Operator '%s' parameters must be const references.",
+                                         node->function_declaration.name);
+                goto error_cleanup;
+            }
+        }
+        if (pp_type_is_reference(return_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Operator '%s' return type must be non-reference.",
+                                     node->function_declaration.name);
+            goto error_cleanup;
+        }
+    }
+    if (pp_semantic_analyzer_is_operator_symbol(node->function_declaration.name)) {
+        // operator parameters already constrained by syntax; structurally enforce here
+        for (size_t i = 0; i < node->function_declaration.param_count; i++) {
+            const PPType* param_type = tmp_func->type.pp_type_function.param_types[i];
+            if (!pp_type_is_const(param_type) || !pp_type_is_reference(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Operator '%s' parameters must be const references.",
+                                         node->function_declaration.name);
+                goto error_cleanup;
+            }
+        }
+        if (pp_type_is_reference(return_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Operator '%s' return type must be non-reference.",
+                                     node->function_declaration.name);
+            goto error_cleanup;
+        }
+    }
+
+    // Name mangling for overloaded operators to avoid symbol-table collisions.
+    // Identity is based on decayed/interned parameter type pointers, which remain stable.
+    // Return type is intentionally excluded from the key to avoid hiding pass-mode overload conflicts.
+    const PPType* decayed_p[2] = {NULL, NULL};
+    for (size_t i = 0; i < node->function_declaration.param_count && i < 2; i++) {
+        const PPType* param_type = tmp_func->type.pp_type_function.param_types[i];
+        const PPType* decayed = pp_type_decay(sa->gtt, param_type);
+        if (!decayed) goto error_cleanup;
+        decayed_p[i] = decayed;
+    }
+
+    if (pp_semantic_analyzer_is_operator_symbol(node->function_declaration.name) &&
+        node->function_declaration.param_count >= 2 && decayed_p[0] && decayed_p[1]) {
+        if (pp_builtin_binary_supported(node->function_declaration.name, decayed_p[0]->kind, decayed_p[1]->kind)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Operator '%s' cannot redefine supported built-in operator pair.",
+                                     node->function_declaration.name);
+            goto error_cleanup;
+        }
+    }
+
+    if (pp_semantic_analyzer_is_operator_symbol(node->function_declaration.name) &&
+        node->function_declaration.param_count == 1 && decayed_p[0]) {
+        if (pp_builtin_unary_supported(node->function_declaration.name, decayed_p[0]->kind)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Operator '%s' cannot redefine supported built-in unary operator.",
+                                     node->function_declaration.name);
+            goto error_cleanup;
+        }
+    }
+
+    char mangle_buf[128];
+    size_t pos = 0;
+    int written = snprintf(mangle_buf, sizeof(mangle_buf), "__pp@op@%s@n%zu", node->function_declaration.name,
+                           node->function_declaration.param_count);
+    if (written < 0 || (size_t)written >= sizeof(mangle_buf)) goto error_cleanup;
+    pos = (size_t)written;
+    for (size_t i = 0; i < node->function_declaration.param_count && i < 2; i++) {
+        int appended = snprintf(mangle_buf + pos, sizeof(mangle_buf) - pos, "@%p", (void*)decayed_p[i]);
+        if (appended < 0 || (size_t)(pos + appended) >= sizeof(mangle_buf)) goto error_cleanup;
+        pos += (size_t)appended;
+    }
+    const char* mangled_name = pp_string_pool_push(sa->sp, mangle_buf, pos);
+    if (!mangled_name) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to intern mangled name for operator '%s'",
+                                 node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+
+    // Intern type before publishing the mangled symbol name.
+    func_type = pp_global_type_table_intern(sa->gtt, tmp_func);
+    if (!func_type) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to intern function type for function '%s'",
+                                 node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+    tmp_func = NULL;
+
+    ((PP_AST_Node*)node)->function_declaration.name = mangled_name;
+
+    mangled_name = NULL;
+
+    // Duplicate handling with forward declaration support (uses the mangled key)
+    const PPSymbol* existing = pp_symbol_table_lookup(sa->gst, node->function_declaration.name, false);
+    if (existing) {
+        if (existing->type == func_type) {
+            if (existing->is_definition) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Symbol '%s' is previously defined.",
+                                         node->function_declaration.name ? node->function_declaration.name
+                                                                         : "<unknown>");
+                goto error_cleanup;
+            }
+            return 1;
+        } else {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Conflicting types for symbol '%s'",
+                                     node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+            goto error_cleanup;
+        }
+    }
+
+    // Create symbol
+
+    func_symbol = pp_symbol_create(func_type, false, false, true, true);
+    if (!func_symbol) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to allocate symbol for function '%s'",
+                                 node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+
+    // Register to symbol table (name already mangled above).
+    if (!pp_symbol_table_push(sa->gst, node->function_declaration.name, func_symbol)) {
+        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                 "Failed to register function '%s'",
+                                 node->function_declaration.name ? node->function_declaration.name : "<unknown>");
+        goto error_cleanup;
+    }
+    // Populate overloaded operator registry for binary operators.
+    if (pp_semantic_analyzer_is_operator_symbol(original_spelling) && node->function_declaration.param_count >= 1 &&
+        node->function_declaration.param_count <= 2) {
+        PP_OperatorOverloadRegistry* reg = sa->operator_overloads;
+        if (reg->count == reg->capacity) {
+            size_t new_cap = reg->capacity ? reg->capacity * 2 : 8;
+            PP_OperatorOverloadEntry* ne = realloc(reg->entries, new_cap * sizeof(PP_OperatorOverloadEntry));
+            if (!ne) goto error_cleanup;
+            reg->entries = ne;
+            reg->capacity = new_cap;
+        }
+        reg->entries[reg->count].spelling = original_spelling;
+        reg->entries[reg->count].arity = node->function_declaration.param_count;
+        reg->entries[reg->count].lhs_type = decayed_p[0];
+        reg->entries[reg->count].rhs_type = (node->function_declaration.param_count == 2) ? decayed_p[1] : NULL;
+        reg->entries[reg->count].callable = func_symbol;
+        reg->count++;
+    }
+
     func_symbol = NULL;
 
     return 1;
@@ -1186,6 +1508,24 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
             goto error_cleanup;
         }
         if (!pp_type_push_param(tmp_func, param_type)) { goto error_cleanup; }
+    }
+
+    if (pp_semantic_analyzer_is_operator_symbol(node->extern_function_declaration.name)) {
+        for (size_t i = 0; i < node->extern_function_declaration.param_count; i++) {
+            const PPType* param_type = tmp_func->type.pp_type_function.param_types[i];
+            if (!pp_type_is_const(param_type) || !pp_type_is_reference(param_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                         "Operator '%s' parameters must be const references.",
+                                         node->extern_function_declaration.name);
+                goto error_cleanup;
+            }
+        }
+        if (pp_type_is_reference(return_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                                     "Operator '%s' return type must be non-reference.",
+                                     node->extern_function_declaration.name);
+            goto error_cleanup;
+        }
     }
 
     func_type = pp_global_type_table_intern(sa->gtt, tmp_func);
@@ -1688,6 +2028,9 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
             case PP_AST_FunctionDeclarationNode:
                 pp_semantic_analyzer_full_analyze_function_decl(sa, decl);
                 break;
+            case PP_AST_OperatorDeclarationNode:
+                pp_semantic_analyzer_full_analyze_operator_decl(sa, decl);
+                break;
             case PP_AST_LambdaDeclarationNode:
                 pp_semantic_analyzer_full_analyze_lambda_decl(sa, decl);
                 break;
@@ -1734,14 +2077,21 @@ error_cleanup:
  * Wire scopes to AST nodes: param_symbol_table and body symbol table. [x] Reset sa->current_function_type after
  * processing.
  */
+static int pp_semantic_analyzer_full_analyze_operator_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_OperatorDeclarationNode);
+    // Operators already validated at Pass 1; give a dedicated diagnostics hook if needed.
+    return pp_semantic_analyzer_full_analyze_function_decl(sa, node);
+}
+
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
     PPSymbolTable* func_param_symbol_table = NULL;
     PPSymbol* param_symbol = NULL;
     PPSymbolTable* func_body_symbol_table = NULL;
     assert(sa);
     assert(node);
-    assert(node->node_type == PP_AST_FunctionDeclarationNode);
-
+    assert(node->node_type == PP_AST_FunctionDeclarationNode || node->node_type == PP_AST_OperatorDeclarationNode);
     assert(sa->current_function_type == NULL);
 
     // Name
@@ -1754,7 +2104,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
 
     // Check if the type is actually function
     // Since newtype does not allow function types and lambda types, this is justified.
-    if (func_symbol->type->kind != PP_TK_Function) {
+    if (func_symbol->type->kind != PP_TK_Function && func_symbol->type->kind != PP_TK_Operator) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "\"%s\" is not a function",
                                  func_name);
         goto error_cleanup;
@@ -2513,7 +2863,8 @@ static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyze
     assert(node->node_type == PP_AST_ReturnStatementNode);
 
     assert(sa->current_function_type);
-    assert(sa->current_function_type->kind == PP_TK_Function || sa->current_function_type->kind == PP_TK_Lambda);
+    assert(sa->current_function_type->kind == PP_TK_Function || sa->current_function_type->kind == PP_TK_Lambda ||
+           sa->current_function_type->kind == PP_TK_Operator);
 
     // If return type is void, expression must be NULL.
     // If return type is not void, expression must exist.
@@ -3155,11 +3506,13 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
     // Keep track of whether or not the function is lambda.
     bool function_is_lambda = callee_decoration->resolved_type->kind == PP_TK_Lambda;
 
-    // Lambda purity: lambda body may only call other lambdas
-    if (sa->current_function_type && sa->current_function_type->kind == PP_TK_Lambda) {
-        if (callee_decoration->resolved_type->kind != PP_TK_Lambda) {
+    // Restriction: lambda and operator bodies may not call regular functions.
+    // They may call lambda or operator functions only.
+    if (sa->current_function_type &&
+        (sa->current_function_type->kind == PP_TK_Lambda || sa->current_function_type->kind == PP_TK_Operator)) {
+        if (callee_decoration->resolved_type->kind == PP_TK_Function) {
             pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-                                     "Lambda function cannot call non-lambda function");
+                                     "Lambda/operator function cannot call regular function");
             goto error_cleanup;
         }
     }
@@ -3478,6 +3831,36 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
             goto error_cleanup;
     }
     if (!binary_type) {
+        const char* _op = NULL;
+        switch (expr->binary_expression.op) {
+            case PP_TT_PLUS:
+                _op = "+";
+                break;
+            case PP_TT_MINUS:
+                _op = "-";
+                break;
+            case PP_TT_STAR:
+                _op = "*";
+                break;
+            case PP_TT_SLASH:
+                _op = "/";
+                break;
+            case PP_TT_PERCENT:
+                _op = "%";
+                break;
+            default:
+                _op = NULL;
+                break;
+        }
+        const PPSymbol* _oc = pp_semantic_analyzer_operator_lookup(sa, _op, decayed_lhs_type, decayed_rhs_type);
+        if (_oc && _oc->type && _oc->type->kind == PP_TK_Operator) {
+            const PPType* _rt = _oc->type->type.pp_type_function.return_type;
+            const PPType* _irt = pp_global_type_table_intern(sa->gtt, _rt);
+            if (!_irt) goto error_cleanup;
+            binary_type = (PPType*)_irt;
+        }
+    }
+    if (!binary_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
                                  "Binary operator requires compatible operand types");
         goto error_cleanup;
@@ -3496,6 +3879,64 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
     NULL_POINTER_ERROR_HANDLE(decoration);
 
     expr->binary_expression.decoration = decoration;
+    if (decoration) {
+        const char* op_spelling = NULL;
+        switch (expr->binary_expression.op) {
+            case PP_TT_PLUS:
+                op_spelling = "+";
+                break;
+            case PP_TT_MINUS:
+                op_spelling = "-";
+                break;
+            case PP_TT_STAR:
+                op_spelling = "*";
+                break;
+            case PP_TT_SLASH:
+                op_spelling = "/";
+                break;
+            case PP_TT_PERCENT:
+                op_spelling = "%";
+                break;
+            case PP_TT_AMPERSAND:
+                op_spelling = "&";
+                break;
+            case PP_TT_BAR:
+                op_spelling = "|";
+                break;
+            case PP_TT_CARET:
+                op_spelling = "^";
+                break;
+            case PP_TT_LESS_LESS:
+                op_spelling = "<<";
+                break;
+            case PP_TT_GREATER_GREATER:
+                op_spelling = ">>";
+                break;
+            case PP_TT_EQUAL_EQUAL:
+                op_spelling = "==";
+                break;
+            case PP_TT_EXCLAMATION_EQUAL:
+                op_spelling = "!=";
+                break;
+            case PP_TT_LESS:
+                op_spelling = "<";
+                break;
+            case PP_TT_GREATER:
+                op_spelling = ">";
+                break;
+            case PP_TT_LESS_EQUAL:
+                op_spelling = "<=";
+                break;
+            case PP_TT_GREATER_EQUAL:
+                op_spelling = ">=";
+                break;
+            default:
+                op_spelling = NULL;
+                break;
+        }
+        const PPSymbol* oc = pp_semantic_analyzer_operator_lookup(sa, op_spelling, decayed_lhs_type, decayed_rhs_type);
+        if (oc) decoration->resolved_operator_callable = oc;
+    }
     decoration = NULL;
 
     return 1;
@@ -3547,6 +3988,38 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
     if (!decayed_operand_type) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Failure decaying type");
         goto error_cleanup;
+    }
+
+    const char* op_spelling = NULL;
+    switch (expr->unary_expression.op) {
+        case PP_TT_PLUS:
+            op_spelling = "+";
+            break;
+        case PP_TT_MINUS:
+            op_spelling = "-";
+            break;
+        case PP_TT_EXCLAMATION:
+            op_spelling = "!";
+            break;
+        default:
+            op_spelling = NULL;
+            break;
+    }
+
+    const PPSymbol* custom_oc = NULL;
+    if (op_spelling) { custom_oc = pp_semantic_analyzer_unary_operator_lookup(sa, op_spelling, operand_type); }
+    if (custom_oc) {
+        const PPType* op_type = custom_oc->type;
+        const PPType* ret_type = op_type->type.pp_type_operator.return_type;
+        const PPType* interned = pp_global_type_table_intern(sa->gtt, (PPType*)ret_type);
+        unary_type = (PPType*)interned;
+        // skip builtin processing
+        // build decoration below with callable
+        expr->unary_expression.decoration =
+            pp_ast_decoration_create(unary_type, PP_VALUE_CATEGORY_RVALUE, operand_decoration->is_constexpr, false);
+        if (!expr->unary_expression.decoration) goto error_cleanup;
+        expr->unary_expression.decoration->resolved_operator_callable = custom_oc;
+        return 1;
     }
 
     switch (expr->unary_expression.op) {
@@ -4112,6 +4585,9 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
         goto error_cleanup;
     }
 
+    assert(struct_type->type.pp_type_struct.layout != NULL &&
+           "Struct layout must be created before structural initialization");
+
     // Initializer count check
     if (expr->struct_initializer.entry_count > struct_type->type.pp_type_struct.layout->field_count) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
@@ -4428,4 +4904,34 @@ error_cleanup:
     pp_ast_decoration_free(decoration);
     pp_type_free(tmp);
     return 0;
+}
+
+const PPSymbol* pp_semantic_analyzer_operator_lookup(PP_SemanticAnalyzer* sa, const char* spelling,
+                                                     const PPType* lhs_type, const PPType* rhs_type) {
+    if (!sa || !spelling) return NULL;
+    const PPType* dl = pp_type_decay(sa->gtt, lhs_type);
+    const PPType* dr = pp_type_decay(sa->gtt, rhs_type);
+    PP_OperatorOverloadRegistry* reg = sa->operator_overloads;
+    if (!reg) return NULL;
+    for (size_t i = 0; i < reg->count; i++) {
+        if (reg->entries[i].spelling && strcmp(reg->entries[i].spelling, spelling) == 0 &&
+            reg->entries[i].lhs_type == dl && reg->entries[i].rhs_type == dr) {
+            return reg->entries[i].callable;
+        }
+    }
+    return NULL;
+}
+const PPSymbol* pp_semantic_analyzer_unary_operator_lookup(PP_SemanticAnalyzer* sa, const char* spelling,
+                                                           const PPType* operand_type) {
+    if (!sa || !spelling) return NULL;
+    const PPType* d = pp_type_decay(sa->gtt, operand_type);
+    PP_OperatorOverloadRegistry* reg = sa->operator_overloads;
+    if (!reg) return NULL;
+    for (size_t i = 0; i < reg->count; i++) {
+        if (reg->entries[i].arity == 1 && reg->entries[i].spelling && strcmp(reg->entries[i].spelling, spelling) == 0 &&
+            reg->entries[i].lhs_type == d) {
+            return reg->entries[i].callable;
+        }
+    }
+    return NULL;
 }

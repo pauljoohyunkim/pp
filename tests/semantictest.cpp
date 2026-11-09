@@ -1093,3 +1093,46 @@ TEST(SemanticTest, IntegerLiteralSuffixUnaryMinusUnsigned) {
 }
 
 
+
+TEST(SemanticTest, ConstReferenceRvalueBindingValid) {
+    const char* source =
+        "extern func print_int :: (v :: const int32&) -> void;\n"
+        "func main :: () -> int32 { print_int(42); return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, MutableReferenceRvalueBindingError) {
+    const char* source =
+        "extern func write_int :: (v :: int32&) -> void;\n"
+        "func main :: () -> int32 { write_int(42); return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, OperatorMutablePassModeRejected) {
+    const char* source =
+        "operator + :: (x :: int32&, y :: const int32&) -> int32 { return x; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, OperatorAliasCollisionRejected) {
+    const char* source =
+        "typedef int32 my_int;\n"
+        "operator + :: (x :: const int32&, y :: const int32&) -> int32 { return x; }\n"
+        "operator + :: (x :: const my_int&, y :: const my_int&) -> my_int { return x; }\n"
+        "func main :: () -> int32 { return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}

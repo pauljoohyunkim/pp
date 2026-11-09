@@ -45,7 +45,8 @@ typedef enum {
     PP_TK_Newtype,
     PP_TK_Function,
     PP_TK_String,
-    PP_TK_Lambda
+    PP_TK_Lambda,
+    PP_TK_Operator,
 } PPTypeKind;
 
 typedef struct PPType {
@@ -89,6 +90,12 @@ typedef struct PPType {
             const struct PPType** param_types;
             size_t param_count;
         } pp_type_lambda;
+
+        struct {
+            const struct PPType* return_type;
+            const struct PPType** param_types;
+            size_t param_count;
+        } pp_type_operator;
     } type;
 } PPType;
 
