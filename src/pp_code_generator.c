@@ -2202,7 +2202,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
     }
 
     llvm_val =
-        LLVMBuildCall2(cg->builder, llvm_callee_func_type, llvm_callee_func, llvm_args, param_count, "func_call");
+        LLVMBuildCall2(cg->builder, llvm_callee_func_type, llvm_callee_func, llvm_args, param_count,
+                       LLVMGetReturnType(llvm_callee_func_type) == LLVMVoidTypeInContext(cg->ctx) ? "" : "func_call");
 
     free(llvm_args);
     return llvm_val;
