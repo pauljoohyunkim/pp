@@ -2209,8 +2209,23 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
             assert(param_type);
 
             if (pp_type_is_reference(param_type)) {
-                llvm_args[i] =
-                    pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(node->function_call.arguments[i]);
+                bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+                if (arg_is_lvalue) {
+                    llvm_args[i] =
+                        pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                } else {
+                    // Materialize rvalue into a temporary for const reference binding.
+                    const PPType* pointee_type = param_type->type.pp_type_reference.reference_to;
+                    LLVMTypeRef llvm_pointee_type = pp_environment_backend_lookup_type(cg, pointee_type);
+                    assert(llvm_pointee_type);
+                    LLVMValueRef tmp_alloca = pp_code_generator_entry_alloca(cg, llvm_pointee_type, "ref_tmp");
+                    LLVMValueRef init =
+                        pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                    assert(init);
+                    LLVMBuildStore(cg->builder, init, tmp_alloca);
+                    llvm_args[i] = tmp_alloca;
+                }
             } else if (pp_type_needs_drop(param_type)) {
                 const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(node->function_call.arguments[i]);
                 bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;

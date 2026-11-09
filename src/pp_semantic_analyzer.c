@@ -3215,11 +3215,12 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
         }
 
         if (pp_type_is_reference(param_type)) {
-            // If parameter is reference, passed argument must be l-value
-            if (arg_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
+            // If parameter is reference, mutable references require an l-value.
+            // Const references may bind rvalues through materialized temporaries.
+            if (arg_decor->value_category != PP_VALUE_CATEGORY_LVALUE && !pp_type_is_const(param_type)) {
                 pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line,
                                          expr->function_call.arguments[i]->col,
-                                         "Parameter is reference, so l-value is expected.");
+                                         "Parameter is mutable reference, so l-value is expected.");
                 goto error_cleanup;
             }
             // Lambda does not allow mutable references.
