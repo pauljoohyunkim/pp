@@ -1343,8 +1343,17 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
     LLVMTypeRef llvm_var_type = pp_environment_backend_lookup_type(cg, var_type);
     assert(llvm_var_type);
 
+    LLVMBasicBlockRef cur_bb = LLVMGetInsertBlock(cg->builder);
+    LLVMBasicBlockRef entry_bb = LLVMGetFirstBasicBlock(LLVMGetBasicBlockParent(cur_bb));
+    LLVMValueRef term = LLVMGetBasicBlockTerminator(entry_bb);
+    if (term) {
+        LLVMPositionBuilderBefore(cg->builder, term);
+    } else {
+        LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
+    }
     LLVMValueRef llvm_var_alloca = LLVMBuildAlloca(cg->builder, llvm_var_type, var_name);
     assert(llvm_var_alloca);
+    LLVMPositionBuilderAtEnd(cg->builder, cur_bb);
 
     const PP_AST_Node* initializer_node = stmt->variable_declaration.initializer;
     if (pp_type_is_reference(var_type)) {
