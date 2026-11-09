@@ -125,19 +125,6 @@ static void pp_code_generator_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicB
     if (cur && LLVMGetBasicBlockTerminator(cur) == NULL) { LLVMBuildBr(cg->builder, merge_block); }
 }
 
-static LLVMValueRef pp_code_generator_get_memcpy_intrinsic(PP_CodeGenerator* cg) {
-    LLVMValueRef fn = LLVMGetNamedFunction(cg->mod, "llvm.memcpy.p0.p0.i64");
-    if (!fn) {
-        LLVMTypeRef i8ptr = LLVMPointerTypeInContext(cg->ctx, 0);
-        LLVMTypeRef i64 = LLVMInt64TypeInContext(cg->ctx);
-        LLVMTypeRef i32 = LLVMInt32TypeInContext(cg->ctx);
-        LLVMTypeRef params[4] = {i8ptr, i8ptr, i64, i32};
-        LLVMTypeRef ty = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), params, 4, 0);
-        fn = LLVMAddFunction(cg->mod, "llvm.memcpy.p0.p0.i64", ty);
-    }
-    return fn;
-}
-
 static void pp_code_generator_emit_memcpy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, LLVMValueRef size,
                                           const char* name) {
     if (!cg || !dst || !src || !size) return;
