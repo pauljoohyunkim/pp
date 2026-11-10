@@ -48,10 +48,11 @@ Open ambiguities to confirm:
 ### Lexer / Parser
 - [x] Lexer: add PP_TT_AT, PP_TT_DOLLAR, PP_TT_PTR, PP_TT_NULLPTR tokens
 - [x] Lexer tests for @/$/ptr/nullptr
+- [x] Parser: `ptr[T]` parsing via PP_AST_TypePointerNode
+- [x] Parser: `@`/`$` unary parsing
+- [x] Parser: `nullptr`/`nullptr[T]` parsing via PP_AST_NullLiteralNode
 - [ ] Lexer: pointer syntax `ptr[` `]` as type token sequence
-- [ ] Parser: parse `ptr[T]` in type position
-- [ ] Parser: address-of `@expr` and deref `$expr` nodes, non-overloadable
-- [ ] Precedence: resolve `@`, `$`, member access, indexing
+- [ ] Parser: precedence for `@`,`$` already same as unary
 - [ ] AST nodes for pointer type, address-of, deref
 
 ### Semantic Analyzer

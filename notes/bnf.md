@@ -65,7 +65,8 @@
 ;; --- Type ---
 <type>                      ::= <mutability> <collection_type> [ "&" ]
 <mutability>                ::= "const" | ""
-<collection_type>           ::= "[" <type> [ ":" <expression> ] "]" | <base_type>
+<collection_type>           ::= "[" <type> [ ":" <expression> ] "]" | <pointer_type> | <base_type>
+<pointer_type>              ::= "ptr" "[" <type> "]"
 <base_type>                 ::= "void"
                               | "int32"
                               | "uint32"
@@ -118,6 +119,8 @@
                               | <unary>
 
 <unary>                     ::= "#" <postfix> 
+                              | "@" <postfix> 
+                              | "$" <postfix> 
                               | "-" <postfix> 
                               | "!" <postfix> 
                               | <postfix>
@@ -133,6 +136,7 @@
                               | "STRING_LITERAL"        ;; Not yet implemented.
                               | "TRUE"
                               | "FALSE"
+                              | "nullptr" [ "[" <type> "]" ]
                               | "(" <expression> ")"
                               | <struct_init>
                               | <collection_init>
@@ -147,4 +151,4 @@
 ```
 
 ## Note
-* TODO: Pointer
+* Pointer support added: `ptr[T]`, `@` address-of, `$` deref, `nullptr` literal.
