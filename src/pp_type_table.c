@@ -103,6 +103,10 @@ bool pp_type_equal(const PPType* a, const PPType* b) {
             /* recursively equal element_type */
             return pp_type_equal(a->type.pp_type_list.element_type, b->type.pp_type_list.element_type);
 
+        case PP_TK_Pointer:
+            /* recursively equal pointee */
+            return pp_type_equal(a->type.pp_type_pointer.pointee, b->type.pp_type_pointer.pointee);
+
         case PP_TK_Const:
             /* recursively equal const_of */
             return pp_type_equal(a->type.pp_type_const.const_of, b->type.pp_type_const.const_of);
@@ -253,6 +257,8 @@ const PPType* pp_type_decay(PP_GlobalTypeTable* gtt, const PPType* type) {
     switch (type->kind) {
         case PP_TK_Reference:
             return pp_type_decay(gtt, type->type.pp_type_reference.reference_to);
+        case PP_TK_Pointer:
+            return type;
         case PP_TK_Array: {
             const PPType* decayed_internal_type = pp_type_decay(gtt, type->type.pp_type_array.element_type);
             NULL_POINTER_ERROR_HANDLE(decayed_internal_type);
@@ -324,6 +330,8 @@ const PPType* pp_type_decay_cg(const PP_GlobalTypeTable* gtt, const PPType* type
     switch (type->kind) {
         case PP_TK_Reference:
             return pp_type_decay_cg(gtt, type->type.pp_type_reference.reference_to);
+        case PP_TK_Pointer:
+            return type;
         case PP_TK_Const:
             return pp_type_decay_cg(gtt, type->type.pp_type_const.const_of);
         case PP_TK_Array: {

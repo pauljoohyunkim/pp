@@ -729,49 +729,70 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     if (inner->node_type == PP_AST_TypeBaseNode) {
         base_kind = inner->type_base.kind;
         base_identifier = inner->type_base.identifier_name;
-    } else if (inner->node_type != PP_AST_TypeArrayNode && inner->node_type != PP_AST_TypeListNode) {
+    } else if (inner->node_type != PP_AST_TypeArrayNode && inner->node_type != PP_AST_TypeListNode && inner->node_type != PP_AST_TypePointerNode) {
         pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
                                  "Unsupported type node");
         goto error_cleanup;
     }
 
-    // Handle collection types from new AST
-    if (inner && (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode)) {
-        const PPType* elem_type = NULL;
-        if (inner->node_type == PP_AST_TypeArrayNode) {
-            elem_type = pp_type_from_type_node(sa, inner->type_array.element_type);
-        } else {
-            elem_type = pp_type_from_type_node(sa, inner->type_list.element_type);
-        }
-        if (!elem_type) goto error_cleanup;
-        if (!pp_type_validate_collection_element(sa, elem_type, type_node->line, type_node->col)) goto error_cleanup;
-        if (inner->node_type == PP_AST_TypeArrayNode) {
-            size_t sz = 0;
-            if (!pp_array_size_from_simple_expr(sa, inner->type_array.size_expr, &sz)) {
+    // Handle collection / pointer types from new AST
+    if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode || inner->node_type == PP_AST_TypePointerNode) {
+        if (inner->node_type == PP_AST_TypePointerNode) {
+            const PPType* pointee_type = pp_type_from_type_node(sa, inner->type_pointer.pointee_type);
+            if (!pointee_type) goto error_cleanup;
+            // Disallow mixing pointer and reference
+            if (pp_type_is_reference(pointee_type) || pp_type_contains_reference(pointee_type)) {
                 pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
-                                         "Could not compute array size");
+                                         "Pointer cannot contain reference");
                 goto error_cleanup;
             }
-            if (sz == 0) {
+            temp_type = pp_type_create(PP_TK_Pointer);
+            if (!temp_type) goto error_cleanup;
+            temp_type->type.pp_type_pointer.pointee = pointee_type;
+            gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+            temp_type = NULL;
+            if (!gtt_registered_type) {
                 pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
-                                         "Array size cannot be zero");
+                                         "Failed to intern pointer type");
                 goto error_cleanup;
             }
-            temp_type = pp_type_create(PP_TK_Array);
-            if (!temp_type) goto error_cleanup;
-            temp_type->type.pp_type_array.element_type = elem_type;
-            temp_type->type.pp_type_array.size = sz;
         } else {
-            temp_type = pp_type_create(PP_TK_List);
-            if (!temp_type) goto error_cleanup;
-            temp_type->type.pp_type_list.element_type = elem_type;
-        }
-        gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
-        temp_type = NULL;
-        if (!gtt_registered_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
-                                     "Failed to intern array/list");
-            goto error_cleanup;
+            const PPType* elem_type = NULL;
+            if (inner->node_type == PP_AST_TypeArrayNode) {
+                elem_type = pp_type_from_type_node(sa, inner->type_array.element_type);
+            } else {
+                elem_type = pp_type_from_type_node(sa, inner->type_list.element_type);
+            }
+            if (!elem_type) goto error_cleanup;
+            if (!pp_type_validate_collection_element(sa, elem_type, type_node->line, type_node->col)) goto error_cleanup;
+            if (inner->node_type == PP_AST_TypeArrayNode) {
+                size_t sz = 0;
+                if (!pp_array_size_from_simple_expr(sa, inner->type_array.size_expr, &sz)) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                                             "Could not compute array size");
+                    goto error_cleanup;
+                }
+                if (sz == 0) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                                             "Array size cannot be zero");
+                    goto error_cleanup;
+                }
+                temp_type = pp_type_create(PP_TK_Array);
+                if (!temp_type) goto error_cleanup;
+                temp_type->type.pp_type_array.element_type = elem_type;
+                temp_type->type.pp_type_array.size = sz;
+            } else {
+                temp_type = pp_type_create(PP_TK_List);
+                if (!temp_type) goto error_cleanup;
+                temp_type->type.pp_type_list.element_type = elem_type;
+            }
+            gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+            temp_type = NULL;
+            if (!gtt_registered_type) {
+                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                                         "Failed to intern array/list");
+                goto error_cleanup;
+            }
         }
     } else {
         switch (base_kind) {
@@ -896,6 +917,12 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     }
 
     if (type_node->type_expression.is_reference) {
+        // Disallow mixing pointer and reference
+        if (pp_type_is_pointer(gtt_registered_type) || pp_type_contains_pointer(gtt_registered_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                                     "Reference cannot contain pointer");
+            goto error_cleanup;
+        }
         temp_type = pp_type_create(PP_TK_Reference);
         if (!temp_type) {
             pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,

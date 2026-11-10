@@ -38,9 +38,9 @@ Open ambiguities to confirm:
 - [ ] Update `notes/general_coding_rule.md` with pointer safety notes
 
 ### Type System
-- [ ] Add `PP_TK_Pointer` to type kind enum
-- [ ] Extend `pp_type.c` with pointer creation, printing, equality
-- [ ] Add `type_contains_pointer` predicate, mirror `type_contains_reference`
+- [x] Add `PP_TK_Pointer` to type kind enum
+- [x] Extend `pp_type.c` with pointer creation, printing, equality
+- [x] Add `type_contains_pointer` predicate, mirror `type_contains_reference`
 - [ ] Const propagation for pointer: `const ptr[T]` vs `ptr[const T]`
 - [ ] Disallow mixing pointer and reference in same type; enforce mutual exclusion in semantic analyzer
 - [ ] Update type table, mangling, and `pp_type_table.c` cases
