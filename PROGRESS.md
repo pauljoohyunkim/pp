@@ -46,6 +46,8 @@ Open ambiguities to confirm:
 - [ ] Update type table, mangling, and `pp_type_table.c` cases
 
 ### Lexer / Parser
+- [x] Lexer: add PP_TT_AT, PP_TT_DOLLAR, PP_TT_PTR, PP_TT_NULLPTR tokens
+- [x] Lexer tests for @/$/ptr/nullptr
 - [ ] Lexer: pointer syntax `ptr[` `]` as type token sequence
 - [ ] Parser: parse `ptr[T]` in type position
 - [ ] Parser: address-of `@expr` and deref `$expr` nodes, non-overloadable

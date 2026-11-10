@@ -390,9 +390,9 @@ TEST(Lexer, StaticStringNoWhitespace) {
     auto lexer_h = pp_lexer_create("@ \"hello\"", nullptr);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
-    // '@' alone is unknown, then string literal
+    // '@' alone is AT, then string literal
     ASSERT_GE(lexer->n_tokens, 3);
-    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_UNKNOWN);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_AT);
     ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_STRING_LITERAL);
     ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_EOF);
 }
@@ -455,6 +455,46 @@ TEST(Lexer, StaticStringLiteralContainsTab) {
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 2);
     ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_STATIC_STRING_LITERAL);
+}
+
+TEST(Lexer, AddressOfAndDerefTokens) {
+    auto lexer_h = pp_lexer_create("@ $ @var $var", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 7);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_AT);
+    ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_DOLLAR);
+    ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_AT);
+    ASSERT_EQ(lexer->tokens[3].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[4].token_type, PP_TT_DOLLAR);
+    ASSERT_EQ(lexer->tokens[5].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[6].token_type, PP_TT_EOF);
+}
+
+TEST(Lexer, PointerKeywords) {
+    auto lexer_h = pp_lexer_create("ptr nullptr ptrfoo nullptrbar ptr_ foo_ptr", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 7);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_PTR);
+    ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_NULLPTR);
+    ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[3].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[4].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[5].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[6].token_type, PP_TT_EOF);
+}
+
+TEST(Lexer, AtKeywordBoundaries) {
+    auto lexer_h = pp_lexer_create("@ @\"hi\" @var", nullptr);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 5);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_AT);
+    ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_STATIC_STRING_LITERAL);
+    ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_AT);
+    ASSERT_EQ(lexer->tokens[3].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[4].token_type, PP_TT_EOF);
 }
 
 
