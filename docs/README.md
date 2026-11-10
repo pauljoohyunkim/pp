@@ -1,29 +1,55 @@
 # PP Language Documentation
 
-Welcome to the PP language user documentation.
+PP is a general purpose programming language built on three philosophies: dumb-sounding, simple yet usable, explicit and safe.
 
-## Structure
-- [Getting Started](01-overview.md) – What is PP, quick start
-- [Types](02-types.md) – Primitive, modifiers, typedef/newtype, struct, array, list
-- [Declarations](03-declarations.md) – Variables, functions, lambdas, structs
-- [Expressions & Statements](04-expressions.md) – Operators, control flow, blocks
-- [Semantics: Types & Constraints](07-semantics-types-constraints.md)
-- [Semantics: Variables](08-semantics-variables.md)
-- [Semantics: Structs](09-semantics-structs.md)
-- [Semantics: Arrays & Lists](10-semantics-arrays-lists.md)
-- [Semantics: Functions & Lambdas](12-semantics-functions-lambdas.md)
-- [Semantics: Initialization](13-semantics-initialization.md)
-- [Semantics: Const Correctness](14-const-correctness.md)
-- [Semantics: Expressions](15-expressions.md)
-- [Known Limitations](16-known-limitations.md) – Temporary bans and warnings
-- [Examples](11-examples.md) – Common patterns and snippets
+This documentation is for users writing PP programs.
 
 ## Quick Start
+
 ```bash
-make pplang
-./bin/pplang path/to/file.pp
-make unittest
+# Build the compiler
+make clean && make
+
+# Compile a PP source file
+./bin/pplang -o hello hello.pp
+./hello
+
+# Compile to object
+./bin/pplang -c -o hello.o hello.pp
 ```
 
+See [Getting Started](getting-started/01-install-build.md) for prerequisites.
+
+## Standard Library
+
+PP's standard library `pp_std` is maintained separately. It provides libc bindings and common utilities.
+The submodule is initialized with:
+```bash
+git submodule update --init --recursive
+```
+See the [pp_std repository](https://github.com/pauljoohyunkim/pp_std) for details.
+
+## Structure
+
+- [Getting Started](getting-started/)
+  - Install & Build
+  - First Program
+  - Toolchain
+- [Language](language/)
+  - Types
+  - Variables & Const
+  - Declarations
+  - Expressions
+  - Control Flow
+  - Initialization
+  - Functions & Lambdas
+  - Operators
+- [Examples](examples/)
+  - Demos in `demo/`
+- [Reference](reference/)
+  - Grammar summary
+  - Known Limitations
+
 ## Notes
-See `notes/` for original design notes.
+
+Design notes and internal semantics are in `dev-docs/` and `notes/`.

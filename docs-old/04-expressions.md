@@ -35,3 +35,32 @@ for (init; cond; update) { ... }
 ```pp
 let p :: Point = Point { .x = 1.0, .y = 2.0 };
 ```
+
+## User-defined Operators
+Custom operators are declared with the `operator` keyword.
+
+### Syntax
+```pp
+operator <symbol> :: (param1 :: const T1&, param2 :: const T2&) -> Ret { ... }
+operator <symbol> :: (param :: const T&) -> Ret { ... }
+```
+
+* `<symbol>` is one of `+ - * / % & | ^ << >> == != < > <= >=`.
+* Parameters must be `const T&` reference types. Mutable references and by-value parameters are rejected for operators.
+* Return type must be a value type, not a reference.
+* Operators are resolved by decayed operand types only. Overloads that differ solely by pass mode are rejected.
+* Built-in operators for core numeric, string and bool types cannot be redefined. Attempting to do so is a semantic error.
+
+Example:
+```pp
+struct Vec { x :: float; y :: float; }
+operator + :: (a :: const Vec&, b :: const Vec&) -> Vec {
+    return Vec { .x = a.x + b.x, .y = a.y + b.y };
+}
+operator - :: (a :: const Vec&) -> Vec {
+    return Vec { .x = -a.x, .y = -a.y };
+}
+```
+
+Const reference parameters accept rvalues via materialized temporaries. The temporary lives for the full expression and is dropped afterwards.
+
