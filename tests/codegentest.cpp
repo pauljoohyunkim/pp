@@ -1655,3 +1655,42 @@ TEST(CodeGenTest, CustomBinaryOperatorWithRvalueMaterialization) {
     assert_ir_contains(cg.get(), "__pp@op@");
     assert_ir_contains(cg.get(), "ref_tmp");
 }
+
+TEST(CodeGenTest, ShiftOverflowGuard) {
+    const char* source =
+        "func test_shift :: () -> int32 {\n"
+        "let a_u8 :: uint8 = 1uss;\n"
+        "let s1_u8 :: uint8 = a_u8 << 10uss;\n"
+        "let a_u16 :: uint16 = 1us;\n"
+        "let s1_u16 :: uint16 = a_u16 << 20us;\n"
+        "let a_u32 :: uint32 = 1u;\n"
+        "let s1_u32 :: uint32 = a_u32 << 40u;\n"
+        "let a_u64 :: uint64 = 1ul;\n"
+        "let s1_u64 :: uint64 = a_u64 << 70ul;\n"
+        "return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify shift guards emit select with zero for overflow
+    assert_ir_contains(cg.get(), "shl_sel");
+    assert_ir_contains(cg.get(), "shl i8");
+    assert_ir_contains(cg.get(), "shl i16");
+    assert_ir_contains(cg.get(), "shl i32");
+    assert_ir_contains(cg.get(), "shl i64");
+    // Module must verify
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
