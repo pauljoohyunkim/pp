@@ -1553,8 +1553,18 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
             case PP_TT_GREATER_GREATER_EQUAL:
                 if (pp_type_is_unsigned_integer(lhs_type)) {
                     // Left-shift overflow defined.
-                    LLVMValueRef shift_limit = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 32, false);
-                    LLVMValueRef cmp_ge = LLVMBuildICmp(cg->builder, LLVMIntUGE, llvm_rhs, shift_limit, "sh_ge32");
+                    unsigned int bits = 0;
+                    switch (lhs_type->kind) {
+                        case PP_TK_UInt8: bits = 8; break;
+                        case PP_TK_UInt16: bits = 16; break;
+                        case PP_TK_UInt32: bits = 32; break;
+                        case PP_TK_UInt64: bits = 64; break;
+                        case PP_TK_UInt128: bits = 128; break;
+                        default: abort();
+                    }
+                    LLVMTypeRef rhs_type = LLVMTypeOf(llvm_rhs);
+                    LLVMValueRef shift_limit = LLVMConstInt(rhs_type, (unsigned long long)bits, false);
+                    LLVMValueRef cmp_ge = LLVMBuildICmp(cg->builder, LLVMIntUGE, llvm_rhs, shift_limit, "sh_ge");
                     LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(llvm_lhs_val));
                     LLVMValueRef sh_val;
                     if (stmt->assignment.op == PP_TT_LESS_LESS_EQUAL) {
@@ -2602,8 +2612,18 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 assert(lhs_decayed_type);
                 if (pp_type_is_unsigned_integer(lhs_decayed_type)) {
                     // Left-shift overflow defined.
-                    LLVMValueRef shift_limit = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 32, false);
-                    LLVMValueRef cmp_ge = LLVMBuildICmp(cg->builder, LLVMIntUGE, llvm_rhs, shift_limit, "sh_ge32");
+                    unsigned int bits = 0;
+                    switch (lhs_decayed_type->kind) {
+                        case PP_TK_UInt8: bits = 8; break;
+                        case PP_TK_UInt16: bits = 16; break;
+                        case PP_TK_UInt32: bits = 32; break;
+                        case PP_TK_UInt64: bits = 64; break;
+                        case PP_TK_UInt128: bits = 128; break;
+                        default: abort();
+                    }
+                    LLVMTypeRef rhs_type = LLVMTypeOf(llvm_rhs);
+                    LLVMValueRef shift_limit = LLVMConstInt(rhs_type, (unsigned long long)bits, false);
+                    LLVMValueRef cmp_ge = LLVMBuildICmp(cg->builder, LLVMIntUGE, llvm_rhs, shift_limit, "sh_ge");
                     LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(llvm_lhs));
                     LLVMValueRef shl_val;
                     if (node->binary_expression.op == PP_TT_LESS_LESS) {
