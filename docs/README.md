@@ -32,23 +32,22 @@ See the [pp_std repository](https://github.com/pauljoohyunkim/pp_std) for detail
 ## Structure
 
 - [Getting Started](getting-started/)
-  - Install & Build
-  - First Program
-  - Toolchain
+  - [Install & Build](getting-started/01-install-build.md)
+  - [First Program](getting-started/02-first-program.md)
+  - [Toolchain](getting-started/03-toolchain.md)
 - [Language](language/)
-  - Types
-  - Variables & Const
-  - Declarations
-  - Expressions
-  - Control Flow
-  - Initialization
-  - Functions & Lambdas
-  - Operators
-- [Examples](examples/)
-  - Demos in `demo/`
+  - [Types](language/01-types.md)
+  - [Variables & Const](language/02-variables-and-const.md)
+  - [Declarations](language/03-declarations.md)
+  - [Expressions](language/04-expressions.md)
+  - [Control Flow](language/05-control-flow.md)
+  - [Initialization](language/06-initialization.md)
+  - [Functions & Lambdas](language/07-functions-and-lambdas.md)
+  - [Operators](language/08-operators.md)
+- [Examples](examples/index.md)
 - [Reference](reference/)
-  - Grammar summary
-  - Known Limitations
+  - [Grammar](reference/grammar.md)
+  - [Known Limitations](reference/known-limitations.md)
 
 ## Notes
 
