@@ -46,8 +46,8 @@ You can optionally build unit test (but you will need gtest)
 # Assuming you have all the prerequisites
 make unittest
 
-# If you want to use clang++ instead
-make clean && make unittest CC=gcc CXX=clang++
+# If you want to use g++ instead
+make clean && make unittest CC=gcc CXX=g++
 ```
 You should find the unit test binary at `bin/unittest`.
 
