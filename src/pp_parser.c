@@ -58,8 +58,10 @@ static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_collection_initializer(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_function_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_lambda_declaration(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_operator_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_extern_function_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_extern_lambda_declaration(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_extern_operator_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_typedef_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser);
@@ -230,6 +232,7 @@ static bool pp_parser_is_sync_token(PP_TokenType token_type) {
         case PP_TT_IF:
         case PP_TT_FUNC:
         case PP_TT_LAMBDA:
+        case PP_TT_OPERATOR:
         case PP_TT_RETURN:
         case PP_TT_FOR:
         case PP_TT_WHILE:
@@ -293,6 +296,9 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                 } else if (next_tt == PP_TT_LAMBDA) {
                     pp_parser_consume_token(parser, PP_TT_EXTERN);
                     decl = pp_parser_create_extern_lambda_declaration(parser);
+                } else if (next_tt == PP_TT_OPERATOR) {
+                    pp_parser_consume_token(parser, PP_TT_EXTERN);
+                    decl = pp_parser_create_extern_operator_declaration(parser);
                 } else {
                     pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser),
                                              pp_parser_get_col(parser), "Expected 'func' or 'lambda' after 'extern'");
@@ -305,6 +311,9 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                 break;
             case PP_TT_LAMBDA:
                 decl = pp_parser_create_lambda_declaration(parser);
+                break;
+            case PP_TT_OPERATOR:
+                decl = pp_parser_create_operator_declaration(parser);
                 break;
             case PP_TT_STRUCT:
                 decl = pp_parser_create_struct_declaration(parser);
@@ -1327,6 +1336,97 @@ error_cleanup:
     return NULL;
 }
 
+static bool pp_parser_is_overloadable_operator_token(PP_TokenType token_type) {
+    switch (token_type) {
+        case PP_TT_PLUS:
+        case PP_TT_MINUS:
+        case PP_TT_STAR:
+        case PP_TT_SLASH:
+        case PP_TT_PERCENT:
+        case PP_TT_AMPERSAND:
+        case PP_TT_BAR:
+        case PP_TT_CARET:
+        case PP_TT_LESS_LESS:
+        case PP_TT_GREATER_GREATER:
+        case PP_TT_EQUAL_EQUAL:
+        case PP_TT_EXCLAMATION_EQUAL:
+        case PP_TT_LESS:
+        case PP_TT_GREATER:
+        case PP_TT_LESS_EQUAL:
+        case PP_TT_GREATER_EQUAL:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static PP_AST_Node* pp_parser_create_operator_declaration(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* return_type = NULL;
+    PP_AST_Node* body = NULL;
+    PP_AST_Node** params = NULL;
+    PP_Token* operator_tok = NULL;
+    PP_Token* operator_symbol_tok = NULL;
+    const char* name = NULL;
+    unsigned int param_count = 0, param_capacity = 0;
+    NULL_POINTER_ERROR_HANDLE(parser);
+    {
+        operator_tok = pp_parser_consume_token(parser, PP_TT_OPERATOR);
+        NULL_POINTER_ERROR_HANDLE(operator_tok);
+    }
+    if (parser->idx >= parser->n_tokens) goto error_cleanup;
+    operator_symbol_tok = &parser->tokens[parser->idx++];
+    NULL_POINTER_ERROR_HANDLE(operator_symbol_tok);
+    if (!pp_parser_is_overloadable_operator_token(operator_symbol_tok->token_type)) {
+        pp_error_list_push_error(parser->error_list, parser->filename, operator_symbol_tok->line,
+                                 operator_symbol_tok->column, "Unsupported operator token for custom operator.");
+        goto error_cleanup;
+    }
+    name = operator_symbol_tok->lexeme;
+    {
+        PP_Token* colon_colon_tok = pp_parser_consume_token(parser, PP_TT_COLON_COLON);
+        NULL_POINTER_ERROR_HANDLE(colon_colon_tok);
+    }
+    {
+        PP_Token* left_paren_tok = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(left_paren_tok);
+    }
+    if (!pp_parser_parse_param_list(parser, &params, &param_count, &param_capacity)) { goto error_cleanup; }
+    {
+        PP_Token* right_paren_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(right_paren_tok);
+    }
+    {
+        PP_Token* arrow_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_ARROW);
+        NULL_POINTER_ERROR_HANDLE(arrow_tok);
+    }
+    return_type = pp_parser_create_type(parser);
+    NULL_POINTER_ERROR_HANDLE(return_type);
+    body = pp_parser_create_block(parser);
+    NULL_POINTER_ERROR_HANDLE(body);
+    node = pp_ast_node_create(PP_AST_OperatorDeclarationNode, operator_tok->line, operator_tok->column);
+    NULL_POINTER_ERROR_HANDLE(node);
+    node->function_declaration.name = name;
+    node->function_declaration.params = params;
+    params = NULL;
+    node->function_declaration.param_count = param_count;
+    node->function_declaration.param_capacity = param_capacity;
+    node->function_declaration.return_type = return_type;
+    return_type = NULL;
+    node->function_declaration.body = body;
+    body = NULL;
+    return node;
+error_cleanup:
+    if (params) {
+        for (unsigned int i = 0; i < param_count; i++) pp_ast_root_free(params[i]);
+    }
+    free(params);
+    pp_ast_root_free(return_type);
+    pp_ast_root_free(body);
+    pp_ast_root_free(node);
+    return NULL;
+}
+
 static PP_AST_Node* pp_parser_create_extern_function_declaration(PP_Parser* parser) {
     PP_AST_Node* node = NULL;
     PP_AST_Node* return_type = NULL;
@@ -1393,6 +1493,71 @@ static PP_AST_Node* pp_parser_create_extern_lambda_declaration(PP_Parser* parser
     node->extern_lambda_declaration.param_count = param_count;
     node->extern_lambda_declaration.param_capacity = param_capacity;
     node->extern_lambda_declaration.return_type = return_type;
+    return_type = NULL;
+    return node;
+error_cleanup:
+    if (params) {
+        for (unsigned int i = 0; i < param_count; i++) pp_ast_root_free(params[i]);
+    }
+    free(params);
+    pp_ast_root_free(return_type);
+    pp_ast_root_free(node);
+    return NULL;
+}
+
+static PP_AST_Node* pp_parser_create_extern_operator_declaration(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* return_type = NULL;
+    PP_AST_Node** params = NULL;
+    PP_Token* operator_tok = NULL;
+    PP_Token* operator_symbol_tok = NULL;
+    const char* name = NULL;
+    unsigned int param_count = 0, param_capacity = 0;
+    NULL_POINTER_ERROR_HANDLE(parser);
+    {
+        operator_tok = pp_parser_consume_token(parser, PP_TT_OPERATOR);
+        NULL_POINTER_ERROR_HANDLE(operator_tok);
+    }
+    if (parser->idx >= parser->n_tokens) goto error_cleanup;
+    operator_symbol_tok = &parser->tokens[parser->idx++];
+    NULL_POINTER_ERROR_HANDLE(operator_symbol_tok);
+    if (!pp_parser_is_overloadable_operator_token(operator_symbol_tok->token_type)) {
+        pp_error_list_push_error(parser->error_list, parser->filename, operator_symbol_tok->line,
+                                 operator_symbol_tok->column, "Unsupported operator token for custom operator.");
+        goto error_cleanup;
+    }
+    name = operator_symbol_tok->lexeme;
+    {
+        PP_Token* colon_colon_tok = pp_parser_consume_token(parser, PP_TT_COLON_COLON);
+        NULL_POINTER_ERROR_HANDLE(colon_colon_tok);
+    }
+    {
+        PP_Token* left_paren_tok = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(left_paren_tok);
+    }
+    if (!pp_parser_parse_param_list(parser, &params, &param_count, &param_capacity)) { goto error_cleanup; }
+    {
+        PP_Token* right_paren_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(right_paren_tok);
+    }
+    {
+        PP_Token* arrow_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_ARROW);
+        NULL_POINTER_ERROR_HANDLE(arrow_tok);
+    }
+    return_type = pp_parser_create_type(parser);
+    NULL_POINTER_ERROR_HANDLE(return_type);
+    {
+        PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semi_tok);
+    }
+    node = pp_ast_node_create(PP_AST_ExternOperatorDeclarationNode, operator_tok->line, operator_tok->column);
+    NULL_POINTER_ERROR_HANDLE(node);
+    node->extern_function_declaration.name = name;
+    node->extern_function_declaration.params = params;
+    params = NULL;
+    node->extern_function_declaration.param_count = param_count;
+    node->extern_function_declaration.param_capacity = param_capacity;
+    node->extern_function_declaration.return_type = return_type;
     return_type = NULL;
     return node;
 error_cleanup:

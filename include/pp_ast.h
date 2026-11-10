@@ -25,6 +25,7 @@ typedef struct {
     PP_ValueCategory value_category;
     bool is_constexpr;
     bool is_escapable_ref;
+    const PPSymbol* resolved_operator_callable;
     /* unsigned int scope_level; // reserved */
 } PP_AST_Decoration;
 
@@ -55,8 +56,10 @@ typedef enum {
     PP_AST_NewtypeDeclarationNode,
     PP_AST_FunctionDeclarationNode,
     PP_AST_LambdaDeclarationNode,
+    PP_AST_OperatorDeclarationNode,
     PP_AST_ExternFunctionDeclarationNode,
     PP_AST_ExternLambdaDeclarationNode,
+    PP_AST_ExternOperatorDeclarationNode,
     PP_AST_StatementListNode,
     PP_AST_BinaryExpressionNode,
     PP_AST_UnaryExpressionNode,

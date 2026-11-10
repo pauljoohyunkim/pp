@@ -4,10 +4,13 @@ PP_STD := $(ROOT)/lib/pp_std
 
 all: fibo_demo
 
+$(PPLANG):
+	$(MAKE) -C $(ROOT)
+
 $(PP_STD)/bin/pp_std.a:
 	$(MAKE) -C $(PP_STD)
 
-fibo_demo: main.pp fibo.pp $(PP_STD)/bin/pp_std.a
+fibo_demo: $(PPLANG) main.pp fibo.pp $(PP_STD)/bin/pp_std.a
 	$(PPLANG) main.pp fibo.pp $(PP_STD)/bin/pp_std.a -o $@
 
 clean:

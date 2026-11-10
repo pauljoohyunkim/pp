@@ -81,13 +81,8 @@ Options:
 * `-o <file>` Output filename (default: `a.out`, or `a.s` with `-S`, or `a.ll` with `--emit-llvm`)
 * `-O <level>` Optimization level: `0`, `1`, `2`, `3` (size opts TODO)
 
-Example files:
-```bash
-./bin/pplang pp_test_code.pp module_test_code.pp -o test_out
-./test_out   # prints exit code 45
-```
-
-A demo is available in `demo/01_fibo/`:
+### Demo
+Demos are available in [demo](demo/):
 ```bash
 cd demo/01_fibo
 make
@@ -153,6 +148,8 @@ My main use cases were:
 * Porting from CZ
 * Static Analysis (dead-code elimination, etc.)
 * Unit test generation (I am not writing that by myself...)
+* Dealing with LLVM querks.
+* Mass refactoring
 * User documentation at [docs](docs/), contributor's notes at [dev-docs](dev-docs/) as well as some of my personal notes during development in [notes](notes/) for book keeping.
 I still kept the discipline of reading through the changes that it made (at least briefly!)
 
@@ -186,3 +183,7 @@ Agentic coding tool of choice was [Pi Coding Agent](https://pi.dev/). You can se
 ### Third-party Licenses
 
 This project uses LLVM as its backend. See [THIRD-PARTY-LICENSES](THIRD-PARTY-LICENSES) for license notices.
+
+## Custom operators (v1)
+- Use const-reference parameters only, non-reference return.
+- Operators are global functions with operator-specific mangling keys.

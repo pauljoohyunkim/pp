@@ -11,6 +11,8 @@
                               | <extern_function_decl>
                               | <lambda_decl>
                               | <extern_lambda_decl>
+                              | <operator_decl>
+                              | <extern_operator_decl>
                               | <struct_decl>
                               | <variable_decl> ";"
                               | <typedef_decl> ";"
@@ -22,7 +24,8 @@
 <function_decl>             ::= "func" <function_signature> <block>
 <extern_function_decl>      ::= "extern" "func" <function_signature> ";"
 <lambda_decl>               ::= "lambda" <lambda_signature> <block>
-<extern_lambda_decl>        ::= "extern" "lambda" <lambda_signature> ";"
+<operator_decl>             ::= "operator" <operator_symbol> "::" "(" <param_list> ")" "->" <type> <block>
+<extern_operator_decl>      ::= "extern" "operator" <operator_symbol> "::" "(" <param_list> ")" "->" <type> ";"
 <struct_decl>               ::= "struct" <identifier> "{" <struct_member_list> "}"
 <struct_member_list>        ::= <struct_member> ";" <struct_member_list> | ""
 <struct_member>             ::= <param_decl> [ "=" <expression> ]

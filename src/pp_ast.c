@@ -73,7 +73,8 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_FunctionDeclarationNode:
-        case PP_AST_LambdaDeclarationNode: {
+        case PP_AST_LambdaDeclarationNode:
+        case PP_AST_OperatorDeclarationNode: {
             if (node->function_declaration.params) {
                 for (unsigned int i = 0; i < node->function_declaration.param_count; i++) {
                     pp_ast_root_free_internal(node->function_declaration.params[i]);
@@ -87,7 +88,8 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             break;
         }
         case PP_AST_ExternFunctionDeclarationNode:
-        case PP_AST_ExternLambdaDeclarationNode: {
+        case PP_AST_ExternLambdaDeclarationNode:
+        case PP_AST_ExternOperatorDeclarationNode: {
             if (node->extern_function_declaration.params) {
                 for (unsigned int i = 0; i < node->extern_function_declaration.param_count; i++) {
                     pp_ast_root_free_internal(node->extern_function_declaration.params[i]);
@@ -321,6 +323,7 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             break;
         case PP_AST_FunctionDeclarationNode:
         case PP_AST_LambdaDeclarationNode:
+        case PP_AST_OperatorDeclarationNode:
             printf("Function %s\n", node->function_declaration.name ? node->function_declaration.name : "");
             for (unsigned int i = 0; i < node->function_declaration.param_count; i++)
                 pp_ast_root_print(node->function_declaration.params[i], depth + 1);
@@ -332,6 +335,7 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             break;
         case PP_AST_ExternFunctionDeclarationNode:
         case PP_AST_ExternLambdaDeclarationNode:
+        case PP_AST_ExternOperatorDeclarationNode:
             printf("Extern Function %s\n",
                    node->extern_function_declaration.name ? node->extern_function_declaration.name : "");
             for (unsigned int i = 0; i < node->extern_function_declaration.param_count; i++)

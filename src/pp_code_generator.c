@@ -200,7 +200,8 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
                     LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)),
                                                   "list_drop_loop_after");
                 // i = 0
-                LLVMValueRef i_alloca = pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "list_drop_i");
+                LLVMValueRef i_alloca =
+                    pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "list_drop_i");
                 LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), i_alloca);
                 LLVMBuildBr(cg->builder, loop_cond_bb);
                 LLVMPositionBuilderAtEnd(cg->builder, loop_cond_bb);
@@ -419,7 +420,8 @@ static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, 
                 LLVMBasicBlockRef loop_after_bb =
                     LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder)),
                                                   "list_copy_loop_after");
-                LLVMValueRef i_alloca = pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "list_copy_i");
+                LLVMValueRef i_alloca =
+                    pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "list_copy_i");
                 LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), i_alloca);
                 LLVMBuildBr(cg->builder, loop_cond_bb);
                 LLVMPositionBuilderAtEnd(cg->builder, loop_cond_bb);
@@ -561,7 +563,7 @@ static int pp_environment_backend_push_type_map(PP_Environment_Backend* env_b, c
 static const LLVMValueRef pp_environment_backend_lookup_val(const PP_Environment_Backend* env_b, const PPSymbol* symbol,
                                                             bool cascade) {
     if (env_b == NULL || symbol == NULL) return NULL;
-    for (size_t i = 0; i < env_b->value_count; ++i) {
+    for (size_t i = 0; i < env_b->value_count; i++) {
         if (env_b->value_map[i].symbol == symbol) { return env_b->value_map[i].ref; }
     }
     if (env_b->parent != NULL && cascade) { return pp_environment_backend_lookup_val(env_b->parent, symbol, cascade); }
@@ -574,7 +576,7 @@ static const LLVMTypeRef pp_environment_backend_lookup_type(const PP_CodeGenerat
     PP_Environment_Backend* env_b = cg->global_env_b;
     if (env_b == NULL) return NULL;
 
-    for (size_t i = 0; i < env_b->type_count; ++i) {
+    for (size_t i = 0; i < env_b->type_count; i++) {
         if (env_b->type_map[i].type == type) { return env_b->type_map[i].ref; }
     }
 
@@ -765,6 +767,7 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
         }
         case PP_TK_Function:
         case PP_TK_Lambda:
+        case PP_TK_Operator:
 
         default:
             break;
@@ -893,8 +896,8 @@ static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenera
         const PPType* type = cg->gtt->types[i];
         assert(type);
 
-        // Skip function and lambda here.
-        if (type->kind == PP_TK_Function || type->kind == PP_TK_Lambda) { continue; }
+        // Skip function, lambda, and operator here.
+        if (type->kind == PP_TK_Function || type->kind == PP_TK_Lambda || type->kind == PP_TK_Operator) { continue; }
 
         // Look up environment backend.
         if (pp_environment_backend_lookup_type(cg, type)) continue;
@@ -946,7 +949,8 @@ static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg) {
                 llvm_types = NULL;
             } break;
             case PP_TK_Function:
-            case PP_TK_Lambda: {
+            case PP_TK_Lambda:
+            case PP_TK_Operator: {
                 bool is_lambda = type->kind == PP_TK_Lambda;
                 const PPType* return_type =
                     is_lambda ? type->type.pp_type_lambda.return_type : type->type.pp_type_function.return_type;
@@ -1039,13 +1043,14 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
     if (pp_code_generator_fill_type_map_complex(cg) != 1) { goto error_cleanup; }
 
     // Emit extern declarations for symbols that are not definitions
-    for (size_t i = 0; i < cg->gst->count; ++i) {
+    for (size_t i = 0; i < cg->gst->count; i++) {
         const char* name = cg->gst->names[i];
         const PPSymbol* sym = cg->gst->symbols[i];
         if (!sym) continue;
         if (sym->is_definition) continue;
         // Only emit for functions/lambdas
-        if (sym->type->kind != PP_TK_Function && sym->type->kind != PP_TK_Lambda) continue;
+        if (sym->type->kind != PP_TK_Function && sym->type->kind != PP_TK_Lambda && sym->type->kind != PP_TK_Operator)
+            continue;
         LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, sym->type);
         if (!llvm_type) continue;
         LLVMValueRef fn = LLVMAddFunction(cg->mod, name, llvm_type);
@@ -1061,6 +1066,7 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
         switch (statement->node_type) {
             case PP_AST_FunctionDeclarationNode:
             case PP_AST_LambdaDeclarationNode:
+            case PP_AST_OperatorDeclarationNode:
                 pp_code_generator_emit_function(cg, cg->gst, cg->global_env_b, statement);
                 break;
             case PP_AST_StructDeclarationNode:
@@ -1072,6 +1078,7 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
             case PP_AST_NewtypeDeclarationNode:
             case PP_AST_ExternFunctionDeclarationNode:
             case PP_AST_ExternLambdaDeclarationNode:
+            case PP_AST_ExternOperatorDeclarationNode:
                 break;
             default:
                 abort();
@@ -1204,7 +1211,8 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
-    assert(stmt->node_type == PP_AST_FunctionDeclarationNode || stmt->node_type == PP_AST_LambdaDeclarationNode);
+    assert(stmt->node_type == PP_AST_FunctionDeclarationNode || stmt->node_type == PP_AST_LambdaDeclarationNode ||
+           stmt->node_type == PP_AST_OperatorDeclarationNode);
 
     /* Implementation will follow CZ:
        1. Create entry basic block.
@@ -1574,7 +1582,8 @@ static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPS
     assert(stmt);
     assert(stmt->node_type == PP_AST_ReturnStatementNode);
     assert(cg->current_function_type);
-    assert(cg->current_function_type->kind == PP_TK_Function || cg->current_function_type->kind == PP_TK_Lambda);
+    assert(cg->current_function_type->kind == PP_TK_Function || cg->current_function_type->kind == PP_TK_Lambda ||
+           cg->current_function_type->kind == PP_TK_Operator);
 
     bool is_lambda = cg->current_function_type->kind == PP_TK_Lambda;
     const PPType* current_function_return_type = is_lambda
@@ -1859,7 +1868,8 @@ static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* 
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
-    assert(stmt->node_type == PP_AST_FunctionDeclarationNode || stmt->node_type == PP_AST_LambdaDeclarationNode);
+    assert(stmt->node_type == PP_AST_FunctionDeclarationNode || stmt->node_type == PP_AST_LambdaDeclarationNode ||
+           stmt->node_type == PP_AST_OperatorDeclarationNode);
 
     // Retrieve function/lambda
     const char* func_name = stmt->function_declaration.name;
@@ -2185,7 +2195,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
     assert(callee_decoration);
     assert(callee_decoration->resolved_type);
     assert(callee_decoration->resolved_type->kind == PP_TK_Function ||
-           callee_decoration->resolved_type->kind == PP_TK_Lambda);
+           callee_decoration->resolved_type->kind == PP_TK_Lambda ||
+           callee_decoration->resolved_type->kind == PP_TK_Operator);
 
     bool is_lambda = callee_decoration->resolved_type->kind == PP_TK_Lambda;
 
@@ -2198,9 +2209,16 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
 
     size_t param_count = is_lambda ? callee_decoration->resolved_type->type.pp_type_lambda.param_count
                                    : callee_decoration->resolved_type->type.pp_type_function.param_count;
+    LLVMValueRef* ref_temp_addrs = NULL;
+    const PPType** ref_temp_types = NULL;
     if (param_count > 0) {
         llvm_args = (LLVMValueRef*)calloc(param_count, sizeof(LLVMValueRef));
         NULL_POINTER_ERROR_HANDLE(llvm_args);
+
+        ref_temp_addrs = calloc(param_count, sizeof(LLVMValueRef));
+        ref_temp_types = calloc(param_count, sizeof(const PPType*));
+        NULL_POINTER_ERROR_HANDLE(ref_temp_addrs);
+        NULL_POINTER_ERROR_HANDLE(ref_temp_types);
 
         for (unsigned int i = 0; i < param_count; i++) {
             const PPType* param_type = is_lambda
@@ -2209,8 +2227,27 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
             assert(param_type);
 
             if (pp_type_is_reference(param_type)) {
-                llvm_args[i] =
-                    pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(node->function_call.arguments[i]);
+                bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+                if (arg_is_lvalue) {
+                    llvm_args[i] =
+                        pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                } else {
+                    // Materialize rvalue into a temporary for const reference binding.
+                    const PPType* pointee_type = param_type->type.pp_type_reference.reference_to;
+                    LLVMTypeRef llvm_pointee_type = pp_environment_backend_lookup_type(cg, pointee_type);
+                    assert(llvm_pointee_type);
+                    LLVMValueRef tmp_alloca = pp_code_generator_entry_alloca(cg, llvm_pointee_type, "ref_tmp");
+                    LLVMValueRef init =
+                        pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                    assert(init);
+                    LLVMBuildStore(cg->builder, init, tmp_alloca);
+                    llvm_args[i] = tmp_alloca;
+                    if (pp_type_needs_drop(pointee_type)) {
+                        ref_temp_addrs[i] = tmp_alloca;
+                        ref_temp_types[i] = pointee_type;
+                    }
+                }
             } else if (pp_type_needs_drop(param_type)) {
                 const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(node->function_call.arguments[i]);
                 bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
@@ -2241,11 +2278,20 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
         LLVMBuildCall2(cg->builder, llvm_callee_func_type, llvm_callee_func, llvm_args, param_count,
                        LLVMGetReturnType(llvm_callee_func_type) == LLVMVoidTypeInContext(cg->ctx) ? "" : "func_call");
 
+    // Drop owning temporaries materialized for const reference parameters.
+    for (unsigned int i = 0; i < param_count; i++) {
+        if (ref_temp_addrs[i]) { pp_code_generator_emit_drop(cg, ref_temp_addrs[i], ref_temp_types[i]); }
+    }
+
     free(llvm_args);
+    free(ref_temp_addrs);
+    free(ref_temp_types);
     return llvm_val;
 
 error_cleanup:
     free(llvm_args);
+    free(ref_temp_addrs);
+    free(ref_temp_types);
     return NULL;
 }
 
@@ -2304,6 +2350,76 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
     assert(node->node_type == PP_AST_BinaryExpressionNode);
 
     LLVMValueRef llvm_val = NULL;
+
+    const PP_AST_Decoration* bin_decor = pp_ast_get_decoration(node);
+    if (bin_decor && bin_decor->resolved_operator_callable) {
+        const PPSymbol* oc = bin_decor->resolved_operator_callable;
+        assert(oc);
+        const PPType* op_type = oc->type;
+        assert(op_type && op_type->kind == PP_TK_Operator);
+
+        LLVMValueRef llvm_func = pp_environment_backend_lookup_val(env_b, oc, true);
+        assert(llvm_func);
+        LLVMTypeRef llvm_func_type = pp_environment_backend_lookup_type(cg, op_type);
+        assert(llvm_func_type);
+
+        size_t param_count = op_type->type.pp_type_operator.param_count;
+        const PP_AST_Node* args_nodes[2] = {node->binary_expression.left, node->binary_expression.right};
+
+        LLVMValueRef* llvm_args = NULL;
+        LLVMValueRef* ref_temp_addrs = NULL;
+        const PPType** ref_temp_types = NULL;
+        if (param_count > 0) {
+            llvm_args = (LLVMValueRef*)calloc(param_count, sizeof(LLVMValueRef));
+            ref_temp_addrs = calloc(param_count, sizeof(LLVMValueRef));
+            ref_temp_types = calloc(param_count, sizeof(const PPType*));
+            assert(llvm_args && ref_temp_addrs && ref_temp_types);
+            for (unsigned int i = 0; i < param_count; i++) {
+                const PPType* param_type = op_type->type.pp_type_operator.param_types[i];
+                assert(param_type);
+                if (pp_type_is_reference(param_type)) {
+                    const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(args_nodes[i]);
+                    bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+                    if (arg_is_lvalue) {
+                        llvm_args[i] = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, args_nodes[i]);
+                    } else {
+                        const PPType* pointee_type = param_type->type.pp_type_reference.reference_to;
+                        LLVMTypeRef llvm_pointee_type = pp_environment_backend_lookup_type(cg, pointee_type);
+                        assert(llvm_pointee_type);
+                        LLVMValueRef tmp_alloca = pp_code_generator_entry_alloca(cg, llvm_pointee_type, "ref_tmp");
+                        LLVMValueRef init = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, args_nodes[i]);
+                        assert(init);
+                        LLVMBuildStore(cg->builder, init, tmp_alloca);
+                        llvm_args[i] = tmp_alloca;
+                        if (pp_type_needs_drop(pointee_type)) {
+                            ref_temp_addrs[i] = tmp_alloca;
+                            ref_temp_types[i] = pointee_type;
+                        }
+                    }
+                } else {
+                    llvm_args[i] = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, args_nodes[i]);
+                }
+                assert(llvm_args[i]);
+            }
+        }
+
+        llvm_val = LLVMBuildCall2(cg->builder, llvm_func_type, llvm_func, llvm_args, param_count,
+                                  LLVMGetReturnType(llvm_func_type) == LLVMVoidTypeInContext(cg->ctx) ? "" : "op_call");
+
+        for (unsigned int i = 0; i < param_count; i++) {
+            if (ref_temp_addrs[i]) { pp_code_generator_emit_drop(cg, ref_temp_addrs[i], ref_temp_types[i]); }
+        }
+
+        free(llvm_args);
+        free(ref_temp_addrs);
+        free(ref_temp_types);
+
+        const PPType* return_type = bin_decor->resolved_type;
+        if (pp_type_is_reference(return_type)) {
+            llvm_val = pp_code_generator_l_value_to_r_value(cg, return_type, llvm_val);
+        }
+        return llvm_val;
+    }
 
     /* Short-circuit logical operators need control flow, handle them before eager RHS generation */
     if (cg->current_function_type) {
@@ -2586,6 +2702,60 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
     assert(node);
     assert(node->node_type == PP_AST_UnaryExpressionNode);
 
+    const PP_AST_Decoration* un_decor = pp_ast_get_decoration(node);
+    if (un_decor && un_decor->resolved_operator_callable) {
+        const PPSymbol* oc = un_decor->resolved_operator_callable;
+        assert(oc);
+        const PPType* op_type = oc->type;
+        assert(op_type && op_type->kind == PP_TK_Operator);
+        LLVMValueRef llvm_func = pp_environment_backend_lookup_val(env_b, oc, true);
+        assert(llvm_func);
+        LLVMTypeRef llvm_func_type = pp_environment_backend_lookup_type(cg, op_type);
+        assert(llvm_func_type);
+        size_t param_count = op_type->type.pp_type_operator.param_count;
+        const PP_AST_Node* args_nodes[1] = {node->unary_expression.operand};
+        LLVMValueRef* llvm_args = (LLVMValueRef*)calloc(param_count ? param_count : 1, sizeof(LLVMValueRef));
+        LLVMValueRef* ref_temp_addrs = calloc(param_count ? param_count : 1, sizeof(LLVMValueRef));
+        const PPType** ref_temp_types = calloc(param_count ? param_count : 1, sizeof(const PPType*));
+        assert(llvm_args && ref_temp_addrs && ref_temp_types);
+        for (unsigned int i = 0; i < param_count; i++) {
+            const PPType* param_type = op_type->type.pp_type_operator.param_types[i];
+            assert(param_type);
+            if (pp_type_is_reference(param_type)) {
+                const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(args_nodes[i]);
+                bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+                if (arg_is_lvalue) {
+                    llvm_args[i] = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, args_nodes[i]);
+                } else {
+                    const PPType* pointee_type = param_type->type.pp_type_reference.reference_to;
+                    LLVMTypeRef llvm_pointee_type = pp_environment_backend_lookup_type(cg, pointee_type);
+                    assert(llvm_pointee_type);
+                    LLVMValueRef tmp_alloca = pp_code_generator_entry_alloca(cg, llvm_pointee_type, "ref_tmp");
+                    LLVMValueRef init = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, args_nodes[i]);
+                    assert(init);
+                    LLVMBuildStore(cg->builder, init, tmp_alloca);
+                    llvm_args[i] = tmp_alloca;
+                    if (pp_type_needs_drop(pointee_type)) {
+                        ref_temp_addrs[i] = tmp_alloca;
+                        ref_temp_types[i] = pointee_type;
+                    }
+                }
+            } else {
+                llvm_args[i] = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, args_nodes[i]);
+            }
+        }
+        LLVMValueRef result = LLVMBuildCall2(cg->builder, llvm_func_type, llvm_func, llvm_args, param_count, "optmp");
+        for (unsigned int i = 0; i < param_count; i++) {
+            if (ref_temp_addrs[i] && ref_temp_types[i] && pp_type_needs_drop(ref_temp_types[i])) {
+                pp_code_generator_emit_drop(cg, ref_temp_addrs[i], ref_temp_types[i]);
+            }
+        }
+        free(llvm_args);
+        free(ref_temp_addrs);
+        free(ref_temp_types);
+        return result;
+    }
+
     LLVMValueRef llvm_val = NULL;
 
     LLVMValueRef llvm_operand =
@@ -2788,7 +2958,7 @@ static LLVMValueRef pp_codegen_static_string_literal_to_llvm_constant(LLVMContex
         return NULL;
     }
     LLVMTypeRef i8_ty = LLVMInt8TypeInContext(ctx);
-    for (size_t i = 0; i < total; ++i) { vals[i] = LLVMConstInt(i8_ty, (unsigned long)buf[i], true); }
+    for (size_t i = 0; i < total; i++) { vals[i] = LLVMConstInt(i8_ty, (unsigned long)buf[i], true); }
     LLVMValueRef arr = LLVMConstArray(i8_ty, vals, total);
     free(vals);
     free(buf);
@@ -2827,12 +2997,12 @@ static LLVMValueRef pp_codegen_string_literal_to_llvm_value(PP_CodeGenerator* cg
     LLVMValueRef data_global = NULL;
     if (len > 0) {
         /* Create a private constant global for the literal bytes */
-        static int str_lit_counter = 0;
         char name[64];
-        snprintf(name, sizeof(name), ".str.lit.%d", str_lit_counter++);
+        snprintf(name, sizeof(name), ".str.lit.%d", cg->str_lit_counter);
+        cg->str_lit_counter++;
         LLVMTypeRef i8_ty = LLVMInt8TypeInContext(cg->ctx);
         LLVMValueRef* data_vals = (LLVMValueRef*)calloc(len, sizeof(LLVMValueRef));
-        for (size_t i = 0; i < len; ++i) { data_vals[i] = LLVMConstInt(i8_ty, (unsigned long)buf[i], true); }
+        for (size_t i = 0; i < len; i++) { data_vals[i] = LLVMConstInt(i8_ty, (unsigned long)buf[i], true); }
         LLVMValueRef data_arr = LLVMConstArray(i8_ty, data_vals, len);
         free(data_vals);
         LLVMTypeRef arr_ty = LLVMArrayType(i8_ty, (unsigned)len);
@@ -3213,7 +3383,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerato
     assert(identifier_decoration->resolved_type);
 
     if (identifier_decoration->resolved_type->kind == PP_TK_Function ||
-        identifier_decoration->resolved_type->kind == PP_TK_Lambda) {
+        identifier_decoration->resolved_type->kind == PP_TK_Lambda ||
+        identifier_decoration->resolved_type->kind == PP_TK_Operator) {
         llvm_val = llvm_identifier_ref;
     } else {
         llvm_val = pp_code_generator_l_value_to_r_value(cg, identifier_decoration->resolved_type, llvm_identifier_ref);
@@ -3641,7 +3812,8 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
                 LLVMBasicBlockRef loop_cond_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "array_drop_loop_cond");
                 LLVMBasicBlockRef loop_body_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "array_drop_loop_body");
                 LLVMBasicBlockRef loop_after_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "array_drop_loop_after");
-                LLVMValueRef i_alloca = pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "array_drop_i");
+                LLVMValueRef i_alloca =
+                    pp_code_generator_entry_alloca(cg, LLVMInt64TypeInContext(cg->ctx), "array_drop_i");
                 LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), i_alloca);
                 LLVMBuildBr(cg->builder, loop_cond_bb);
                 LLVMPositionBuilderAtEnd(cg->builder, loop_cond_bb);

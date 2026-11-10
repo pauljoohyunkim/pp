@@ -137,6 +137,16 @@ bool pp_type_equal(const PPType* a, const PPType* b) {
             }
             return true;
 
+        case PP_TK_Operator:
+            if (a->type.pp_type_function.param_count != b->type.pp_type_function.param_count) return false;
+            if (!pp_type_equal(a->type.pp_type_function.return_type, b->type.pp_type_function.return_type))
+                return false;
+            for (size_t i = 0; i < a->type.pp_type_function.param_count; i++) {
+                if (!pp_type_equal(a->type.pp_type_function.param_types[i], b->type.pp_type_function.param_types[i]))
+                    return false;
+            }
+            return true;
+
         default:
             assert(0 && "PP Type Equal: Unreachable case.");
             abort();
