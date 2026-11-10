@@ -56,14 +56,14 @@ Open ambiguities to confirm:
 - [ ] AST nodes for pointer type, address-of, deref
 
 ### Semantic Analyzer
-- [ ] Type checking for `ptr[T]` construction
-- [ ] Validate address-of only on l-values
-- [ ] Validate deref only on `ptr[T]`
+- [x] Type checking for `ptr[T]` construction
+- [x] Validate address-of only on l-values
+- [x] Validate deref only on `ptr[T]`
 - [ ] Null checks per nullable policy
-- [ ] Prevent pointer/reference mixing
+- [x] Prevent pointer/reference mixing in type construction
 - [ ] Const correctness for pointee const and pointer const
 - [ ] Collection element predicates updated for pointers
-- [ ] Ensure `@` and `$` are not user-overloadable
+- [x] Ensure `@` and `$` are not user-overloadable
 
 ### Code Generator
 - [ ] Lower `ptr[T]` to LLVM pointer type

@@ -4085,6 +4085,49 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                 goto error_cleanup;
             }
             break;
+        case PP_TT_AT:
+            // address-of
+            if (operand_decoration->value_category != PP_VALUE_CATEGORY_LVALUE) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Address-of operator '@' requires l-value operand");
+                goto error_cleanup;
+            }
+            if (pp_type_is_reference(operand_type) || pp_type_contains_reference(operand_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Address-of operator '@' cannot be applied to reference");
+                goto error_cleanup;
+            }
+            // build pointer type ptr[operand_type]
+            unary_type = pp_type_create(PP_TK_Pointer);
+            if (!unary_type) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Failed to create pointer type for address-of");
+                goto error_cleanup;
+            }
+            unary_type->type.pp_type_pointer.pointee = operand_type;
+            break;
+        case PP_TT_DOLLAR:
+            // dereference
+            if (decayed_operand_type->kind != PP_TK_Pointer) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Dereference operator '$' requires pointer operand");
+                goto error_cleanup;
+            }
+            {
+                const PPType* pointee = decayed_operand_type->type.pp_type_pointer.pointee;
+                if (!pointee) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                             "Pointer dereference has null pointee type");
+                    goto error_cleanup;
+                }
+                decoration = pp_ast_decoration_create(pointee, PP_VALUE_CATEGORY_RVALUE,
+                                                      operand_decoration->is_constexpr, false);
+                NULL_POINTER_ERROR_HANDLE(decoration);
+                expr->unary_expression.decoration = decoration;
+                decoration = NULL;
+                return 1;
+            }
+            break;
         default:
             abort();
     }
