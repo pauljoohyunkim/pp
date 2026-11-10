@@ -172,6 +172,8 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                                                        PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                          PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_null_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
+                                                               PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                             PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
@@ -3451,6 +3453,9 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
         case PP_AST_LiteralNode:
             if (!pp_semantic_analyzer_check_literal_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
+        case PP_AST_NullLiteralNode:
+            if (!pp_semantic_analyzer_check_null_literal_expression(sa, symbol_table, expr)) goto error_cleanup;
+            break;
         case PP_AST_IdentifierNode:
             if (!pp_semantic_analyzer_check_identifier_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
@@ -4325,6 +4330,49 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
 error_cleanup:
     pp_ast_decoration_free(decoration);
     pp_type_free(literal_type);
+    return 0;
+}
+
+static int pp_semantic_analyzer_check_null_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
+                                                              PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_NullLiteralNode);
+
+    if (expr->null_literal.decoration) return 1;
+
+    const PPType* null_type = NULL;
+    if (expr->null_literal.type_node) {
+        // Explicitly typed nullptr[T]
+        const PPType* t = pp_type_from_type_node(sa, expr->null_literal.type_node);
+        if (!t) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                     "Failed to resolve nullptr type");
+            goto error_cleanup;
+        }
+        if (t->kind != PP_TK_Pointer) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                     "nullptr requires pointer type");
+            goto error_cleanup;
+        }
+        null_type = t;
+    } else {
+        // Untyped nullptr – not allowed; require explicit type
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                 "nullptr requires explicit type, e.g. nullptr[T]");
+        goto error_cleanup;
+    }
+
+    decoration = pp_ast_decoration_create(null_type, PP_VALUE_CATEGORY_RVALUE, true, false);
+    NULL_POINTER_ERROR_HANDLE(decoration);
+    expr->null_literal.decoration = decoration;
+    decoration = NULL;
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
     return 0;
 }
 
