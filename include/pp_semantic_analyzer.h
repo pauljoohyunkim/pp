@@ -12,6 +12,20 @@ extern "C" {
 #include "pp_type.h"
 #include "pp_type_table.h"
 
+typedef struct PP_OperatorOverloadEntry {
+    const char* spelling;
+    size_t arity;
+    const PPType* lhs_type;
+    const PPType* rhs_type;
+    const PPSymbol* callable;
+} PP_OperatorOverloadEntry;
+
+typedef struct PP_OperatorOverloadRegistry {
+    PP_OperatorOverloadEntry* entries;
+    size_t count;
+    size_t capacity;
+} PP_OperatorOverloadRegistry;
+
 typedef struct {
     const char* filename;
     const char* code;
@@ -23,6 +37,9 @@ typedef struct {
 
     PPSymbolTable* gst;
     PP_GlobalTypeTable* gtt;
+
+    /* Overloaded operator registry (minimal). */
+    PP_OperatorOverloadRegistry* operator_overloads;
 
     const PPType* current_function_type;
     PP_ErrorList* error_list;
@@ -57,6 +74,11 @@ void pp_semantic_analyzer_free(PP_SemanticAnalyzer* sa);
  * Always check the error list afterwards.
  */
 int pp_semantic_analyzer_analyze(PP_SemanticAnalyzer* sa);
+
+const PPSymbol* pp_semantic_analyzer_operator_lookup(PP_SemanticAnalyzer* sa, const char* spelling,
+                                                     const PPType* lhs_type, const PPType* rhs_type);
+const PPSymbol* pp_semantic_analyzer_unary_operator_lookup(PP_SemanticAnalyzer* sa, const char* spelling,
+                                                           const PPType* operand_type);
 
 #ifdef __cplusplus
 }

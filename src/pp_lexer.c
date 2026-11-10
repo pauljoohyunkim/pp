@@ -390,6 +390,9 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     } else if (pp_lexer_exactly_match_keyword(lexer, "lambda")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_LAMBDA, 6)) return 0;
                         advance_pp(lexer, 6);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "operator")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_OPERATOR, 8)) return 0;
+                        advance_pp(lexer, 8);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "extern")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_EXTERN, 6)) return 0;
                         advance_pp(lexer, 6);

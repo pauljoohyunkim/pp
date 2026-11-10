@@ -1523,3 +1523,135 @@ TEST(CodeGenTest, StringLength) {
     assert_ir_contains(cg.get(), "str_len");
     assert_ir_contains(cg.get(), "trunc i64");
 }
+
+TEST(CodeGenTest, CustomBinaryOperatorInt) {
+    const char* source =
+        "operator + :: (x :: const int32&, y :: const int32&) -> int32 { return 99; }\n"
+        "func main :: () -> int32 { return 1 + 2; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    // Redefining int32 + int32 is now rejected; cg may be null.
+    EXPECT_EQ(semantic_errors, 1);
+    EXPECT_EQ(codegen_result, 0);
+}
+
+TEST(CodeGenTest, CustomUnaryOperatorInt) {
+    const char* source =
+        "operator - :: (x :: const int32&) -> int32 { return 100 - x; }\n"
+        "func main :: () -> int32 { return -5; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    // Unary minus on int32 redefines a built-in unary operator; reject.
+    EXPECT_EQ(semantic_errors, 1);
+    EXPECT_EQ(codegen_result, 0);
+}
+
+TEST(CodeGenTest, CustomBinaryVectorPlusFloat) {
+    const char* source =
+        "struct Vector2D { x :: float; y :: float; }\n"
+        "operator + :: (v :: const Vector2D&, s :: const float&) -> Vector2D { return v; }\n"
+        "let v :: Vector2D = Vector2D { .x = 1.0, .y = 2.0 };\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "Vector2D");
+}
+
+TEST(CodeGenTest, CustomBinaryOperatorValid) {
+    const char* source =
+        "struct Vec { x :: int32; y :: int32; }\n"
+        "operator + :: (a :: const Vec&, b :: const Vec&) -> Vec { return Vec { .x = a.x + b.x, .y = a.y + b.y }; }\n"
+        "func main :: () -> Vec { let a :: Vec = Vec { .x = 1, .y = 2 }; let b :: Vec = Vec { .x = 3, .y = 4 }; return a + b; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "Vec");
+    assert_ir_contains(cg.get(), "__pp@op@");
+}
+
+TEST(CodeGenTest, CustomUnaryOperatorValid) {
+    const char* source =
+        "struct Vec { x :: int32; y :: int32; }\n"
+        "operator - :: (a :: const Vec&) -> Vec { return Vec { .x = -a.x, .y = -a.y }; }\n"
+        "func main :: () -> Vec { let a :: Vec = Vec { .x = 1, .y = 2 }; return -a; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "Vec");
+    assert_ir_contains(cg.get(), "__pp@op@");
+}
+
+TEST(CodeGenTest, CustomUnaryOperatorRvalueMaterialization) {
+    const char* source =
+        "struct Vec { x :: int32; }\n"
+        "operator - :: (a :: const Vec&) -> Vec { return Vec { .x = -a.x }; }\n"
+        "func main :: () -> Vec { return -Vec { .x = 5 }; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "Vec");
+    assert_ir_contains(cg.get(), "__pp@op@");
+}
+
+TEST(CodeGenTest, CustomOperatorOverloadResolution) {
+    const char* source =
+        "struct A { v :: int32; }\n"
+        "struct B { v :: int32; }\n"
+        "struct C { v :: int32; }\n"
+        "operator + :: (a :: const A&, b :: const A&) -> A { return A { .v = a.v + b.v }; }\n"
+        "operator + :: (a :: const A&, b :: const B&) -> C { return C { .v = a.v + b.v }; }\n"
+        "func main :: () -> C { let a :: A = A { .v = 1 }; let b :: B = B { .v = 2 }; return a + b; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "A");
+    assert_ir_contains(cg.get(), "B");
+    assert_ir_contains(cg.get(), "C");
+    assert_ir_contains(cg.get(), "__pp@op@");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    EXPECT_FALSE(broken);
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+TEST(CodeGenTest, CustomBinaryOperatorWithRvalueMaterialization) {
+    const char* source =
+        "struct Vec { x :: int32; }\n"
+        "operator + :: (a :: const Vec&, b :: const Vec&) -> Vec { return Vec { .x = a.x + b.x }; }\n"
+        "func main :: () -> Vec { return Vec { .x = 1 } + Vec { .x = 2 }; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "Vec");
+    assert_ir_contains(cg.get(), "__pp@op@");
+    assert_ir_contains(cg.get(), "ref_tmp");
+}
