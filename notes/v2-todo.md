@@ -79,7 +79,7 @@ Design principle: stay away from builtin functions, prefer operators
   - `list << value` for append, `value >> list` for prepend?
   - Need concrete operator choices
 - [ ] Equality / comparison operators already exist
-- [ ] Bitshift operators as binary operators
+- [x] Bitshift operators as binary operators
   - `<<` and `>>` for bitshift
   - Conflict with proposed list append/pop? Need disambiguation
   - Decide precedence and overload resolution
@@ -92,28 +92,28 @@ Design principle: stay away from builtin functions, prefer operators
 
 ## User-defined operators
 Goal: define operators like functions/lambdas with signature considerations
-- [ ] Design doc: notes/operator_overloading_design.md
+- [x] Design doc: notes/operator_overloading_design.md
   - Syntax: `op + (a, b) -> ...` or `operator +` declaration
   - Scope: global, type-specific, or generic?
-- [ ] Signature design question:
+- [x] Signature design question:
   - Allow via const reference for parameters or by value?
   - Implications for ownership, mutability, performance
   - Decision: default to const reference for non-primitive types, by value for primitives?
-- [ ] Grammar: operator definition declaration in BNF
-- [ ] Parser: operator definition AST node, operator token as identifier
-- [ ] Semantic analyzer:
+- [x] Grammar: operator definition declaration in BNF
+- [x] Parser: operator definition AST node, operator token as identifier
+- [x] Semantic analyzer:
   - Validate operator signature, arity, precedence
   - Check parameter constness / reference rules
   - Register operator in type-specific operator table
-- [ ] Code generator: dispatch user-defined operator to function call
-- [ ] Overload resolution:
+- [x] Code generator: dispatch user-defined operator to function call
+- [x] Overload resolution:
   - Built-in vs user-defined precedence
   - Ambiguity handling
-- [ ] Restrictions:
+- [x] Restrictions:
   - Which operators can be overloaded? All binary/unary or subset?
   - Prevent overloading of `#`, bitshift? Decide policy
-- [ ] Tests: user-defined `+`, `<<`, `#` for custom types
-- [ ] Docs: docs/13-expressions.md update with operator definition syntax
+- [x] Tests: user-defined `+`, `<<`, `#` for custom types
+- [x] Docs: docs/13-expressions.md update with operator definition syntax
 
 ## General hardening
 - [ ] CI pipeline: GitHub Actions for build + unit tests

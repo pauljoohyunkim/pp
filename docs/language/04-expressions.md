@@ -29,6 +29,7 @@ Precedence from lowest to highest:
 * Assignment: `= += -= *= /= %= &= |= ^= <<= >>=` 
 * Bitwise: `& | ^`
 * Bitshift: `<< >>`
+  * Shift amount is unsigned. If the shift amount is ≥ the bit-width of the unsigned integer type, the result is defined to be zero. This applies to both binary shifts and compound assignment shifts. Signed integer shifts are not guarded.
 * Comparison: `== != < > <= >=`
 * Logical: `&& ||`
 * Cast: `expr as type`
@@ -36,6 +37,24 @@ Precedence from lowest to highest:
 * Indexing: `array[index]`, `list[index]`
 * Calls: `func(args)`, `lambda(args)`
 * Operator calls: `a + b` is resolved via built-in or user-defined operator overload
+
+### Cast expressions
+Cast is written as `expr as type` and has higher precedence than multiplicative and lower than unary/postfix. It performs a compile-time checked numeric conversion or allows up-/down-cast between compatible types.
+
+Examples:
+```pp
+let i :: int32 = 42u as int32;   // unsigned to signed
+let f :: float = 5 as float;     // integer to float
+let u64 :: uint64 = 1ul;
+let u32 :: uint32 = u64 as uint32;
+```
+
+Rules:
+* The target type must be a complete base type, alias, or newtype.
+* Casts are explicit; implicit conversions are not performed except for default zero-initialization.
+* Casting to/from `string` is not supported yet.
+* Casting to/from reference types is rejected by the semantic analyzer.
+
 
 
 ## User-defined operators
