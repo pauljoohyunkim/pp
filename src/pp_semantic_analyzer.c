@@ -187,38 +187,8 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
 static int pp_semantic_analyzer_check_collection_initializer_expression(PP_SemanticAnalyzer* sa,
                                                                         PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
-static bool pp_type_is_top_level_const(const PPType* type) {
-    return type && type->kind == PP_TK_Const;
-}
-
-static bool pp_type_can_assign(const PPType* target, const PPType* source) {
-    if (!target || !source) return false;
-    if (target == source) return true;
-    if (target->kind != source->kind) {
-        // Allow assigning to const-wrapped target from inner source
-        if (target->kind == PP_TK_Const) {
-            return pp_type_can_assign(target->type.pp_type_const.const_of, source);
-        }
-        return false;
-    }
-    switch (target->kind) {
-        case PP_TK_Pointer:
-            return pp_type_can_assign(target->type.pp_type_pointer.pointee,
-                                      source->type.pp_type_pointer.pointee);
-        case PP_TK_Const:
-            return pp_type_can_assign(target->type.pp_type_const.const_of,
-                                      source->type.pp_type_const.const_of);
-        case PP_TK_Array:
-            if (target->type.pp_type_array.size != source->type.pp_type_array.size) return false;
-            return pp_type_can_assign(target->type.pp_type_array.element_type,
-                                      source->type.pp_type_array.element_type);
-        case PP_TK_List:
-            return pp_type_can_assign(target->type.pp_type_list.element_type,
-                                      source->type.pp_type_list.element_type);
-        default:
-            return pp_type_equal(target, source);
-    }
-}
+static bool pp_type_is_top_level_const(const PPType* type);
+static bool pp_type_can_assign(const PPType* target, const PPType* source);
 
 /**
  * @brief Creates semantic analyzer from parser
@@ -5116,4 +5086,37 @@ const PPSymbol* pp_semantic_analyzer_unary_operator_lookup(PP_SemanticAnalyzer* 
         }
     }
     return NULL;
+}
+
+static bool pp_type_is_top_level_const(const PPType* type) {
+    return type && type->kind == PP_TK_Const;
+}
+
+static bool pp_type_can_assign(const PPType* target, const PPType* source) {
+    if (!target || !source) return false;
+    if (target == source) return true;
+    if (target->kind != source->kind) {
+        // Allow assigning to const-wrapped target from inner source
+        if (target->kind == PP_TK_Const) {
+            return pp_type_can_assign(target->type.pp_type_const.const_of, source);
+        }
+        return false;
+    }
+    switch (target->kind) {
+        case PP_TK_Pointer:
+            return pp_type_can_assign(target->type.pp_type_pointer.pointee,
+                                      source->type.pp_type_pointer.pointee);
+        case PP_TK_Const:
+            return pp_type_can_assign(target->type.pp_type_const.const_of,
+                                      source->type.pp_type_const.const_of);
+        case PP_TK_Array:
+            if (target->type.pp_type_array.size != source->type.pp_type_array.size) return false;
+            return pp_type_can_assign(target->type.pp_type_array.element_type,
+                                      source->type.pp_type_array.element_type);
+        case PP_TK_List:
+            return pp_type_can_assign(target->type.pp_type_list.element_type,
+                                      source->type.pp_type_list.element_type);
+        default:
+            return pp_type_equal(target, source);
+    }
 }
