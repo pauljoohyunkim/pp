@@ -1175,8 +1175,8 @@ TEST(SemanticTest, OperatorValidOverloadDifferentTypes) {
 TEST(SemanticTest, PointerAssignmentConstSubtypingAllowed) {
     const char* source =
         "func main :: () -> int32 {\n"
-        "    let p1 :: ptr[int32] = nullptr[ptr[int32]];\n"
-        "    let p2 :: ptr[const int32] = nullptr[ptr[const int32]];\n"
+        "    let p1 :: ptr[int32] = nullptr[int32];\n"
+        "    let p2 :: ptr[const int32] = nullptr[const int32];\n"
         "    p2 = p1;\n"
         "    return 0;\n"
         "}\n";
@@ -1190,8 +1190,8 @@ TEST(SemanticTest, PointerAssignmentConstSubtypingAllowed) {
 TEST(SemanticTest, PointerAssignmentConstStrippingRejected) {
     const char* source =
         "func main :: () -> int32 {\n"
-        "    let p1 :: ptr[const int32] = nullptr[ptr[const int32]];\n"
-        "    let p2 :: ptr[int32] = nullptr[ptr[int32]];\n"
+        "    let p1 :: ptr[const int32] = nullptr[const int32];\n"
+        "    let p2 :: ptr[int32] = nullptr[int32];\n"
         "    p2 = p1;\n"
         "    return 0;\n"
         "}\n";
@@ -1205,7 +1205,7 @@ TEST(SemanticTest, PointerAssignmentConstStrippingRejected) {
 TEST(SemanticTest, PointerToPointerCastConstSubtypingAllowed) {
     const char* source =
         "func main :: () -> int32 {\n"
-        "    let p :: ptr[int32] = nullptr[ptr[int32]];\n"
+        "    let p :: ptr[int32] = nullptr[int32];\n"
         "    let q :: ptr[const int32] = p as ptr[const int32];\n"
         "    return 0;\n"
         "}\n";
@@ -1219,7 +1219,7 @@ TEST(SemanticTest, PointerToPointerCastConstSubtypingAllowed) {
 TEST(SemanticTest, PointerToPointerCastConstStrippingRejected) {
     const char* source =
         "func main :: () -> int32 {\n"
-        "    let p :: ptr[const int32] = nullptr[ptr[const int32]];\n"
+        "    let p :: ptr[const int32] = nullptr[const int32];\n"
         "    let q :: ptr[int32] = p as ptr[int32];\n"
         "    return 0;\n"
         "}\n";
@@ -1248,7 +1248,7 @@ TEST(SemanticTest, ReferenceToPointerCastAllowed) {
 TEST(SemanticTest, PointerToReferenceCastBanned) {
     const char* source =
         "func main :: () -> int32 {\n"
-        "    let p :: ptr[int32] = nullptr[ptr[int32]];\n"
+        "    let p :: ptr[int32] = nullptr[int32];\n"
         "    let r :: int32& = p as int32&;\n"
         "    return 0;\n"
         "}\n";
@@ -1277,8 +1277,8 @@ TEST(SemanticTest, AssignmentToConstReferenceRejected) {
 TEST(SemanticTest, CollectionElementConstSubtypingAllowed) {
     const char* source =
         "func main :: () -> int32 {\n"
-        "    let b :: [ptr[int32] : 2u] = [ptr[int32] : 2u; nullptr[ptr[int32]], nullptr[ptr[int32]]];\n"
-        "    let a :: [ptr[const int32] : 2u] = [ptr[const int32] : 2u; nullptr[ptr[const int32]], nullptr[ptr[const int32]]];\n"
+        "    let b :: [ptr[int32] : 2u] = [ptr[int32] : 2u; nullptr[int32], nullptr[int32]];\n"
+        "    let a :: [ptr[const int32] : 2u] = [ptr[const int32] : 2u; nullptr[const int32], nullptr[const int32]];\n"
         "    a = b;\n"
         "    return 0;\n"
         "}\n";
