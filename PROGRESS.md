@@ -3,6 +3,13 @@
 ## Current focus
 Pointer support v1 → unblock C interop / stdlib. Debug `-g` deferred to later session.
 
+Pointer const-correctness implementation completed 2026-01-11.
+- `pp_type_is_top_level_const` + `pp_type_can_assign` added to semantic analyzer
+- Assignment compatibility uses const matrix: `ptr[T]` → `ptr[const T]` allowed, const stripping prevented
+- Casting to reference banned; `ref[T] as ptr[T]`, `ptr[T] as ptr[U]` with const matrix, `uint64 as ptr[T]` allowed
+- Assignment mutability checks top-level const and const inside reference `const T&`
+- All 342 unit tests pass
+
 Decision log:
 - Mutual exclusion: pointer and reference types are mutually exclusive.
 - Syntax: `ptr[T]` e.g. `ptr[uint8]`
@@ -12,8 +19,7 @@ Decision log:
 - Pointer arithmetic deferred to later iteration; v1 supports subscripting `p[n]`.
 - Lambdas: no pointers allowed at all. Pointers not permitted inside lambda bodies.
 - Pointer-to-pointer allowed: `ptr[ptr[T]]` supported in v1.
-- Casting is explicit only, no implicit ref↔ptr conversions.
-- Casting to reference allowed from pointer: `ptr[T] as T&` permitted.
+- Casting to reference not allowed.
 - Casting from reference to pointer allowed: `ref[T] as ptr[T]` permitted.
 - Pointer-to-pointer casts allowed.
 - Integer to pointer casts allowed via `uint64 as ptr[T]`, pointer width is `uint64`.
@@ -59,9 +65,11 @@ Open ambiguities to confirm:
 - [x] Type checking for `ptr[T]` construction
 - [x] Validate address-of only on l-values
 - [x] Validate deref only on `ptr[T]`
-- [ ] Null checks per nullable policy
+- [x] Null literal type checking and nullptr requires pointer type
+- [x] Pointer equality comparisons
 - [x] Prevent pointer/reference mixing in type construction
-- [ ] Const correctness for pointee const and pointer const
+- [x] Const correctness for pointee const and pointer const
+- [x] Assignment mutability for const-inside-reference enforced
 - [ ] Collection element predicates updated for pointers
 - [x] Ensure `@` and `$` are not user-overloadable
 

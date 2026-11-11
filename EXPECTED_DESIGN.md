@@ -42,11 +42,11 @@ Provide a minimal, explicit pointer facility as an escape hatch for C interop (`
   * No implicit array decay to pointer. Explicit `@arr[0u]` required.
 * Implicit const conversion as above.
 * Explicit casts:
-  * `ptr[T] as T&` – pointer to reference. Result is lvalue with `is_escapable_ref = false`, `is_constexpr = false`. Target constness must match pointee constness: `ptr[const T] as const T&` only, never `ptr[const T] as T&`. Null is UB.
   * `T& as ptr[T]` – reference to pointer
   * `ptr[T] as ptr[U]` – pointer-to-pointer, pointee const may not be removed at any nesting level.
   * `uint64 as ptr[T]` – integer to pointer. v1 targets 64-bit, so pointer width is `uint64`. Document 32-bit limitation.
   * `ptr[T] as uint64` – pointer to integer, for printing/hardware. Same width rule.
+  * Casting to reference is not allowed.
   * Cast may not remove pointee const at any nesting level.
 * Global pointer initializers: legal only as `nullptr[T]` or `uint64 as ptr[T]` of a constant. `is_constexpr = true`.
 * Lambdas: pointer types, address-of, deref forbidden inside lambda bodies, transitively via structs/newtypes. Operators inherit ban. `extern lambda` signatures checked at declaration, error points at offending param type.

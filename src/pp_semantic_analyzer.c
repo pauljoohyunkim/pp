@@ -187,6 +187,39 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
 static int pp_semantic_analyzer_check_collection_initializer_expression(PP_SemanticAnalyzer* sa,
                                                                         PPSymbolTable* symbol_table, PP_AST_Node* expr);
 
+static bool pp_type_is_top_level_const(const PPType* type) {
+    return type && type->kind == PP_TK_Const;
+}
+
+static bool pp_type_can_assign(const PPType* target, const PPType* source) {
+    if (!target || !source) return false;
+    if (target == source) return true;
+    if (target->kind != source->kind) {
+        // Allow assigning to const-wrapped target from inner source
+        if (target->kind == PP_TK_Const) {
+            return pp_type_can_assign(target->type.pp_type_const.const_of, source);
+        }
+        return false;
+    }
+    switch (target->kind) {
+        case PP_TK_Pointer:
+            return pp_type_can_assign(target->type.pp_type_pointer.pointee,
+                                      source->type.pp_type_pointer.pointee);
+        case PP_TK_Const:
+            return pp_type_can_assign(target->type.pp_type_const.const_of,
+                                      source->type.pp_type_const.const_of);
+        case PP_TK_Array:
+            if (target->type.pp_type_array.size != source->type.pp_type_array.size) return false;
+            return pp_type_can_assign(target->type.pp_type_array.element_type,
+                                      source->type.pp_type_array.element_type);
+        case PP_TK_List:
+            return pp_type_can_assign(target->type.pp_type_list.element_type,
+                                      source->type.pp_type_list.element_type);
+        default:
+            return pp_type_equal(target, source);
+    }
+}
+
 /**
  * @brief Creates semantic analyzer from parser
  */
@@ -2999,7 +3032,14 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
         goto error_cleanup;
     }
     // LHS must be mutable.
-    if (pp_type_is_const(lhs_decor->resolved_type)) {
+    const PPType* lhs_type_check = lhs_decor->resolved_type;
+    assert(lhs_type_check);
+    bool lhs_immutable = pp_type_is_top_level_const(lhs_type_check);
+    if (!lhs_immutable && lhs_type_check->kind == PP_TK_Reference) {
+        // References are mutable if their referent is mutable; const inside reference makes assignment immutable
+        lhs_immutable = pp_type_is_const(lhs_type_check->type.pp_type_reference.reference_to);
+    }
+    if (lhs_immutable) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "LHS of assignment should be mutable (non-const)");
         goto error_cleanup;
@@ -3019,9 +3059,9 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
         }
     }
 
-    if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
+    if (!pp_type_can_assign(decayed_lhs_type, decayed_rhs_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                 "LHS and RHS of assignment must have the same type.");
+                                 "LHS and RHS of assignment must have compatible types.");
         goto error_cleanup;
     }
 
@@ -4854,19 +4894,14 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     const PPType* target_type = pp_type_from_type_node(sa, expr->cast_expression.type_expr);
     assert(target_type);
 
-    if (pp_type_is_reference(target_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-                                 "Casting to reference is not allowed.");
-        goto error_cleanup;
-    }
-
-    if (pp_type_is_const(target_type)) {
+    if (pp_type_is_top_level_const(target_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
                                  "Casting to const is not allowed.");
         goto error_cleanup;
     }
 
-    const PPType* decayed_expr_type = pp_type_decay(sa->gtt, expr_decoration->resolved_type);
+    const PPType* expr_type = expr_decoration->resolved_type;
+    const PPType* decayed_expr_type = pp_type_decay(sa->gtt, expr_type);
     NULL_POINTER_ERROR_HANDLE(decayed_expr_type);
     const PPType* decayed_target_type = pp_type_decay(sa->gtt, target_type);
     NULL_POINTER_ERROR_HANDLE(decayed_target_type);
@@ -4874,11 +4909,39 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     const PPType* resolved_expr_type = pp_type_resolve_machine_type(decayed_expr_type);
     const PPType* resolved_target_type = pp_type_resolve_machine_type(decayed_target_type);
 
-    if (pp_type_equal(resolved_expr_type, resolved_target_type)) {
-        // Same machine type (OK)
-    } else if (pp_type_is_numerical(resolved_expr_type) && pp_type_is_numerical(resolved_target_type)) {
-        // Numerical types can be casted to each other (OK)
+    bool cast_ok = false;
+
+    // Casting to reference is not allowed
+    if (pp_type_is_reference(target_type)) {
+        // error already handled by cast_ok staying false
+    // Cast from reference source to pointer target is allowed
+    } else if (pp_type_is_reference(expr_type) && pp_type_is_pointer(decayed_target_type)) {
+        const PPType* ref_to = expr_type->type.pp_type_reference.reference_to;
+        const PPType* pointee = decayed_target_type->type.pp_type_pointer.pointee;
+        if (pp_type_can_assign(pointee, ref_to)) {
+            cast_ok = true;
+        }
+    // Pointer to pointer cast
+    } else if (pp_type_is_pointer(decayed_expr_type) && pp_type_is_pointer(decayed_target_type)) {
+        // No pointee const stripping: use assignability check
+        if (pp_type_can_assign(decayed_target_type, decayed_expr_type)) {
+            cast_ok = true;
+        }
+    // Integer to pointer cast: uint64 as ptr[T]
+    } else if (pp_type_is_numerical(resolved_expr_type) && pp_type_is_pointer(decayed_target_type)) {
+        if (resolved_expr_type->kind == PP_TK_UInt64) {
+            cast_ok = true;
+        }
+    // Generic machine type equality or numerical cast
     } else {
+        if (pp_type_equal(resolved_expr_type, resolved_target_type)) {
+            cast_ok = true;
+        } else if (pp_type_is_numerical(resolved_expr_type) && pp_type_is_numerical(resolved_target_type)) {
+            cast_ok = true;
+        }
+    }
+
+    if (!cast_ok) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
                                  "Casting is not supported from the given expression to the given target type.");
         goto error_cleanup;
