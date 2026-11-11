@@ -4356,19 +4356,25 @@ static int pp_semantic_analyzer_check_null_literal_expression(PP_SemanticAnalyze
 
     const PPType* null_type = NULL;
     if (expr->null_literal.type_node) {
-        // Explicitly typed nullptr[T]
+        // Explicitly typed nullptr[T] where T is pointee type
         const PPType* t = pp_type_from_type_node(sa, expr->null_literal.type_node);
         if (!t) {
             pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
                                      "Failed to resolve nullptr type");
             goto error_cleanup;
         }
-        if (t->kind != PP_TK_Pointer) {
+        // Build pointer type ptr[T] from T
+        PPType* ptr_type = pp_type_create(PP_TK_Pointer);
+        if (!ptr_type) goto error_cleanup;
+        ptr_type->type.pp_type_pointer.pointee = t;
+        const PPType* interned = pp_global_type_table_intern(sa->gtt, ptr_type);
+        if (!interned) {
+            pp_type_free(ptr_type);
             pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-                                     "nullptr requires pointer type");
+                                     "Failed to intern nullptr pointer type");
             goto error_cleanup;
         }
-        null_type = t;
+        null_type = interned;
     } else {
         // Untyped nullptr – not allowed; require explicit type
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
