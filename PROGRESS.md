@@ -70,7 +70,7 @@ Open ambiguities to confirm:
 - [x] Prevent pointer/reference mixing in type construction
 - [x] Const correctness for pointee const and pointer const
 - [x] Assignment mutability for const-inside-reference enforced
-- [ ] Collection element predicates updated for pointers
+- [x] Collection element predicates updated for pointers
 - [x] Ensure `@` and `$` are not user-overloadable
 
 ### Code Generator

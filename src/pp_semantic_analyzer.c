@@ -5031,7 +5031,7 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
         if (elem_dec->resolved_type) {
             const PPType* decayed_elem_type = pp_type_decay(sa->gtt, elem_dec->resolved_type);
             const PPType* decayed_coll_elem_type = pp_type_decay(sa->gtt, elem_type);
-            if (!pp_type_equal(decayed_elem_type, decayed_coll_elem_type)) {
+            if (!pp_type_can_assign(decayed_coll_elem_type, decayed_elem_type)) {
                 pp_error_list_push_error(sa->error_list, sa->filename, elem->line, elem->col,
                                          "Collection element type mismatch");
                 goto error_cleanup;
