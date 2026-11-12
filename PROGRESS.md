@@ -79,8 +79,8 @@ Open ambiguities to confirm:
 - [x] 1. Lower `ptr[T]` to LLVM pointer type – extend `pp_type_to_llvm_type` / `pp_code_generator_fill_type_map`
 - [x] 2. Emit address-of `@` – `LLVMBuildAlloca` / GEP for lvalue, return pointer
 - [x] 3. Emit dereference `$` – `LLVMBuildLoad2` for `ptr[T]`
-- [ ] 4. Emit pointer subscript `p[n]` – `LLVMBuildGEP2` + load
-- [ ] 5. Lower `nullptr[T]` to LLVM null pointer constant
+- [ ] 4. Emit pointer subscript `p[n]` – `LLVMBuildGEP2` + load *deferred – semantic analyser does not accept pointer base yet; v1 needs only `$p` / deref at element 0 for pp_std*
+- [x] 5. Lower `nullptr[T]` to LLVM null pointer constant
 - [ ] 6. Emit pointer casts: `ref as ptr`, `ptr as ptr`, `uint64 as ptr`, `ptr as uint64` via `BitCast` / `IntToPtr` / `PtrToInt`
 - [ ] 7. Null comparisons `p == nullptr` → `ICmp`
 - [ ] 8. Copy/move semantics – bitwise copy for pointers, no auto-drop of pointees

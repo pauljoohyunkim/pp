@@ -44,6 +44,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
                                                            PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                               PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_null_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                    PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                   PP_Environment_Backend* env_b,
                                                                   const PP_AST_Node* node);
@@ -2333,6 +2335,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_LiteralNode:
             llvm_val = pp_code_generator_generate_rvalue_literal(cg, symbol_table, env_b, node);
             break;
+        case PP_AST_NullLiteralNode:
+            llvm_val = pp_code_generator_generate_rvalue_null_literal(cg, symbol_table, env_b, node);
+            break;
         case PP_AST_FunctionCallNode:
             llvm_val = pp_code_generator_generate_rvalue_function_call(cg, symbol_table, env_b, node);
             break;
@@ -3130,6 +3135,20 @@ static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* 
     }
 
     return llvm_val;
+}
+
+static LLVMValueRef pp_code_generator_generate_rvalue_null_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                    PP_Environment_Backend* env_b, const PP_AST_Node* node) {
+    assert(cg);
+    assert(symbol_table);
+    assert(env_b);
+    assert(node);
+    assert(node->node_type == PP_AST_NullLiteralNode);
+    const PP_AST_Decoration* dec = pp_ast_get_decoration(node);
+    assert(dec && dec->resolved_type);
+    LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, dec->resolved_type);
+    assert(llvm_type);
+    return LLVMConstNull(llvm_type);
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
