@@ -390,9 +390,7 @@ static PP_AST_Node* pp_parser_create_primary(PP_Parser* parser) {
     if (tt == PP_TT_IDENTIFIER && pp_parser_peek_token_type(parser, 1) == PP_TT_LEFT_CURLY_BRACKET) {
         return pp_parser_create_struct_initializer(parser);
     }
-    if (tt == PP_TT_NULLPTR) {
-        return pp_parser_create_null_literal(parser);
-    }
+    if (tt == PP_TT_NULLPTR) { return pp_parser_create_null_literal(parser); }
     switch (tt) {
         case PP_TT_IDENTIFIER:
             return pp_parser_create_identifier(parser);
@@ -437,7 +435,8 @@ static PP_AST_Node* pp_parser_create_null_literal(PP_Parser* parser) {
         PP_AST_Node* type_node = pp_parser_create_type(parser);
         NULL_POINTER_ERROR_HANDLE(type_node);
         if (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_SQUARE_BRACKET) {
-            pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser), pp_parser_get_col(parser), "Expected ']' after nullptr type argument");
+            pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser),
+                                     pp_parser_get_col(parser), "Expected ']' after nullptr type argument");
             pp_ast_root_free(type_node);
             goto error_cleanup;
         }
@@ -556,7 +555,8 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
             NULL_POINTER_ERROR_HANDLE(base_tok);
         }
         if (pp_parser_peek_token_type(parser, 0) != PP_TT_LEFT_SQUARE_BRACKET) {
-            pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser), pp_parser_get_col(parser), "Expected '[' after ptr");
+            pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser),
+                                     pp_parser_get_col(parser), "Expected '[' after ptr");
             goto error_cleanup;
         }
         {

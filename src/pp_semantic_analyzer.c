@@ -173,7 +173,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                          PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_null_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
-                                                               PP_AST_Node* expr);
+                                                              PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                             PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
@@ -734,14 +734,16 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     if (inner->node_type == PP_AST_TypeBaseNode) {
         base_kind = inner->type_base.kind;
         base_identifier = inner->type_base.identifier_name;
-    } else if (inner->node_type != PP_AST_TypeArrayNode && inner->node_type != PP_AST_TypeListNode && inner->node_type != PP_AST_TypePointerNode) {
+    } else if (inner->node_type != PP_AST_TypeArrayNode && inner->node_type != PP_AST_TypeListNode &&
+               inner->node_type != PP_AST_TypePointerNode) {
         pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
                                  "Unsupported type node");
         goto error_cleanup;
     }
 
     // Handle collection / pointer types from new AST
-    if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode || inner->node_type == PP_AST_TypePointerNode) {
+    if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode ||
+        inner->node_type == PP_AST_TypePointerNode) {
         if (inner->node_type == PP_AST_TypePointerNode) {
             const PPType* pointee_type = pp_type_from_type_node(sa, inner->type_pointer.pointee_type);
             if (!pointee_type) goto error_cleanup;
@@ -769,7 +771,8 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 elem_type = pp_type_from_type_node(sa, inner->type_list.element_type);
             }
             if (!elem_type) goto error_cleanup;
-            if (!pp_type_validate_collection_element(sa, elem_type, type_node->line, type_node->col)) goto error_cleanup;
+            if (!pp_type_validate_collection_element(sa, elem_type, type_node->line, type_node->col))
+                goto error_cleanup;
             if (inner->node_type == PP_AST_TypeArrayNode) {
                 size_t sz = 0;
                 if (!pp_array_size_from_simple_expr(sa, inner->type_array.size_expr, &sz)) {
@@ -3745,7 +3748,8 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
                 (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
                 (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128) ||
-                (decayed_lhs_type->kind == PP_TK_Pointer && decayed_rhs_type->kind == PP_TK_Pointer && pp_type_equal(decayed_lhs_type, decayed_rhs_type))) {
+                (decayed_lhs_type->kind == PP_TK_Pointer && decayed_rhs_type->kind == PP_TK_Pointer &&
+                 pp_type_equal(decayed_lhs_type, decayed_rhs_type))) {
                 binary_type = pp_type_create(PP_TK_Bool);
             }
             break;
@@ -4890,14 +4894,12 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     // Casting to reference is not allowed
     if (pp_type_is_reference(target_type)) {
         // error already handled by cast_ok staying false
-    // Cast from reference source to pointer target is allowed
+        // Cast from reference source to pointer target is allowed
     } else if (pp_type_is_reference(expr_type) && pp_type_is_pointer(decayed_target_type)) {
         const PPType* ref_to = expr_type->type.pp_type_reference.reference_to;
         const PPType* pointee = decayed_target_type->type.pp_type_pointer.pointee;
-        if (pp_type_can_assign(pointee, ref_to)) {
-            cast_ok = true;
-        }
-    // Pointer to pointer cast
+        if (pp_type_can_assign(pointee, ref_to)) { cast_ok = true; }
+        // Pointer to pointer cast
     } else if (pp_type_is_pointer(decayed_expr_type) && pp_type_is_pointer(decayed_target_type)) {
         // Allow any pointer to any pointer, but enforce const matrix: no const stripping
         const PPType* src_pointee = decayed_expr_type->type.pp_type_pointer.pointee;
@@ -4905,16 +4907,14 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
         bool src_const = pp_type_is_const(src_pointee);
         bool tgt_const = pp_type_is_const(tgt_pointee);
         // const stripping is not allowed: tgt non-const requires src non-const
-        if (tgt_const || !src_const) {
-            cast_ok = true;
-        }
-    // Pointer to integer cast: ptr[T] as numeric
+        if (tgt_const || !src_const) { cast_ok = true; }
+        // Pointer to integer cast: ptr[T] as numeric
     } else if (pp_type_is_pointer(decayed_expr_type) && pp_type_is_numerical(resolved_target_type)) {
         cast_ok = true;
-    // Integer to pointer cast: numeric as ptr[T]
+        // Integer to pointer cast: numeric as ptr[T]
     } else if (pp_type_is_numerical(resolved_expr_type) && pp_type_is_pointer(decayed_target_type)) {
         cast_ok = true;
-    // Generic machine type equality or numerical cast
+        // Generic machine type equality or numerical cast
     } else {
         if (pp_type_equal(resolved_expr_type, resolved_target_type)) {
             cast_ok = true;
@@ -5100,34 +5100,26 @@ const PPSymbol* pp_semantic_analyzer_unary_operator_lookup(PP_SemanticAnalyzer* 
     return NULL;
 }
 
-static bool pp_type_is_top_level_const(const PPType* type) {
-    return type && type->kind == PP_TK_Const;
-}
+static bool pp_type_is_top_level_const(const PPType* type) { return type && type->kind == PP_TK_Const; }
 
 static bool pp_type_can_assign(const PPType* target, const PPType* source) {
     if (!target || !source) return false;
     if (target == source) return true;
     if (target->kind != source->kind) {
         // Allow assigning to const-wrapped target from inner source
-        if (target->kind == PP_TK_Const) {
-            return pp_type_can_assign(target->type.pp_type_const.const_of, source);
-        }
+        if (target->kind == PP_TK_Const) { return pp_type_can_assign(target->type.pp_type_const.const_of, source); }
         return false;
     }
     switch (target->kind) {
         case PP_TK_Pointer:
-            return pp_type_can_assign(target->type.pp_type_pointer.pointee,
-                                      source->type.pp_type_pointer.pointee);
+            return pp_type_can_assign(target->type.pp_type_pointer.pointee, source->type.pp_type_pointer.pointee);
         case PP_TK_Const:
-            return pp_type_can_assign(target->type.pp_type_const.const_of,
-                                      source->type.pp_type_const.const_of);
+            return pp_type_can_assign(target->type.pp_type_const.const_of, source->type.pp_type_const.const_of);
         case PP_TK_Array:
             if (target->type.pp_type_array.size != source->type.pp_type_array.size) return false;
-            return pp_type_can_assign(target->type.pp_type_array.element_type,
-                                      source->type.pp_type_array.element_type);
+            return pp_type_can_assign(target->type.pp_type_array.element_type, source->type.pp_type_array.element_type);
         case PP_TK_List:
-            return pp_type_can_assign(target->type.pp_type_list.element_type,
-                                      source->type.pp_type_list.element_type);
+            return pp_type_can_assign(target->type.pp_type_list.element_type, source->type.pp_type_list.element_type);
         default:
             return pp_type_equal(target, source);
     }

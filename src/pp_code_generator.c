@@ -45,7 +45,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                               PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_null_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                    PP_Environment_Backend* env_b, const PP_AST_Node* node);
+                                                                   PP_Environment_Backend* env_b,
+                                                                   const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                   PP_Environment_Backend* env_b,
                                                                   const PP_AST_Node* node);
@@ -1558,12 +1559,23 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
                     // Left-shift overflow defined.
                     unsigned int bits = 0;
                     switch (lhs_type->kind) {
-                        case PP_TK_UInt8: bits = 8; break;
-                        case PP_TK_UInt16: bits = 16; break;
-                        case PP_TK_UInt32: bits = 32; break;
-                        case PP_TK_UInt64: bits = 64; break;
-                        case PP_TK_UInt128: bits = 128; break;
-                        default: abort();
+                        case PP_TK_UInt8:
+                            bits = 8;
+                            break;
+                        case PP_TK_UInt16:
+                            bits = 16;
+                            break;
+                        case PP_TK_UInt32:
+                            bits = 32;
+                            break;
+                        case PP_TK_UInt64:
+                            bits = 64;
+                            break;
+                        case PP_TK_UInt128:
+                            bits = 128;
+                            break;
+                        default:
+                            abort();
                     }
                     LLVMTypeRef rhs_type = LLVMTypeOf(llvm_rhs);
                     LLVMValueRef shift_limit = LLVMConstInt(rhs_type, (unsigned long long)bits, false);
@@ -2286,7 +2298,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                     LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
                     assert(llvm_param_type);
                     LLVMValueRef tmp_alloca = pp_code_generator_entry_alloca(cg, llvm_param_type, "arg_tmp");
-                    LLVMValueRef init = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                    LLVMValueRef init =
+                        pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
                     LLVMBuildStore(cg->builder, init, tmp_alloca);
                     LLVMValueRef tmp_val = LLVMBuildLoad2(cg->builder, llvm_param_type, tmp_alloca, "arg_tmp_val");
                     llvm_args[i] = tmp_val;
@@ -2642,12 +2655,23 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                     // Left-shift overflow defined.
                     unsigned int bits = 0;
                     switch (lhs_decayed_type->kind) {
-                        case PP_TK_UInt8: bits = 8; break;
-                        case PP_TK_UInt16: bits = 16; break;
-                        case PP_TK_UInt32: bits = 32; break;
-                        case PP_TK_UInt64: bits = 64; break;
-                        case PP_TK_UInt128: bits = 128; break;
-                        default: abort();
+                        case PP_TK_UInt8:
+                            bits = 8;
+                            break;
+                        case PP_TK_UInt16:
+                            bits = 16;
+                            break;
+                        case PP_TK_UInt32:
+                            bits = 32;
+                            break;
+                        case PP_TK_UInt64:
+                            bits = 64;
+                            break;
+                        case PP_TK_UInt128:
+                            bits = 128;
+                            break;
+                        default:
+                            abort();
                     }
                     LLVMTypeRef rhs_type = LLVMTypeOf(llvm_rhs);
                     LLVMValueRef shift_limit = LLVMConstInt(rhs_type, (unsigned long long)bits, false);
@@ -3209,7 +3233,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* 
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_null_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                    PP_Environment_Backend* env_b, const PP_AST_Node* node) {
+                                                                   PP_Environment_Backend* env_b,
+                                                                   const PP_AST_Node* node) {
     assert(cg);
     assert(symbol_table);
     assert(env_b);

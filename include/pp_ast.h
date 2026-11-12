@@ -241,7 +241,7 @@ struct PP_AST_Node {
             PP_AST_Decoration* decoration;
         } literal;
 
-        struct { /* NullLiteral */
+        struct {                    /* NullLiteral */
             PP_AST_Node* type_node; /* optional explicit type for nullptr[T] */
             PP_AST_Decoration* decoration;
         } null_literal;
