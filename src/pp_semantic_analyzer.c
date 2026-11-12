@@ -4140,7 +4140,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                                              "Pointer dereference has null pointee type");
                     goto error_cleanup;
                 }
-                decoration = pp_ast_decoration_create(pointee, PP_VALUE_CATEGORY_RVALUE,
+                decoration = pp_ast_decoration_create(pointee, PP_VALUE_CATEGORY_LVALUE,
                                                       operand_decoration->is_constexpr, false);
                 NULL_POINTER_ERROR_HANDLE(decoration);
                 expr->unary_expression.decoration = decoration;

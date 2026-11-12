@@ -2104,6 +2104,17 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_MemberAccessNode:
             llvm_val = pp_code_generator_generate_lvalue_struct_member_access(cg, symbol_table, env_b, node);
             break;
+        case PP_AST_UnaryExpressionNode:
+            {
+                if (node->unary_expression.op == PP_TT_DOLLAR) {
+                    // Dereference lvalue: generate rvalue of pointer operand, result is address of pointee
+                    LLVMValueRef ptr_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->unary_expression.operand);
+                    llvm_val = ptr_val;
+                } else {
+                    assert(0 && "Cannot get l-value for unary");
+                }
+            }
+            break;
         default:
             assert(0 && "Cannot get l-value");
     }
