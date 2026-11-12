@@ -2224,6 +2224,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                                    : callee_decoration->resolved_type->type.pp_type_function.param_count;
     LLVMValueRef* ref_temp_addrs = NULL;
     const PPType** ref_temp_types = NULL;
+    LLVMValueRef* owning_temp_addrs = NULL;
+    const PPType** owning_temp_types = NULL;
     if (param_count > 0) {
         llvm_args = (LLVMValueRef*)calloc(param_count, sizeof(LLVMValueRef));
         NULL_POINTER_ERROR_HANDLE(llvm_args);
@@ -2232,6 +2234,10 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
         ref_temp_types = calloc(param_count, sizeof(const PPType*));
         NULL_POINTER_ERROR_HANDLE(ref_temp_addrs);
         NULL_POINTER_ERROR_HANDLE(ref_temp_types);
+        owning_temp_addrs = calloc(param_count, sizeof(LLVMValueRef));
+        owning_temp_types = calloc(param_count, sizeof(const PPType*));
+        NULL_POINTER_ERROR_HANDLE(owning_temp_addrs);
+        NULL_POINTER_ERROR_HANDLE(owning_temp_types);
 
         for (unsigned int i = 0; i < param_count; i++) {
             const PPType* param_type = is_lambda
@@ -2276,8 +2282,16 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                     LLVMValueRef tmp_val = LLVMBuildLoad2(cg->builder, llvm_param_type, tmp_alloca, "param_tmp_val");
                     llvm_args[i] = tmp_val;
                 } else {
-                    llvm_args[i] =
-                        pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                    // Rvalue owning argument → materialise, use, drop after call
+                    LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
+                    assert(llvm_param_type);
+                    LLVMValueRef tmp_alloca = pp_code_generator_entry_alloca(cg, llvm_param_type, "arg_tmp");
+                    LLVMValueRef init = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
+                    LLVMBuildStore(cg->builder, init, tmp_alloca);
+                    LLVMValueRef tmp_val = LLVMBuildLoad2(cg->builder, llvm_param_type, tmp_alloca, "arg_tmp_val");
+                    llvm_args[i] = tmp_val;
+                    owning_temp_addrs[i] = tmp_alloca;
+                    owning_temp_types[i] = param_type;
                 }
             } else {
                 llvm_args[i] =
@@ -2295,16 +2309,24 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
     for (unsigned int i = 0; i < param_count; i++) {
         if (ref_temp_addrs[i]) { pp_code_generator_emit_drop(cg, ref_temp_addrs[i], ref_temp_types[i]); }
     }
+    // Drop owning rvalue temporaries used as call arguments
+    for (unsigned int i = 0; i < param_count; i++) {
+        if (owning_temp_addrs[i]) { pp_code_generator_emit_drop(cg, owning_temp_addrs[i], owning_temp_types[i]); }
+    }
 
     free(llvm_args);
     free(ref_temp_addrs);
     free(ref_temp_types);
+    free(owning_temp_addrs);
+    free(owning_temp_types);
     return llvm_val;
 
 error_cleanup:
     free(llvm_args);
     free(ref_temp_addrs);
     free(ref_temp_types);
+    free(owning_temp_addrs);
+    free(owning_temp_types);
     return NULL;
 }
 
