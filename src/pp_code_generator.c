@@ -2914,14 +2914,34 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
             LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
             assert(llvm_val_to_cast);
             llvm_val = LLVMBuildBitCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "ptr_cast_ptr_to_ptr");
-        } else if (src_type->kind == PP_TK_UInt64 && dest_type->kind == PP_TK_Pointer) {
+        } else if (pp_type_is_numerical(src_type) && dest_type->kind == PP_TK_Pointer) {
+            // numeric -> pointer: normalise to i64 then inttoptr
             LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
             assert(llvm_val_to_cast);
-            llvm_val = LLVMBuildIntToPtr(cg->builder, llvm_val_to_cast, llvm_dest_type, "inttoptr_tmp");
-        } else if (src_type->kind == PP_TK_Pointer && dest_type->kind == PP_TK_UInt64) {
+            LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
+            LLVMValueRef val = llvm_val_to_cast;
+            LLVMTypeKind src_kind = LLVMGetTypeKind(llvm_src_type);
+            if (src_kind == LLVMFloatTypeKind) {
+                val = LLVMBuildFPToSI(cg->builder, val, i64_type, "num_to_i64_fp");
+            } else if (llvm_src_type != i64_type) {
+                val = LLVMBuildIntCast(cg->builder, val, i64_type, "num_to_i64");
+            }
+            llvm_val = LLVMBuildIntToPtr(cg->builder, val, llvm_dest_type, "inttoptr_tmp");
+        } else if (src_type->kind == PP_TK_Pointer && pp_type_is_numerical(dest_type)) {
+            // pointer -> numeric: ptrtoint to i64 then cast to dest numeric
             LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
             assert(llvm_val_to_cast);
-            llvm_val = LLVMBuildPtrToInt(cg->builder, llvm_val_to_cast, llvm_dest_type, "ptrtoint_tmp");
+            LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
+            LLVMValueRef val = LLVMBuildPtrToInt(cg->builder, llvm_val_to_cast, i64_type, "ptrtoint_tmp");
+            if (llvm_dest_type != i64_type) {
+                LLVMTypeKind dest_kind = LLVMGetTypeKind(llvm_dest_type);
+                if (dest_kind == LLVMIntegerTypeKind) {
+                    val = LLVMBuildIntCast(cg->builder, val, llvm_dest_type, "i64_to_num");
+                } else if (dest_kind == LLVMFloatTypeKind) {
+                    val = LLVMBuildSIToFP(cg->builder, val, llvm_dest_type, "i64_to_fp");
+                }
+            }
+            llvm_val = val;
         } else {
             LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
             assert(llvm_val_to_cast);

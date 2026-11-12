@@ -4903,16 +4903,12 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
         if (pp_type_can_assign(decayed_target_type, decayed_expr_type)) {
             cast_ok = true;
         }
-    // Pointer to integer cast: ptr[T] as uint64
+    // Pointer to integer cast: ptr[T] as numeric
     } else if (pp_type_is_pointer(decayed_expr_type) && pp_type_is_numerical(resolved_target_type)) {
-        if (resolved_target_type->kind == PP_TK_UInt64) {
-            cast_ok = true;
-        }
-    // Integer to pointer cast: uint64 as ptr[T]
+        cast_ok = true;
+    // Integer to pointer cast: numeric as ptr[T]
     } else if (pp_type_is_numerical(resolved_expr_type) && pp_type_is_pointer(decayed_target_type)) {
-        if (resolved_expr_type->kind == PP_TK_UInt64) {
-            cast_ok = true;
-        }
+        cast_ok = true;
     // Generic machine type equality or numerical cast
     } else {
         if (pp_type_equal(resolved_expr_type, resolved_target_type)) {
