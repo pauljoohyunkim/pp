@@ -4899,10 +4899,8 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
         }
     // Pointer to pointer cast
     } else if (pp_type_is_pointer(decayed_expr_type) && pp_type_is_pointer(decayed_target_type)) {
-        // No pointee const stripping: use assignability check
-        if (pp_type_can_assign(decayed_target_type, decayed_expr_type)) {
-            cast_ok = true;
-        }
+        // Allow any pointer to any pointer cast; const matrix is enforced by separate assignability checks where needed
+        cast_ok = true;
     // Pointer to integer cast: ptr[T] as numeric
     } else if (pp_type_is_pointer(decayed_expr_type) && pp_type_is_numerical(resolved_target_type)) {
         cast_ok = true;
