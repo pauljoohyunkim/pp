@@ -1885,4 +1885,58 @@ TEST(CodeGenTest, PointerNullComparison) {
     if (error_msg) LLVMDisposeMessage(error_msg);
 }
 
+TEST(CodeGenTest, PointerStaticArrayInterop) {
+    const char* source =
+        "extern func pp_std_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
+        "func main :: () -> void {\n"
+        "    let hello :: [uint8 : 6u] = @\"hello\";\n"
+        "    let p :: ptr[uint8] = @hello as ptr[uint8];\n"
+        "    pp_std_print_c_str(p as ptr[const uint8]);\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify call to extern and pointer cast
+    assert_ir_contains(cg.get(), "pp_std_print_c_str");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+TEST(CodeGenTest, PointerArrayElementAddress) {
+    const char* source =
+        "extern func pp_std_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
+        "func main :: () -> void {\n"
+        "    let hello :: [uint8 : 6u] = @\"hello\";\n"
+        "    let p :: ptr[uint8] = @hello[1u];\n"
+        "    pp_std_print_c_str(p as ptr[const uint8]);\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify GEP for element address
+    assert_ir_contains(cg.get(), "array_idx");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
 
