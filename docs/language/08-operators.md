@@ -1,5 +1,27 @@
 # Operators
 
+## Built-in pointer operators
+
+Pointer operators are built-in, non-overloadable and signal user-accepts-risk semantics.
+
+* `@x` – address-of. `x` must be an l-value. Result type is `ptr[T]` where `x : T`.  C equivalent: `&x`.
+  Use of address-of on non-l-values is rejected.
+
+* `$p` – dereference. `p` must be `ptr[T]`. Result type is `T`.  C equivalent: `*p`. Null dereference is undefined behaviour.
+
+* `nullptr[T]` – null pointer literal of type `ptr[T]`.
+
+Pointer operations are user-accepts-risk: the type system will not prevent aliasing, null dereference, or invalid pointer arithmetic. Casting between pointer types and numeric types is explicitly user-accepts-risk.
+
+Examples:
+
+```pp
+let x :: int32 = 5;
+let p :: ptr[int32] = @x;      // uint32_t *p = &x;
+let v :: int32 = $p;           // int32_t v = *p;
+let n :: ptr[int32] = nullptr[int32];
+```
+
 ## User-defined operators
 
 Custom operators are declared with `operator`:

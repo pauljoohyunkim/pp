@@ -1694,3 +1694,249 @@ TEST(CodeGenTest, ShiftOverflowGuard) {
     if (error_msg) LLVMDisposeMessage(error_msg);
 }
 
+TEST(CodeGenTest, PointerAddressOfAndDeref) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let x :: int32 = 42;\n"
+        "    let p :: ptr[int32] = @x;\n"
+        "    let v :: int32 = $p;\n"
+        "    return v;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify pointer allocation and deref load are present
+    assert_ir_contains(cg.get(), "alloca ptr");
+    assert_ir_contains(cg.get(), "store ptr");
+    assert_ir_contains(cg.get(), "load i32, ptr");
+    // Module must verify
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+TEST(CodeGenTest, PointerNullLiteral) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let p :: ptr[int32] = nullptr[int32];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify null pointer constant is emitted
+    assert_ir_contains(cg.get(), "store ptr null");
+    // Module must verify
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+TEST(CodeGenTest, PointerCastRefToPtr) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let x :: int32 = 42;\n"
+        "    let r :: int32& = x;\n"
+        "    let p :: ptr[int32] = r as ptr[int32];\n"
+        "    let v :: int32 = $p;\n"
+        "    return v;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify codegen succeeded for ref->ptr cast
+    assert_ir_contains(cg.get(), "store ptr");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+TEST(CodeGenTest, PointerCastPtrToPtr) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let x :: int32 = 42;\n"
+        "    let p1 :: ptr[int32] = @x;\n"
+        "    let p2 :: ptr[const int32] = p1 as ptr[const int32];\n"
+        "    let v :: int32 = $p2;\n"
+        "    return v;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify codegen succeeded for ptr->ptr cast
+    assert_ir_contains(cg.get(), "store ptr");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+TEST(CodeGenTest, PointerCastUint64ToPtr) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let addr :: uint64 = 4096ul;\n"
+        "    let p :: ptr[int32] = addr as ptr[int32];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify inttoptr
+    assert_ir_contains(cg.get(), "inttoptr");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+TEST(CodeGenTest, PointerCastPtrToUint64) {
+    const char* source =
+        "func main :: () -> uint64 {\n"
+        "    let x :: int32 = 42;\n"
+        "    let p :: ptr[int32] = @x;\n"
+        "    let addr :: uint64 = p as uint64;\n"
+        "    return addr;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify ptrtoint
+    assert_ir_contains(cg.get(), "ptrtoint");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+TEST(CodeGenTest, PointerNullComparison) {
+    const char* source =
+        "func main :: () -> bool {\n"
+        "    let p :: ptr[int32] = nullptr[int32];\n"
+        "    let q :: ptr[int32] = nullptr[int32];\n"
+        "    return p == q;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify icmp for pointers
+    assert_ir_contains(cg.get(), "icmp eq ptr");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+TEST(CodeGenTest, PointerStaticArrayInterop) {
+    const char* source =
+        "extern func pp_std_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
+        "func main :: () -> void {\n"
+        "    let hello :: [uint8 : 6u] = @\"hello\";\n"
+        "    let p :: ptr[uint8] = @hello as ptr[uint8];\n"
+        "    pp_std_print_c_str(p as ptr[const uint8]);\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify call to extern and pointer cast
+    assert_ir_contains(cg.get(), "pp_std_print_c_str");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+TEST(CodeGenTest, PointerArrayElementAddress) {
+    const char* source =
+        "extern func pp_std_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
+        "func main :: () -> void {\n"
+        "    let hello :: [uint8 : 6u] = @\"hello\";\n"
+        "    let p :: ptr[uint8] = @hello[1u];\n"
+        "    pp_std_print_c_str(p as ptr[const uint8]);\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify GEP for element address
+    assert_ir_contains(cg.get(), "array_idx");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
+

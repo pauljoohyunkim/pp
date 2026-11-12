@@ -52,6 +52,7 @@ typedef enum {
     PP_AST_TypeBaseNode,
     PP_AST_TypeArrayNode,
     PP_AST_TypeListNode,
+    PP_AST_TypePointerNode,
     PP_AST_TypedefDeclarationNode,
     PP_AST_NewtypeDeclarationNode,
     PP_AST_FunctionDeclarationNode,
@@ -65,6 +66,7 @@ typedef enum {
     PP_AST_UnaryExpressionNode,
     PP_AST_CastExpressionNode,
     PP_AST_LiteralNode,
+    PP_AST_NullLiteralNode,
     PP_AST_IdentifierNode,
     PP_AST_FunctionCallNode,
     PP_AST_MemberAccessNode,
@@ -167,6 +169,10 @@ struct PP_AST_Node {
             PP_AST_Node* element_type;
         } type_list;
 
+        struct { /* TypePointer */
+            PP_AST_Node* pointee_type;
+        } type_pointer;
+
         struct { /* TypedefDeclaration */
             PP_AST_Node* base_type;
             const char* identifier;
@@ -234,6 +240,11 @@ struct PP_AST_Node {
             const char* lexeme;
             PP_AST_Decoration* decoration;
         } literal;
+
+        struct {                    /* NullLiteral */
+            PP_AST_Node* type_node; /* optional explicit type for nullptr[T] */
+            PP_AST_Decoration* decoration;
+        } null_literal;
 
         struct { /* Identifier */
             const char* identifier;

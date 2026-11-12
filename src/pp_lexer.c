@@ -355,12 +355,13 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     if (!pp_lexer_push_token_helper(lexer, PP_TT_STATIC_STRING_LITERAL, len)) return 0;
                     advance_pp(lexer, len);
                 } else {
-                    // '@' alone is unknown for now
-                    if (!pp_lexer_push_token_helper(lexer, PP_TT_UNKNOWN, 1)) return 0;
-                    pp_error_list_push_error(lexer->error_list, lexer->filename, lexer->row, lexer->col,
-                                             "Unknown token");
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_AT, 1)) return 0;
                     advance_pp(lexer, 1);
                 }
+                break;
+            case '$':
+                if (!pp_lexer_push_token_helper(lexer, PP_TT_DOLLAR, 1)) return 0;
+                advance_pp(lexer, 1);
                 break;
             default:
                 if (isalpha((unsigned char)c) || c == '_') {
@@ -452,6 +453,12 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                         advance_pp(lexer, 7);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "newtype")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_NEWTYPE, 7)) return 0;
+                        advance_pp(lexer, 7);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "ptr")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_PTR, 3)) return 0;
+                        advance_pp(lexer, 3);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "nullptr")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_NULLPTR, 7)) return 0;
                         advance_pp(lexer, 7);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "as")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_AS, 2)) return 0;

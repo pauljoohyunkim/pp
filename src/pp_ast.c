@@ -43,6 +43,8 @@ const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node* node) {
             return node->cast_expression.decoration;
         case PP_AST_LiteralNode:
             return node->literal.decoration;
+        case PP_AST_NullLiteralNode:
+            return node->null_literal.decoration;
         case PP_AST_IdentifierNode:
             return node->identifier.decoration;
         case PP_AST_FunctionCallNode:
@@ -164,6 +166,11 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_decoration_free(node->literal.decoration);
             break;
         }
+        case PP_AST_NullLiteralNode: {
+            pp_ast_root_free_internal(node->null_literal.type_node);
+            pp_ast_decoration_free(node->null_literal.decoration);
+            break;
+        }
         case PP_AST_IdentifierNode: {
             /* identifier.identifier is pool-owned const char* – do not free */
             pp_ast_decoration_free(node->identifier.decoration);
@@ -210,6 +217,10 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
         }
         case PP_AST_TypeListNode: {
             pp_ast_root_free_internal(node->type_list.element_type);
+            break;
+        }
+        case PP_AST_TypePointerNode: {
+            pp_ast_root_free_internal(node->type_pointer.pointee_type);
             break;
         }
         case PP_AST_TypedefDeclarationNode: {
@@ -370,6 +381,10 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
         case PP_AST_LiteralNode:
             printf("Literal %s\n", node->literal.lexeme ? node->literal.lexeme : "");
             break;
+        case PP_AST_NullLiteralNode:
+            printf("NullLiteral\n");
+            if (node->null_literal.type_node) pp_ast_root_print(node->null_literal.type_node, depth + 1);
+            break;
         case PP_AST_IdentifierNode:
             printf("Identifier %s\n", node->identifier.identifier ? node->identifier.identifier : "");
             break;
@@ -407,6 +422,10 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
         case PP_AST_TypeListNode:
             printf("TypeList\n");
             pp_ast_root_print(node->type_list.element_type, depth + 1);
+            break;
+        case PP_AST_TypePointerNode:
+            printf("TypePointer\n");
+            pp_ast_root_print(node->type_pointer.pointee_type, depth + 1);
             break;
         case PP_AST_StructInitializerNode:
             printf("StructInitializer %s\n",

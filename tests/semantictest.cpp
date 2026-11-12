@@ -1172,3 +1172,120 @@ TEST(SemanticTest, OperatorValidOverloadDifferentTypes) {
     EXPECT_EQ(analyze_result, 1);
 }
 
+TEST(SemanticTest, PointerAssignmentConstSubtypingAllowed) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let p1 :: ptr[int32] = nullptr[int32];\n"
+        "    let p2 :: ptr[const int32] = nullptr[const int32];\n"
+        "    p2 = p1;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, PointerAssignmentConstStrippingRejected) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let p1 :: ptr[const int32] = nullptr[const int32];\n"
+        "    let p2 :: ptr[int32] = nullptr[int32];\n"
+        "    p2 = p1;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, PointerToPointerCastConstSubtypingAllowed) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let p :: ptr[int32] = nullptr[int32];\n"
+        "    let q :: ptr[const int32] = p as ptr[const int32];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, PointerToPointerCastConstStrippingRejected) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let p :: ptr[const int32] = nullptr[const int32];\n"
+        "    let q :: ptr[int32] = p as ptr[int32];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ReferenceToPointerCastAllowed) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let x :: int32 = 5;\n"
+        "    let r :: int32& = x;\n"
+        "    let p :: ptr[int32] = r as ptr[int32];\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, PointerToReferenceCastBanned) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let p :: ptr[int32] = nullptr[int32];\n"
+        "    let r :: int32& = p as int32&;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, AssignmentToConstReferenceRejected) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let x :: int32 = 1;\n"
+        "    let y :: const int32& = x;\n"
+        "    y = 2;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, CollectionElementConstSubtypingAllowed) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let b :: [ptr[int32] : 2u] = [ptr[int32] : 2u; nullptr[int32], nullptr[int32]];\n"
+        "    let a :: [ptr[const int32] : 2u] = [ptr[const int32] : 2u; nullptr[const int32], nullptr[const int32]];\n"
+        "    a = b;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+

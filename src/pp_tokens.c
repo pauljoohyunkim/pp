@@ -71,6 +71,10 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return ">";
         case PP_TT_LESS:
             return "<";
+        case PP_TT_AT:
+            return "@";
+        case PP_TT_DOLLAR:
+            return "$";
 
         // Double-letter
         case PP_TT_PLUS_EQUAL:
@@ -167,6 +171,10 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "typedef";
         case PP_TT_NEWTYPE:
             return "newtype";
+        case PP_TT_PTR:
+            return "ptr";
+        case PP_TT_NULLPTR:
+            return "nullptr";
         case PP_TT_AS:
             return "as";
         case PP_TT_TRUE:

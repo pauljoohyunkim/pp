@@ -1285,4 +1285,18 @@ TEST(ParserTest, StaticStringLiteralParse) {
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
 
+TEST(ParserTest, PointerTypeParse) {
+    const char* source =
+        "func foo :: () -> ptr[int32] {\n"
+        "    let p :: ptr[uint8] = @0;\n"
+        "    let q :: ptr[ptr[int32]] = @0;\n"
+        "    let r :: const ptr[int32] = @0;\n"
+        "    let s :: ptr[const int32] = @0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
 

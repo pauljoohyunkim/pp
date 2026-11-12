@@ -172,6 +172,8 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                                                        PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                          PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_null_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
+                                                              PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                             PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
@@ -184,6 +186,9 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
                                                       PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_collection_initializer_expression(PP_SemanticAnalyzer* sa,
                                                                         PPSymbolTable* symbol_table, PP_AST_Node* expr);
+
+static bool pp_type_is_top_level_const(const PPType* type);
+static bool pp_type_can_assign(const PPType* target, const PPType* source);
 
 /**
  * @brief Creates semantic analyzer from parser
@@ -729,49 +734,73 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     if (inner->node_type == PP_AST_TypeBaseNode) {
         base_kind = inner->type_base.kind;
         base_identifier = inner->type_base.identifier_name;
-    } else if (inner->node_type != PP_AST_TypeArrayNode && inner->node_type != PP_AST_TypeListNode) {
+    } else if (inner->node_type != PP_AST_TypeArrayNode && inner->node_type != PP_AST_TypeListNode &&
+               inner->node_type != PP_AST_TypePointerNode) {
         pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
                                  "Unsupported type node");
         goto error_cleanup;
     }
 
-    // Handle collection types from new AST
-    if (inner && (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode)) {
-        const PPType* elem_type = NULL;
-        if (inner->node_type == PP_AST_TypeArrayNode) {
-            elem_type = pp_type_from_type_node(sa, inner->type_array.element_type);
-        } else {
-            elem_type = pp_type_from_type_node(sa, inner->type_list.element_type);
-        }
-        if (!elem_type) goto error_cleanup;
-        if (!pp_type_validate_collection_element(sa, elem_type, type_node->line, type_node->col)) goto error_cleanup;
-        if (inner->node_type == PP_AST_TypeArrayNode) {
-            size_t sz = 0;
-            if (!pp_array_size_from_simple_expr(sa, inner->type_array.size_expr, &sz)) {
+    // Handle collection / pointer types from new AST
+    if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode ||
+        inner->node_type == PP_AST_TypePointerNode) {
+        if (inner->node_type == PP_AST_TypePointerNode) {
+            const PPType* pointee_type = pp_type_from_type_node(sa, inner->type_pointer.pointee_type);
+            if (!pointee_type) goto error_cleanup;
+            // Disallow mixing pointer and reference
+            if (pp_type_is_reference(pointee_type) || pp_type_contains_reference(pointee_type)) {
                 pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
-                                         "Could not compute array size");
+                                         "Pointer cannot contain reference");
                 goto error_cleanup;
             }
-            if (sz == 0) {
+            temp_type = pp_type_create(PP_TK_Pointer);
+            if (!temp_type) goto error_cleanup;
+            temp_type->type.pp_type_pointer.pointee = pointee_type;
+            gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+            temp_type = NULL;
+            if (!gtt_registered_type) {
                 pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
-                                         "Array size cannot be zero");
+                                         "Failed to intern pointer type");
                 goto error_cleanup;
             }
-            temp_type = pp_type_create(PP_TK_Array);
-            if (!temp_type) goto error_cleanup;
-            temp_type->type.pp_type_array.element_type = elem_type;
-            temp_type->type.pp_type_array.size = sz;
         } else {
-            temp_type = pp_type_create(PP_TK_List);
-            if (!temp_type) goto error_cleanup;
-            temp_type->type.pp_type_list.element_type = elem_type;
-        }
-        gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
-        temp_type = NULL;
-        if (!gtt_registered_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
-                                     "Failed to intern array/list");
-            goto error_cleanup;
+            const PPType* elem_type = NULL;
+            if (inner->node_type == PP_AST_TypeArrayNode) {
+                elem_type = pp_type_from_type_node(sa, inner->type_array.element_type);
+            } else {
+                elem_type = pp_type_from_type_node(sa, inner->type_list.element_type);
+            }
+            if (!elem_type) goto error_cleanup;
+            if (!pp_type_validate_collection_element(sa, elem_type, type_node->line, type_node->col))
+                goto error_cleanup;
+            if (inner->node_type == PP_AST_TypeArrayNode) {
+                size_t sz = 0;
+                if (!pp_array_size_from_simple_expr(sa, inner->type_array.size_expr, &sz)) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                                             "Could not compute array size");
+                    goto error_cleanup;
+                }
+                if (sz == 0) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                                             "Array size cannot be zero");
+                    goto error_cleanup;
+                }
+                temp_type = pp_type_create(PP_TK_Array);
+                if (!temp_type) goto error_cleanup;
+                temp_type->type.pp_type_array.element_type = elem_type;
+                temp_type->type.pp_type_array.size = sz;
+            } else {
+                temp_type = pp_type_create(PP_TK_List);
+                if (!temp_type) goto error_cleanup;
+                temp_type->type.pp_type_list.element_type = elem_type;
+            }
+            gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+            temp_type = NULL;
+            if (!gtt_registered_type) {
+                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                                         "Failed to intern array/list");
+                goto error_cleanup;
+            }
         }
     } else {
         switch (base_kind) {
@@ -896,6 +925,12 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     }
 
     if (type_node->type_expression.is_reference) {
+        // Disallow mixing pointer and reference
+        if (pp_type_is_pointer(gtt_registered_type) || pp_type_contains_pointer(gtt_registered_type)) {
+            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                                     "Reference cannot contain pointer");
+            goto error_cleanup;
+        }
         temp_type = pp_type_create(PP_TK_Reference);
         if (!temp_type) {
             pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
@@ -2970,7 +3005,14 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
         goto error_cleanup;
     }
     // LHS must be mutable.
-    if (pp_type_is_const(lhs_decor->resolved_type)) {
+    const PPType* lhs_type_check = lhs_decor->resolved_type;
+    assert(lhs_type_check);
+    bool lhs_immutable = pp_type_is_top_level_const(lhs_type_check);
+    if (!lhs_immutable && lhs_type_check->kind == PP_TK_Reference) {
+        // References are mutable if their referent is mutable; const inside reference makes assignment immutable
+        lhs_immutable = pp_type_is_const(lhs_type_check->type.pp_type_reference.reference_to);
+    }
+    if (lhs_immutable) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
                                  "LHS of assignment should be mutable (non-const)");
         goto error_cleanup;
@@ -2990,9 +3032,9 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
         }
     }
 
-    if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
+    if (!pp_type_can_assign(decayed_lhs_type, decayed_rhs_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
-                                 "LHS and RHS of assignment must have the same type.");
+                                 "LHS and RHS of assignment must have compatible types.");
         goto error_cleanup;
     }
 
@@ -3424,6 +3466,9 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
         case PP_AST_LiteralNode:
             if (!pp_semantic_analyzer_check_literal_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
+        case PP_AST_NullLiteralNode:
+            if (!pp_semantic_analyzer_check_null_literal_expression(sa, symbol_table, expr)) goto error_cleanup;
+            break;
         case PP_AST_IdentifierNode:
             if (!pp_semantic_analyzer_check_identifier_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
@@ -3702,7 +3747,9 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
                 (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
                 (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
                 (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128) ||
+                (decayed_lhs_type->kind == PP_TK_Pointer && decayed_rhs_type->kind == PP_TK_Pointer &&
+                 pp_type_equal(decayed_lhs_type, decayed_rhs_type))) {
                 binary_type = pp_type_create(PP_TK_Bool);
             }
             break;
@@ -4058,6 +4105,49 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                 goto error_cleanup;
             }
             break;
+        case PP_TT_AT:
+            // address-of
+            if (operand_decoration->value_category != PP_VALUE_CATEGORY_LVALUE) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Address-of operator '@' requires l-value operand");
+                goto error_cleanup;
+            }
+            if (pp_type_is_reference(operand_type) || pp_type_contains_reference(operand_type)) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Address-of operator '@' cannot be applied to reference");
+                goto error_cleanup;
+            }
+            // build pointer type ptr[operand_type]
+            unary_type = pp_type_create(PP_TK_Pointer);
+            if (!unary_type) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Failed to create pointer type for address-of");
+                goto error_cleanup;
+            }
+            unary_type->type.pp_type_pointer.pointee = operand_type;
+            break;
+        case PP_TT_DOLLAR:
+            // dereference
+            if (decayed_operand_type->kind != PP_TK_Pointer) {
+                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                         "Dereference operator '$' requires pointer operand");
+                goto error_cleanup;
+            }
+            {
+                const PPType* pointee = decayed_operand_type->type.pp_type_pointer.pointee;
+                if (!pointee) {
+                    pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                             "Pointer dereference has null pointee type");
+                    goto error_cleanup;
+                }
+                decoration = pp_ast_decoration_create(pointee, PP_VALUE_CATEGORY_RVALUE,
+                                                      operand_decoration->is_constexpr, false);
+                NULL_POINTER_ERROR_HANDLE(decoration);
+                expr->unary_expression.decoration = decoration;
+                decoration = NULL;
+                return 1;
+            }
+            break;
         default:
             abort();
     }
@@ -4255,6 +4345,55 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
 error_cleanup:
     pp_ast_decoration_free(decoration);
     pp_type_free(literal_type);
+    return 0;
+}
+
+static int pp_semantic_analyzer_check_null_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
+                                                              PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_NullLiteralNode);
+
+    if (expr->null_literal.decoration) return 1;
+
+    const PPType* null_type = NULL;
+    if (expr->null_literal.type_node) {
+        // Explicitly typed nullptr[T] where T is pointee type
+        const PPType* t = pp_type_from_type_node(sa, expr->null_literal.type_node);
+        if (!t) {
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                     "Failed to resolve nullptr type");
+            goto error_cleanup;
+        }
+        // Build pointer type ptr[T] from T
+        PPType* ptr_type = pp_type_create(PP_TK_Pointer);
+        if (!ptr_type) goto error_cleanup;
+        ptr_type->type.pp_type_pointer.pointee = t;
+        const PPType* interned = pp_global_type_table_intern(sa->gtt, ptr_type);
+        if (!interned) {
+            pp_type_free(ptr_type);
+            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                     "Failed to intern nullptr pointer type");
+            goto error_cleanup;
+        }
+        null_type = interned;
+    } else {
+        // Untyped nullptr – not allowed; require explicit type
+        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                                 "nullptr requires explicit type, e.g. nullptr[T]");
+        goto error_cleanup;
+    }
+
+    decoration = pp_ast_decoration_create(null_type, PP_VALUE_CATEGORY_RVALUE, true, false);
+    NULL_POINTER_ERROR_HANDLE(decoration);
+    expr->null_literal.decoration = decoration;
+    decoration = NULL;
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
     return 0;
 }
 
@@ -4735,19 +4874,14 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     const PPType* target_type = pp_type_from_type_node(sa, expr->cast_expression.type_expr);
     assert(target_type);
 
-    if (pp_type_is_reference(target_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
-                                 "Casting to reference is not allowed.");
-        goto error_cleanup;
-    }
-
-    if (pp_type_is_const(target_type)) {
+    if (pp_type_is_top_level_const(target_type)) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
                                  "Casting to const is not allowed.");
         goto error_cleanup;
     }
 
-    const PPType* decayed_expr_type = pp_type_decay(sa->gtt, expr_decoration->resolved_type);
+    const PPType* expr_type = expr_decoration->resolved_type;
+    const PPType* decayed_expr_type = pp_type_decay(sa->gtt, expr_type);
     NULL_POINTER_ERROR_HANDLE(decayed_expr_type);
     const PPType* decayed_target_type = pp_type_decay(sa->gtt, target_type);
     NULL_POINTER_ERROR_HANDLE(decayed_target_type);
@@ -4755,11 +4889,41 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     const PPType* resolved_expr_type = pp_type_resolve_machine_type(decayed_expr_type);
     const PPType* resolved_target_type = pp_type_resolve_machine_type(decayed_target_type);
 
-    if (pp_type_equal(resolved_expr_type, resolved_target_type)) {
-        // Same machine type (OK)
-    } else if (pp_type_is_numerical(resolved_expr_type) && pp_type_is_numerical(resolved_target_type)) {
-        // Numerical types can be casted to each other (OK)
+    bool cast_ok = false;
+
+    // Casting to reference is not allowed
+    if (pp_type_is_reference(target_type)) {
+        // error already handled by cast_ok staying false
+        // Cast from reference source to pointer target is allowed
+    } else if (pp_type_is_reference(expr_type) && pp_type_is_pointer(decayed_target_type)) {
+        const PPType* ref_to = expr_type->type.pp_type_reference.reference_to;
+        const PPType* pointee = decayed_target_type->type.pp_type_pointer.pointee;
+        if (pp_type_can_assign(pointee, ref_to)) { cast_ok = true; }
+        // Pointer to pointer cast
+    } else if (pp_type_is_pointer(decayed_expr_type) && pp_type_is_pointer(decayed_target_type)) {
+        // Allow any pointer to any pointer, but enforce const matrix: no const stripping
+        const PPType* src_pointee = decayed_expr_type->type.pp_type_pointer.pointee;
+        const PPType* tgt_pointee = decayed_target_type->type.pp_type_pointer.pointee;
+        bool src_const = pp_type_is_const(src_pointee);
+        bool tgt_const = pp_type_is_const(tgt_pointee);
+        // const stripping is not allowed: tgt non-const requires src non-const
+        if (tgt_const || !src_const) { cast_ok = true; }
+        // Pointer to integer cast: ptr[T] as numeric
+    } else if (pp_type_is_pointer(decayed_expr_type) && pp_type_is_numerical(resolved_target_type)) {
+        cast_ok = true;
+        // Integer to pointer cast: numeric as ptr[T]
+    } else if (pp_type_is_numerical(resolved_expr_type) && pp_type_is_pointer(decayed_target_type)) {
+        cast_ok = true;
+        // Generic machine type equality or numerical cast
     } else {
+        if (pp_type_equal(resolved_expr_type, resolved_target_type)) {
+            cast_ok = true;
+        } else if (pp_type_is_numerical(resolved_expr_type) && pp_type_is_numerical(resolved_target_type)) {
+            cast_ok = true;
+        }
+    }
+
+    if (!cast_ok) {
         pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
                                  "Casting is not supported from the given expression to the given target type.");
         goto error_cleanup;
@@ -4879,7 +5043,7 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
         if (elem_dec->resolved_type) {
             const PPType* decayed_elem_type = pp_type_decay(sa->gtt, elem_dec->resolved_type);
             const PPType* decayed_coll_elem_type = pp_type_decay(sa->gtt, elem_type);
-            if (!pp_type_equal(decayed_elem_type, decayed_coll_elem_type)) {
+            if (!pp_type_can_assign(decayed_coll_elem_type, decayed_elem_type)) {
                 pp_error_list_push_error(sa->error_list, sa->filename, elem->line, elem->col,
                                          "Collection element type mismatch");
                 goto error_cleanup;
@@ -4934,4 +5098,29 @@ const PPSymbol* pp_semantic_analyzer_unary_operator_lookup(PP_SemanticAnalyzer* 
         }
     }
     return NULL;
+}
+
+static bool pp_type_is_top_level_const(const PPType* type) { return type && type->kind == PP_TK_Const; }
+
+static bool pp_type_can_assign(const PPType* target, const PPType* source) {
+    if (!target || !source) return false;
+    if (target == source) return true;
+    if (target->kind != source->kind) {
+        // Allow assigning to const-wrapped target from inner source
+        if (target->kind == PP_TK_Const) { return pp_type_can_assign(target->type.pp_type_const.const_of, source); }
+        return false;
+    }
+    switch (target->kind) {
+        case PP_TK_Pointer:
+            return pp_type_can_assign(target->type.pp_type_pointer.pointee, source->type.pp_type_pointer.pointee);
+        case PP_TK_Const:
+            return pp_type_can_assign(target->type.pp_type_const.const_of, source->type.pp_type_const.const_of);
+        case PP_TK_Array:
+            if (target->type.pp_type_array.size != source->type.pp_type_array.size) return false;
+            return pp_type_can_assign(target->type.pp_type_array.element_type, source->type.pp_type_array.element_type);
+        case PP_TK_List:
+            return pp_type_can_assign(target->type.pp_type_list.element_type, source->type.pp_type_list.element_type);
+        default:
+            return pp_type_equal(target, source);
+    }
 }
