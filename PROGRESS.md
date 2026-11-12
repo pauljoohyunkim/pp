@@ -82,7 +82,7 @@ Open ambiguities to confirm:
 - [ ] 4. Emit pointer subscript `p[n]` – `LLVMBuildGEP2` + load *deferred – semantic analyser does not accept pointer base yet; v1 needs only `$p` / deref at element 0 for pp_std*
 - [x] 5. Lower `nullptr[T]` to LLVM null pointer constant
 - [x] 6. Emit pointer casts: `ref as ptr`, `ptr as ptr`, `uint64 as ptr`, `ptr as uint64` via `BitCast` / `IntToPtr` / `PtrToInt`
-- [ ] 7. Null comparisons `p == nullptr` → `ICmp`
+- [x] 7. Null comparisons `p == nullptr` → `ICmp`
 - [ ] 8. Copy/move semantics – bitwise copy for pointers, no auto-drop of pointees
 - [ ] 9. Interop with `pp_std` pointer parameters – ensure extern signatures match
 

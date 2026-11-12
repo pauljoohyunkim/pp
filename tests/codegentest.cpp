@@ -1859,4 +1859,30 @@ TEST(CodeGenTest, PointerCastPtrToUint64) {
     if (error_msg) LLVMDisposeMessage(error_msg);
 }
 
+TEST(CodeGenTest, PointerNullComparison) {
+    const char* source =
+        "func main :: () -> bool {\n"
+        "    let p :: ptr[int32] = nullptr[int32];\n"
+        "    let q :: ptr[int32] = nullptr[int32];\n"
+        "    return p == q;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Verify icmp for pointers
+    assert_ir_contains(cg.get(), "icmp eq ptr");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
+
 
