@@ -8,6 +8,8 @@ Pointer const-correctness implementation completed 2026-01-11.
 - Assignment compatibility uses const matrix: `ptr[T]` → `ptr[const T]` allowed, const stripping prevented
 - Casting to reference banned; `ref[T] as ptr[T]`, `ptr[T] as ptr[U]` with const matrix, `uint64 as ptr[T]` allowed
 - Assignment mutability checks top-level const and const inside reference `const T&`
+- `nullptr[T]` semantics corrected to `nullptr[T]` → `ptr[T]` with pointee type argument
+- Semantic unit tests for pointer const-correctness added to tests/semantictest.cpp
 - All 342 unit tests pass
 
 Decision log:
@@ -74,12 +76,16 @@ Open ambiguities to confirm:
 - [x] Ensure `@` and `$` are not user-overloadable
 
 ### Code Generator
-- [ ] Lower `ptr[T]` to LLVM pointer type
-- [ ] Emit address-of, load/store
-- [ ] Emit GEP for `p[n]` subscripting
-- [ ] Null comparisons
-- [ ] No auto-drop for pointed-to memory; bitwise copy for pointers
-- [ ] Interop with `pp_std` pointer parameters
+- [x] 1. Lower `ptr[T]` to LLVM pointer type – extend `pp_type_to_llvm_type` / `pp_code_generator_fill_type_map`
+- [x] 2. Emit address-of `@` – `LLVMBuildAlloca` / GEP for lvalue, return pointer
+- [x] 3. Emit dereference `$` – `LLVMBuildLoad2` for `ptr[T]`
+- [ ] 4. Emit pointer subscript `p[n]` – `LLVMBuildGEP2` + load
+- [ ] 5. Lower `nullptr[T]` to LLVM null pointer constant
+- [ ] 6. Emit pointer casts: `ref as ptr`, `ptr as ptr`, `uint64 as ptr`, `ptr as uint64` via `BitCast` / `IntToPtr` / `PtrToInt`
+- [ ] 7. Null comparisons `p == nullptr` → `ICmp`
+- [ ] 8. Copy/move semantics – bitwise copy for pointers, no auto-drop of pointees
+- [ ] 9. Interop with `pp_std` pointer parameters – ensure extern signatures match
+
 
 ### Tests
 - [ ] Parser tests for `ptr[T]` types

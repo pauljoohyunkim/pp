@@ -714,6 +714,7 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
         case PP_TK_Const:
             return pp_backend_lower_type(cg, type->type.pp_type_const.const_of);
 
+        case PP_TK_Pointer:
         case PP_TK_Reference:
             return LLVMPointerTypeInContext(cg->ctx, 0);
 
@@ -2826,6 +2827,31 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
             } else {
                 assert(0 && "Unary '#' requires array, list, or string");
             }
+            break;
+        }
+        case PP_TT_AT: {
+            const PP_AST_Node* operand_node = node->unary_expression.operand;
+            const PP_AST_Decoration* dec = pp_ast_get_decoration(operand_node);
+            assert(dec && dec->value_category == PP_VALUE_CATEGORY_LVALUE);
+            llvm_val = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, operand_node);
+            break;
+        }
+        case PP_TT_DOLLAR: {
+            const PP_AST_Decoration* op_dec = pp_ast_get_decoration(node->unary_expression.operand);
+            assert(op_dec);
+            const PPType* op_type = pp_type_decay_cg(cg->gtt, op_dec->resolved_type);
+            assert(op_type);
+            const PPType* pointee_type = NULL;
+            if (op_type->kind == PP_TK_Pointer) {
+                pointee_type = op_type->type.pp_type_pointer.pointee;
+            } else if (op_type->kind == PP_TK_Reference) {
+                pointee_type = op_type->type.pp_type_reference.reference_to;
+            } else {
+                assert(0 && "Dereference requires pointer type");
+            }
+            LLVMTypeRef pointee_llvm_type = pp_environment_backend_lookup_type(cg, pointee_type);
+            assert(pointee_llvm_type);
+            llvm_val = LLVMBuildLoad2(cg->builder, pointee_llvm_type, llvm_operand, "deref_tmp");
             break;
         }
         default:
