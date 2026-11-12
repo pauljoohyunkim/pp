@@ -2880,17 +2880,19 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
     const PP_AST_Node* expr_node = node->cast_expression.expression;
     assert(expr_node);
 
-    LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
-    assert(llvm_val_to_cast);
-
     const PP_AST_Decoration* expr_decoration = pp_ast_get_decoration(expr_node);
     assert(expr_decoration);
     const PP_AST_Decoration* cast_decoration = pp_ast_get_decoration(node);
     assert(cast_decoration);
 
-    const PPType* src_type = pp_type_decay_cg(cg->gtt, expr_decoration->resolved_type);
+    const PPType* src_orig = expr_decoration->resolved_type;
+    const PPType* dest_orig = cast_decoration->resolved_type;
+    assert(src_orig);
+    assert(dest_orig);
+
+    const PPType* src_type = pp_type_decay_cg(cg->gtt, src_orig);
     assert(src_type);
-    const PPType* dest_type = pp_type_decay_cg(cg->gtt, cast_decoration->resolved_type);
+    const PPType* dest_type = pp_type_decay_cg(cg->gtt, dest_orig);
     assert(dest_type);
 
     LLVMTypeRef llvm_src_type = pp_environment_backend_lookup_type(cg, src_type);
@@ -2899,21 +2901,44 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
     assert(llvm_dest_type);
 
     if (llvm_src_type == llvm_dest_type) {
+        LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
+        assert(llvm_val_to_cast);
         llvm_val = llvm_val_to_cast;
     } else {
-        LLVMTypeKind src_kind = LLVMGetTypeKind(llvm_src_type);
-        LLVMTypeKind dest_kind = LLVMGetTypeKind(llvm_dest_type);
-
-        if (src_kind == LLVMIntegerTypeKind && dest_kind == LLVMFloatTypeKind) {
-            llvm_val = LLVMBuildSIToFP(cg->builder, llvm_val_to_cast, llvm_dest_type, "sitofp_tmp");
-        } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMIntegerTypeKind) {
-            llvm_val = LLVMBuildFPToSI(cg->builder, llvm_val_to_cast, llvm_dest_type, "fptosi_tmp");
-        } else if (src_kind == LLVMIntegerTypeKind && dest_kind == LLVMIntegerTypeKind) {
-            llvm_val = LLVMBuildIntCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "intcast_tmp");
-        } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMFloatTypeKind) {
-            llvm_val = LLVMBuildFPCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "fpcast_tmp");
+        // Handle pointer casts first based on original types
+        if (src_orig->kind == PP_TK_Reference && dest_orig->kind == PP_TK_Pointer) {
+            LLVMValueRef llvm_lval = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, expr_node);
+            assert(llvm_lval);
+            llvm_val = LLVMBuildBitCast(cg->builder, llvm_lval, llvm_dest_type, "ptr_cast_ref_to_ptr");
+        } else if (src_type->kind == PP_TK_Pointer && dest_type->kind == PP_TK_Pointer) {
+            LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
+            assert(llvm_val_to_cast);
+            llvm_val = LLVMBuildBitCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "ptr_cast_ptr_to_ptr");
+        } else if (src_type->kind == PP_TK_UInt64 && dest_type->kind == PP_TK_Pointer) {
+            LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
+            assert(llvm_val_to_cast);
+            llvm_val = LLVMBuildIntToPtr(cg->builder, llvm_val_to_cast, llvm_dest_type, "inttoptr_tmp");
+        } else if (src_type->kind == PP_TK_Pointer && dest_type->kind == PP_TK_UInt64) {
+            LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
+            assert(llvm_val_to_cast);
+            llvm_val = LLVMBuildPtrToInt(cg->builder, llvm_val_to_cast, llvm_dest_type, "ptrtoint_tmp");
         } else {
-            abort();
+            LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
+            assert(llvm_val_to_cast);
+            LLVMTypeKind src_kind = LLVMGetTypeKind(llvm_src_type);
+            LLVMTypeKind dest_kind = LLVMGetTypeKind(llvm_dest_type);
+
+            if (src_kind == LLVMIntegerTypeKind && dest_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildSIToFP(cg->builder, llvm_val_to_cast, llvm_dest_type, "sitofp_tmp");
+            } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildFPToSI(cg->builder, llvm_val_to_cast, llvm_dest_type, "fptosi_tmp");
+            } else if (src_kind == LLVMIntegerTypeKind && dest_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildIntCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "intcast_tmp");
+            } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMFloatTypeKind) {
+                llvm_val = LLVMBuildFPCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "fpcast_tmp");
+            } else {
+                abort();
+            }
         }
     }
 
