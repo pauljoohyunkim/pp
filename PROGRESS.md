@@ -59,9 +59,9 @@ Open ambiguities to confirm:
 - [x] Parser: `ptr[T]` parsing via PP_AST_TypePointerNode
 - [x] Parser: `@`/`$` unary parsing
 - [x] Parser: `nullptr`/`nullptr[T]` parsing via PP_AST_NullLiteralNode
-- [ ] Lexer: pointer syntax `ptr[` `]` as type token sequence
-- [ ] Parser: precedence for `@`,`$` already same as unary
-- [ ] AST nodes for pointer type, address-of, deref
+- [x] Lexer: pointer syntax `ptr[` `]` as type token sequence
+- [x] Parser: precedence for `@`,`$` already same as unary
+- [ ] Parser: AST nodes for pointer type, address-of, deref
 
 ### Semantic Analyzer
 - [x] Type checking for `ptr[T]` construction
@@ -84,7 +84,7 @@ Open ambiguities to confirm:
 - [x] 6. Emit pointer casts: `ref as ptr`, `ptr as ptr`, `uint64 as ptr`, `ptr as uint64` via `BitCast` / `IntToPtr` / `PtrToInt`
 - [x] 7. Null comparisons `p == nullptr` → `ICmp`
 - [x] 8. Copy/move semantics – bitwise copy for pointers, no auto-drop of pointees
-- [ ] 9. Interop with `pp_std` pointer parameters – ensure extern signatures match
+- [x] 9. Interop with `pp_std` pointer parameters – ensure extern signatures match
 
 
 ### Tests
