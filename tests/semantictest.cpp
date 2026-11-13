@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include "pp_lexer.h"
+#include "pp_string_pool.h"
 #include "pp_parser.h"
 #include "pp_semantic_analyzer.h"
+static PP_StringPool* test_sp = pp_string_pool_create();
 
 static void semantic_analyze_source(const char* source, int& lexer_errors, int& parser_errors, int& semantic_errors, int& analyze_result) {
-    auto lexer_h = pp_lexer_create(source, nullptr);
+    auto lexer_h = pp_lexer_create(source, nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_NE(lexer.get(), nullptr);
     int lex_res = pp_lexer_analyze(lexer.get());
@@ -16,7 +18,7 @@ static void semantic_analyze_source(const char* source, int& lexer_errors, int& 
         analyze_result = 0;
         return;
     }
-    PP_Parser* parser_raw = pp_parser_create(lexer.get());
+    PP_Parser* parser_raw = pp_parser_create(lexer.get(), test_sp);
     std::unique_ptr<PP_Parser, decltype(&pp_parser_free)> parser(parser_raw, pp_parser_free);
     ASSERT_NE(parser.get(), nullptr);
     int parse_res = pp_parser_parse(parser.get());
@@ -26,7 +28,7 @@ static void semantic_analyze_source(const char* source, int& lexer_errors, int& 
         analyze_result = 0;
         return;
     }
-    PP_SemanticAnalyzer* sa_raw = pp_semantic_analyzer_create(parser.get());
+    PP_SemanticAnalyzer* sa_raw = pp_semantic_analyzer_create(parser.get(), test_sp);
     std::unique_ptr<PP_SemanticAnalyzer, decltype(&pp_semantic_analyzer_free)> sa(sa_raw, pp_semantic_analyzer_free);
     ASSERT_NE(sa.get(), nullptr);
     analyze_result = pp_semantic_analyzer_analyze(sa.get());
@@ -115,13 +117,13 @@ TEST(SemanticTest, Pass1VariableDeclaration) {
     EXPECT_EQ(lexer_errors + parser_errors, 0);
     // Debug print errors
     {
-        auto lexer_h = pp_lexer_create(source, nullptr);
+        auto lexer_h = pp_lexer_create(source, nullptr, test_sp);
         std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
         pp_lexer_analyze(lexer.get());
-        PP_Parser* parser_raw = pp_parser_create(lexer.get());
+        PP_Parser* parser_raw = pp_parser_create(lexer.get(), test_sp);
         std::unique_ptr<PP_Parser, decltype(&pp_parser_free)> parser(parser_raw, pp_parser_free);
         pp_parser_parse(parser.get());
-        PP_SemanticAnalyzer* sa_raw = pp_semantic_analyzer_create(parser.get());
+        PP_SemanticAnalyzer* sa_raw = pp_semantic_analyzer_create(parser.get(), test_sp);
         std::unique_ptr<PP_SemanticAnalyzer, decltype(&pp_semantic_analyzer_free)> sa(sa_raw, pp_semantic_analyzer_free);
         pp_semantic_analyzer_analyze(sa.get());
         if (sa->error_list) {

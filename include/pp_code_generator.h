@@ -105,9 +105,10 @@ void pp_environment_backend_print_value_map(PP_Environment_Backend* env_b);
 /**
  * @brief Create a PP_CodeGenerator from a semantic analyzer.
  * @param sa Semantic analyzer whose ownership of program/gtt/etc. is transferred.
+ * @param sp String pool to use (not transferred).
  * @return New code generator or NULL on failure.
  */
-PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa);
+PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp);
 
 /**
  * @brief Free a PP_CodeGenerator and all owned resources.

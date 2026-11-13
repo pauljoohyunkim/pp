@@ -48,12 +48,14 @@ typedef struct {
  * @brief Creates semantic analyzer from parser
  *
  * @param parser Pointer to PP_Parser struct.
+ * @param sp Pointer to PP_StringPool struct.
  * @return PP_SemanticAnalyzer* Pointer to allocated semantic analyzer, or NULL if failure.
  *
  * Note that dynamically allocated members of the parser are transferred to semantic analyzer,
  * so parser can safely be freed with its designated free function.
+ * String pool ownership is not transferred; the caller retains ownership.
  */
-PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser);
+PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser, PP_StringPool* sp);
 
 /**
  * @brief Frees semantic analyzer and its components

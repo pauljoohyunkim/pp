@@ -72,10 +72,11 @@ static int pp_parser_parse_signature(PP_Parser* parser, const char** out_name, P
                                      unsigned int* out_param_count, unsigned int* out_param_capacity,
                                      PP_AST_Node** out_return_type);
 
-PP_Parser* pp_parser_create(PP_Lexer* lexer) {
+PP_Parser* pp_parser_create(PP_Lexer* lexer, PP_StringPool* sp) {
     PP_Parser* parser = NULL;
     PP_ErrorList* error_list = NULL;
     NULL_POINTER_ERROR_HANDLE(lexer);
+    NULL_POINTER_ERROR_HANDLE(sp);
 
     parser = (PP_Parser*)calloc(1, sizeof(PP_Parser));
     NULL_POINTER_ERROR_HANDLE(parser);
@@ -93,8 +94,7 @@ PP_Parser* pp_parser_create(PP_Lexer* lexer) {
 
     parser->filename = lexer->filename;
 
-    parser->sp = lexer->sp;
-    lexer->sp = NULL;
+    parser->sp = sp;
 
     parser->error_list = error_list;
 

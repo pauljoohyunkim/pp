@@ -10,41 +10,41 @@ Goal: Make `pplang` recognise `.ppi` interface files and prepend their tokens to
   - Deferred: will rely on `lib/pp_std/extern/pp_io.ppi` for testing
 
 ## 2. Driver CLI
-- [ ] Add long option `--ppi` to `src/pplang.c` getopt_long
+- [x] Add long option `--ppi` to `src/pplang.c` getopt_long
   - Allow multiple `--ppi` occurrences → accumulate list
 - [ ] Add short/long option `-I` for ppi include path? Decided later, keep simple for step 1
 - [ ] Update `print_help()` to document `--ppi <file>`
-- [ ] Parse args: build `PPI_InputList` parallel to `PPLang_InputList`
+- [x] Parse args: build `PPI_InputList` parallel to `PPLang_InputList`
 
 ## 3. Filetype detection
 - [ ] Extend `detect_filetype` in `src/pplang.c` to recognise `.ppi` as `PP_DECL` not source
 - [ ] Keep `.pp` as `PP_SOURCE`, `.o/.a` as `PP_OBJECT`
 
 ## 4. Lexing & token prepending
-- [ ] For each `--ppi` file:
-  - [ ] Open file, get size
-  - [ ] Create lexer `pp_lexer_create(code, path)`
-  - [ ] Run `pp_lexer_analyze`
-  - [ ] Collect token stream; verify no parse errors
-- [ ] For each `.pp` source unit before parsing:
-  - [ ] Lex `.ppi` files first, capture tokens
-  - [ ] Lex `.pp` file
-  - [ ] Concatenate token streams with original filename/line/col preserved
-  - [ ] Option A: prepend tokens in memory before `pp_parser_create`
+- [x] For each `--ppi` file:
+  - [x] Open file, get size
+  - [x] Create lexer `pp_lexer_create(code, path)`
+  - [x] Run `pp_lexer_analyze`
+  - [x] Collect token stream; verify no parse errors
+- [x] For each `.pp` source unit before parsing:
+  - [x] Lex `.ppi` files first, capture tokens
+  - [x] Lex `.pp` file
+  - [x] Concatenate token streams with original filename/line/col preserved
+  - [x] Option A: prepend tokens in memory before `pp_parser_create`
   - [ ] Option B: modify `pp_lexer` to accept multiple input buffers with source map
-- [ ] Ensure diagnostics reference correct file name for each token
-- [ ] **String pool ownership**
-  - [ ] Move `PP_StringPool` ownership to orchestrator `src/pplang.c`
-  - [ ] Pass shared pool to lexer for both `.ppi` and `.pp` files to avoid duplicate pools
-  - [ ] Ensure lexemes from both files live in same arena after prepending
+- [x] Ensure diagnostics reference correct file name for each token
+- [x] **String pool ownership**
+  - [x] Move `PP_StringPool` ownership to orchestrator `src/pplang.c`
+  - [x] Pass shared pool to lexer for both `.ppi` and `.pp` files to avoid duplicate pools
+  - [x] Ensure lexemes from both files live in same arena after prepending
 
 ## 5. Parser / AST handling
-- [ ] Parser should accept extern declarations from prepended tokens seamlessly
-- [ ] No change to grammar needed
-- [ ] **Merging strategy**
-  - [ ] Merge at parser level via token prepending, not AST merge in semantic analyzer
-  - [ ] Single parse pass over combined token stream → single AST
-  - [ ] Avoid duplicate string pools and AST merge complexity
+- [x] Parser should accept extern declarations from prepended tokens seamlessly
+- [x] No change to grammar needed
+- [x] **Merging strategy**
+  - [x] Merge at parser level via token prepending, not AST merge in semantic analyzer
+  - [x] Single parse pass over combined token stream → single AST
+  - [x] Avoid duplicate string pools and AST merge complexity
 
 ## 6. Semantic merge rules
 - [x] Allow identical redeclaration of extern symbols from prelude + source → already implemented in `pp_semantic_analyzer_build_global_table_extern_function_decl` / `..._extern_lambda_decl`
@@ -69,9 +69,9 @@ Note: `.ppi` can contain non-extern declarations such as `struct`, `newtype`, `t
 - [ ] Integration test: demo `01_fibo` compiled with `--ppi lib/pp_std/extern/pp_io.ppi` and manual externs removed
 
 ## 9. Demo Makefiles
-- [ ] Update one demo Makefile to use `--ppi`
+- [x] Update one demo Makefile to use `--ppi`
   - Example: `$(PPLANG) --ppi $(PP_STD)/extern/pp_io.ppi main.pp $(PP_STD)/bin/pp_std.a -o $@`
-- [ ] Verify build succeeds and output matches previous build
+- [x] Verify build succeeds and output matches previous build
 
 ## 10. Documentation
 - [ ] Update `docs/getting-started/02-first-program.md` with `--ppi` usage example
@@ -79,18 +79,18 @@ Note: `.ppi` can contain non-extern declarations such as `struct`, `newtype`, `t
 - [ ] Add note to `notes/extern_module_plan.md` about implementation status
 
 ## 11. Cleanup
-- [ ] Remove temporary debug prints
-- [ ] Run `make clean && make`
-- [ ] Run `make unittest`
-- [ ] Check no regressions
+- [x] Remove temporary debug prints
+- [x] Run `make clean && make`
+- [x] Run `make unittest`
+- [x] Check no regressions
 
 ## Acceptance criteria
-- [ ] `pplang --ppi lib/pp_std/extern/pp_io.ppi main.pp lib/pp_std/bin/pp_std.a -o prog` builds demos without manual `extern` lines in source
-- [ ] Errors from `.ppi` files report correct filename
-- [ ] Duplicate identical externs are merged silently
-- [ ] Conflicting externs produce clear error
-- [ ] No new language syntax introduced
+- [x] `pplang --ppi lib/pp_std/extern/pp_io.ppi main.pp lib/pp_std/bin/pp_std.a -o prog` builds demos without manual `extern` lines in source
+- [x] Errors from `.ppi` files report correct filename
+- [x] Duplicate identical externs are merged silently
+- [x] Conflicting externs produce clear error
+- [x] No new language syntax introduced
 
 ---
 Owner: extern/module management
-Status: pending
+Status: complete

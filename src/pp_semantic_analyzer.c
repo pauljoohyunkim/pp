@@ -191,7 +191,7 @@ static bool pp_type_can_assign(const PPType* target, const PPType* source);
 /**
  * @brief Creates semantic analyzer from parser
  */
-PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
+PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser, PP_StringPool* sp) {
     PP_SemanticAnalyzer* sa = NULL;
     PP_GlobalTypeTable* gtt = NULL;
     PPSymbolTable* gst = NULL;
@@ -220,8 +220,7 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
     sa->program = parser->program;
     parser->program = NULL;
 
-    sa->sp = parser->sp;
-    parser->sp = NULL;
+    sa->sp = sp;
 
     sa->error_list = parser->error_list;
     parser->error_list = NULL;
@@ -407,7 +406,8 @@ void pp_semantic_analyzer_free(PP_SemanticAnalyzer* sa) {
     free((char*)sa->code);
     free(sa->tokens);
     pp_ast_root_free(sa->program);
-    pp_string_pool_free(sa->sp);
+    /* String pool ownership is external; do not free */
+    // pp_string_pool_free(sa->sp);
     pp_error_list_free(sa->error_list);
     pp_global_type_table_free(sa->gtt);
     pp_symbol_table_free(sa->gst);

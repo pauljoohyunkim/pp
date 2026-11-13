@@ -16,7 +16,6 @@
 
 static long get_file_size(const char* filename);
 static char* read_file_to_string(const char* filename, long* out_size);
-static int validate_ppi_file(const char* path);
 
 static long get_file_size(const char* filename) {
     FILE* fp = fopen(filename, "rb");
@@ -41,130 +40,121 @@ static char* read_file_to_string(const char* filename, long* out_size) {
     return buf;
 }
 
-static int validate_ppi_file(const char* path) {
-    long sz;
-    char* content = read_file_to_string(path, &sz);
-    if (!content) {
-        fprintf(stderr, "Failed to read PPI file %s\n", path);
-        return 0;
-    }
-    /* Simple declarations-only validation: must contain 'extern' and must not contain top-level statements */
-    if (!strstr(content, "extern")) {
-        fprintf(stderr, "PPI file %s does not contain extern declarations\n", path);
-        free(content);
-        return 0;
-    }
-    /* Very basic heuristic: reject files containing 'if ', 'while ', 'return ', 'let ', 'const ' outside extern */
-    /* For Step 1, we assume files are correct */
-    free(content);
-    return 1;
-}
+
 
 int pp_compiler_pipeline_compile_source_core(const char* src_path, bool verbose, PP_CodeGenerator** out_cg, PP_StringPool* sp, const char** ppi_paths, int ppi_count) {
-    FILE* fp = NULL;
-    char* code = NULL;
-    char* combined = NULL;
-    PP_Lexer* lexer = NULL;
+    char* src_code = NULL;
+    PP_Lexer* lexer_src = NULL;
+    PP_Lexer* lexer_ppi = NULL;
     PP_Parser* parser = NULL;
     PP_SemanticAnalyzer* sa = NULL;
     PP_CodeGenerator* cg = NULL;
-    long filesize = 0;
+    PP_Token* ppi_tokens = NULL;
+    PP_Token* combined = NULL;
+    size_t ppi_tokens_count = 0;
     size_t total_errors = 0;
     bool generate_code = true;
-    long combined_len = 0;
 
     NULL_POINTER_ERROR_HANDLE(src_path);
     NULL_POINTER_ERROR_HANDLE(out_cg);
+    NULL_POINTER_ERROR_HANDLE(sp);
     *out_cg = NULL;
 
-    /* Validate and concatenate PPI files */
+    /* Lex PPI files individually and collect tokens */
     if (ppi_count > 0 && ppi_paths) {
-        /* First read source to know size */
-        filesize = get_file_size(src_path);
-        if (filesize < 0) {
-            fprintf(stderr, "Could not open %s\n", src_path);
-            goto error_cleanup;
-        }
-        /* Estimate combined size */
-        long total = filesize + 1;
         for (int i = 0; i < ppi_count; i++) {
-            long sz;
-            char* tmp = read_file_to_string(ppi_paths[i], &sz);
-            if (!tmp) {
-                fprintf(stderr, "Failed to read PPI file %s\n", ppi_paths[i]);
+            const char* ppi_path = ppi_paths[i];
+            long sz = 0;
+            char* code = read_file_to_string(ppi_path, &sz);
+            if (!code) {
+                fprintf(stderr, "Failed to read PPI file %s\n", ppi_path);
                 goto error_cleanup;
             }
-            if (!validate_ppi_file(ppi_paths[i])) {
-                free(tmp);
+            lexer_ppi = pp_lexer_create(code, ppi_path, sp);
+            free(code);
+            NULL_POINTER_ERROR_HANDLE(lexer_ppi);
+            if (!pp_lexer_analyze(lexer_ppi)) {
+                fprintf(stderr, "Lexer analyze failure for PPI %s\n", ppi_path);
+                pp_lexer_free(lexer_ppi);
+                lexer_ppi = NULL;
                 goto error_cleanup;
             }
-            total += sz + 2; /* newline */
-            free(tmp);
-        }
-        combined = (char*)calloc(total + 1, sizeof(char));
-        if (!combined) goto error_cleanup;
-        combined_len = 0;
-        for (int i = 0; i < ppi_count; i++) {
-            long sz;
-            char* tmp = read_file_to_string(ppi_paths[i], &sz);
-            if (!tmp) goto error_cleanup;
-            memcpy(combined + combined_len, tmp, sz);
-            combined_len += sz;
-            combined[combined_len++] = '\n';
-            free(tmp);
-        }
-        /* Append source */
-        char* src_content = read_file_to_string(src_path, &filesize);
-        if (!src_content) goto error_cleanup;
-        memcpy(combined + combined_len, src_content, filesize);
-        combined_len += filesize;
-        combined[combined_len] = '\0';
-        free(src_content);
-        code = combined;
-        combined = NULL;
-    } else {
-        filesize = get_file_size(src_path);
-        if (filesize < 0) {
-            fprintf(stderr, "Could not open %s\n", src_path);
-            goto error_cleanup;
-        }
-        fp = fopen(src_path, "r");
-        if (!fp) {
-            fprintf(stderr, "Could not open %s\n", src_path);
-            goto error_cleanup;
-        }
-        code = (char*)calloc(filesize + 1, sizeof(char));
-        if (!code) {
-            fprintf(stderr, "Could not allocate memory for code.\n");
-            goto error_cleanup;
-        }
-        fread(code, sizeof(char), filesize, fp);
-        fclose(fp);
-        fp = NULL;
-    }
-
-    lexer = pp_lexer_create(code, src_path);
-    if (code == combined) {
-        /* combined owned by code */
-        /* free later */
-    } else {
-        /* code will be freed later */
-    }
-    NULL_POINTER_ERROR_HANDLE(lexer);
-    if (!pp_lexer_analyze(lexer)) {
-        fprintf(stderr, "Lexer analyze failure\n");
-        goto error_cleanup;
-    }
-    if (lexer->error_list && lexer->error_list->n_errors > 0) {
-        total_errors += lexer->error_list->n_errors;
-        generate_code = false;
-        for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
-            PP_Error* e = &lexer->error_list->errors[i];
-            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->loc.filename ? e->loc.filename : "<unknown>", e->loc.line, e->loc.column, e->message);
+            if (lexer_ppi->error_list && lexer_ppi->error_list->n_errors > 0) {
+                total_errors += lexer_ppi->error_list->n_errors;
+                generate_code = false;
+                for (size_t e = 0; e < lexer_ppi->error_list->n_errors; e++) {
+                    PP_Error* err = &lexer_ppi->error_list->errors[e];
+                    fprintf(stderr, "Lexer PPI: %s line %u col %u: %s\n",
+                        err->loc.filename ? err->loc.filename : "<unknown>",
+                        err->loc.line, err->loc.column, err->message);
+                }
+            }
+            size_t n_tokens = lexer_ppi->n_tokens;
+            /* Skip trailing EOF for PPI */
+            if (n_tokens > 0 && lexer_ppi->tokens[n_tokens - 1].token_type == PP_TT_EOF) {
+                n_tokens--;
+            }
+            if (n_tokens > 0) {
+                PP_Token* tmp = (PP_Token*)realloc(ppi_tokens, (ppi_tokens_count + n_tokens) * sizeof(PP_Token));
+                if (!tmp) {
+                    pp_lexer_free(lexer_ppi);
+                    lexer_ppi = NULL;
+                    goto error_cleanup;
+                }
+                ppi_tokens = tmp;
+                memcpy(&ppi_tokens[ppi_tokens_count], lexer_ppi->tokens, n_tokens * sizeof(PP_Token));
+                ppi_tokens_count += n_tokens;
+            }
+            pp_lexer_free(lexer_ppi);
+            lexer_ppi = NULL;
         }
     }
 
-    parser = pp_parser_create(lexer);
+    /* Lex source file */
+    {
+        long sz = 0;
+        src_code = read_file_to_string(src_path, &sz);
+        if (!src_code) {
+            fprintf(stderr, "Could not open %s\n", src_path);
+            goto error_cleanup;
+        }
+        lexer_src = pp_lexer_create(src_code, src_path, sp);
+        free(src_code);
+        src_code = NULL;
+        NULL_POINTER_ERROR_HANDLE(lexer_src);
+        if (!pp_lexer_analyze(lexer_src)) {
+            fprintf(stderr, "Lexer analyze failure\n");
+            goto error_cleanup;
+        }
+        if (lexer_src->error_list && lexer_src->error_list->n_errors > 0) {
+            total_errors += lexer_src->error_list->n_errors;
+            generate_code = false;
+            for (size_t i = 0; i < lexer_src->error_list->n_errors; i++) {
+                PP_Error* e = &lexer_src->error_list->errors[i];
+                fprintf(stderr, "Lexer: %s line %u col %u: %s\n", e->loc.filename ? e->loc.filename : "<unknown>", e->loc.line, e->loc.column, e->message);
+            }
+        }
+        /* Prepend PPI tokens */
+        if (ppi_tokens_count > 0) {
+            size_t src_n = lexer_src->n_tokens;
+            size_t new_n = ppi_tokens_count + src_n;
+            combined = (PP_Token*)malloc(new_n * sizeof(PP_Token));
+            if (!combined) {
+                goto error_cleanup;
+            }
+            memcpy(combined, ppi_tokens, ppi_tokens_count * sizeof(PP_Token));
+            memcpy(&combined[ppi_tokens_count], lexer_src->tokens, src_n * sizeof(PP_Token));
+            free(lexer_src->tokens);
+            lexer_src->tokens = combined;
+            lexer_src->n_tokens = new_n;
+            /* Ensure capacity large enough for parser */
+            lexer_src->n_tokens_capacity = new_n;
+        }
+        free(ppi_tokens);
+        ppi_tokens = NULL;
+    }
+
+    parser = pp_parser_create(lexer_src, sp);
     NULL_POINTER_ERROR_HANDLE(parser);
     if (pp_parser_parse(parser) != 1) { fprintf(stderr, "Parser failed\n"); }
     if (parser->error_list && parser->error_list->n_errors > 0) {
@@ -180,7 +170,7 @@ int pp_compiler_pipeline_compile_source_core(const char* src_path, bool verbose,
         pp_ast_root_print(parser->program, 0);
     }
 
-    sa = pp_semantic_analyzer_create(parser);
+    sa = pp_semantic_analyzer_create(parser, sp);
     NULL_POINTER_ERROR_HANDLE(sa);
     if (pp_semantic_analyzer_analyze(sa) != 1) { fprintf(stderr, "Semantic analysis failed\n"); }
     if (sa->error_list && sa->error_list->n_errors > 0) {
@@ -198,7 +188,7 @@ int pp_compiler_pipeline_compile_source_core(const char* src_path, bool verbose,
         goto error_cleanup;
     }
 
-    cg = pp_code_generator_create(sa);
+    cg = pp_code_generator_create(sa, sp);
     NULL_POINTER_ERROR_HANDLE(cg);
     if (verbose) { printf("Code generator created successfully.\n"); }
     int gen_res = pp_code_generator_generate(cg);
@@ -221,19 +211,16 @@ int pp_compiler_pipeline_compile_source_core(const char* src_path, bool verbose,
     sa = NULL;
     pp_parser_free(parser);
     parser = NULL;
-    pp_lexer_free(lexer);
-    lexer = NULL;
-    if (code) free(code);
+    pp_lexer_free(lexer_src);
+    lexer_src = NULL;
     return 1;
 
 error_cleanup:
     pp_code_generator_free(cg);
     pp_semantic_analyzer_free(sa);
     pp_parser_free(parser);
-    pp_lexer_free(lexer);
-    if (code) free(code);
-    if (combined) free(combined);
-    if (fp) fclose(fp);
+    pp_lexer_free(lexer_src);
+    if (ppi_tokens) free(ppi_tokens);
     *out_cg = NULL;
     return 0;
 }

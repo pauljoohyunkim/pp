@@ -3,10 +3,12 @@
 #include <string>
 #include <cstring>
 #include "pp_lexer.h"
+#include "pp_string_pool.h"
 #include "pp_tokens.h"
+static PP_StringPool* test_sp = pp_string_pool_create();
 
 TEST(Lexer, AnalysisLength) {
-    auto lexer_h = pp_lexer_create("( { ( [ (  \n )]))}", nullptr);
+    auto lexer_h = pp_lexer_create("( { ( [ (  \n )]))}", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 11);
@@ -25,7 +27,7 @@ TEST(Lexer, AnalysisLength) {
 }
 
 TEST(Lexer, AnalysisComment) {
-    auto lexer_h = pp_lexer_create("- == // %@13 +- == \n//\n->", nullptr);
+    auto lexer_h = pp_lexer_create("- == // %@13 +- == \n//\n->", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 4);
@@ -36,7 +38,7 @@ TEST(Lexer, AnalysisComment) {
 }
 
 TEST(Lexer, AnalysisEqual) {
-    auto lexer_h = pp_lexer_create("= ==", nullptr);
+    auto lexer_h = pp_lexer_create("= ==", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 3);
@@ -46,7 +48,7 @@ TEST(Lexer, AnalysisEqual) {
 }
 
 TEST(Lexer, Keywords) {
-    auto lexer_h = pp_lexer_create("return func int32", nullptr);
+    auto lexer_h = pp_lexer_create("return func int32", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 4);
@@ -57,7 +59,7 @@ TEST(Lexer, Keywords) {
 }
 
 TEST(Lexer, Identifiers) {
-    auto lexer_h = pp_lexer_create("return1 inv func30j2", nullptr);
+    auto lexer_h = pp_lexer_create("return1 inv func30j2", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 4);
@@ -71,7 +73,7 @@ TEST(Lexer, Identifiers) {
 }
 
 TEST(Lexer, NumericLiterals) {
-    auto lexer_h = pp_lexer_create("0 1.0 3.", nullptr);
+    auto lexer_h = pp_lexer_create("0 1.0 3.", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 4);
@@ -82,7 +84,7 @@ TEST(Lexer, NumericLiterals) {
 }
 
 TEST(Lexer, Unknown) {
-    auto lexer_h = pp_lexer_create("a bd ~ `", nullptr);
+    auto lexer_h = pp_lexer_create("a bd ~ `", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     // a identifier, bd identifier, ~ unknown, ` unknown, EOF
@@ -95,7 +97,7 @@ TEST(Lexer, Unknown) {
 }
 
 TEST(Lexer, SingleCharacterTokens) {
-    auto lexer_h = pp_lexer_create("()+-*/;.,{}[]", nullptr);
+    auto lexer_h = pp_lexer_create("()+-*/;.,{}[]", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 14);
@@ -116,7 +118,7 @@ TEST(Lexer, SingleCharacterTokens) {
 }
 
 TEST(Lexer, DoubleCharacterTokens) {
-    auto lexer_h = pp_lexer_create("== += -= *= /= %= &= |= ^= == != >= <= => :: && ||", nullptr);
+    auto lexer_h = pp_lexer_create("== += -= *= /= %= &= |= ^= == != >= <= => :: && ||", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 19);
@@ -142,7 +144,7 @@ TEST(Lexer, DoubleCharacterTokens) {
 }
 
 TEST(Lexer, KeywordBoundaries) {
-    auto lexer_h = pp_lexer_create("if ifif else elseif endif for foreach format", nullptr);
+    auto lexer_h = pp_lexer_create("if ifif else elseif endif for foreach format", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 9);
@@ -161,7 +163,7 @@ TEST(Lexer, KeywordBoundaries) {
 }
 
 TEST(Lexer, LineAndColumnTracking) {
-    auto lexer_h = pp_lexer_create("a\nb", nullptr);
+    auto lexer_h = pp_lexer_create("a\nb", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 3);
@@ -177,7 +179,7 @@ TEST(Lexer, LineAndColumnTracking) {
 }
 
 TEST(Lexer, WhitespaceSkipping) {
-    auto lexer_h = pp_lexer_create("   int32\t\n\x0b\x0c\r   foo   ", nullptr);
+    auto lexer_h = pp_lexer_create("   int32\t\n\x0b\x0c\r   foo   ", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 3);
@@ -188,7 +190,7 @@ TEST(Lexer, WhitespaceSkipping) {
 }
 
 TEST(Lexer, EOFPositionTracking) {
-    auto lexer_h = pp_lexer_create("hello\nworld", nullptr);
+    auto lexer_h = pp_lexer_create("hello\nworld", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 3);
@@ -205,7 +207,7 @@ TEST(Lexer, EOFPositionTracking) {
 }
 
 TEST(Lexer, NumericEdgeCases) {
-    auto lexer_h = pp_lexer_create(".5 5. 5.5.5 5..5 5u5U .5u 5.u", nullptr);
+    auto lexer_h = pp_lexer_create(".5 5. 5.5.5 5..5 5u5U .5u 5.u", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 16);
@@ -231,7 +233,7 @@ TEST(Lexer, NumericEdgeCases) {
 }
 
 TEST(Lexer, IdentifierEdgeCases) {
-    auto lexer_h = pp_lexer_create("_ _test test_ test123 123test __ __test__ TEST test TestTest", nullptr);
+    auto lexer_h = pp_lexer_create("_ _test test_ test123 123test __ __test__ TEST test TestTest", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 12);
@@ -255,7 +257,7 @@ TEST(Lexer, IdentifierEdgeCases) {
 }
 
 TEST(Lexer, OperatorCombinations) {
-    auto lexer_h = pp_lexer_create("++ -- ** &&|| ==!= <=>= <<>> !!", nullptr);
+    auto lexer_h = pp_lexer_create("++ -- ** &&|| ==!= <=>= <<>> !!", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 17);
@@ -279,7 +281,7 @@ TEST(Lexer, OperatorCombinations) {
 }
 
 TEST(Lexer, MixedWhitespaceAndComments) {
-    auto lexer_h = pp_lexer_create("  int32 // this is a comment\n\t  x = 5 /* not a block comment */ ;  \r\n", nullptr);
+    auto lexer_h = pp_lexer_create("  int32 // this is a comment\n\t  x = 5 /* not a block comment */ ;  \r\n", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 14);
@@ -300,7 +302,7 @@ TEST(Lexer, MixedWhitespaceAndComments) {
 }
 
 TEST(Lexer, StringLiteralBehavior) {
-    auto lexer_h = pp_lexer_create("\"\" \"a\" \"hello world\" \"123\" \"_test\"", nullptr);
+    auto lexer_h = pp_lexer_create("\"\" \"a\" \"hello world\" \"123\" \"_test\"", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 6);
@@ -311,7 +313,7 @@ TEST(Lexer, StringLiteralBehavior) {
 }
 
 TEST(Lexer, HashToken) {
-    auto lexer_h = pp_lexer_create("# #arr # arr#", nullptr);
+    auto lexer_h = pp_lexer_create("# #arr # arr#", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 7);
@@ -325,7 +327,7 @@ TEST(Lexer, HashToken) {
 }
 
 TEST(Lexer, IntegerSuffixLiterals) {
-    auto lexer_h = pp_lexer_create("42s 42ss 42l 42ll 42us 42uss 42ul 42ull 42S 42SS 42L 42LL 42US 42USS 42UL 42ULL", nullptr);
+    auto lexer_h = pp_lexer_create("42s 42ss 42l 42ll 42us 42uss 42ul 42ull 42S 42SS 42L 42LL 42US 42USS 42UL 42ULL", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     // 16 literals + EOF
@@ -354,7 +356,7 @@ TEST(Lexer, IntegerSuffixLiterals) {
 }
 
 TEST(Lexer, NewIntegerTypeKeywords) {
-    auto lexer_h = pp_lexer_create("int8 uint8 int16 uint16 int64 uint64 int128 uint128", nullptr);
+    auto lexer_h = pp_lexer_create("int8 uint8 int16 uint16 int64 uint64 int128 uint128", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 9);
@@ -372,7 +374,7 @@ TEST(Lexer, NewIntegerTypeKeywords) {
 }
 
 TEST(Lexer, StaticStringLiteral) {
-    auto lexer_h = pp_lexer_create("@\"hello\" @\"\" @\"he\\\"llo\\n\"", nullptr);
+    auto lexer_h = pp_lexer_create("@\"hello\" @\"\" @\"he\\\"llo\\n\"", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 4);
@@ -387,7 +389,7 @@ TEST(Lexer, StaticStringLiteral) {
 
 TEST(Lexer, StaticStringNoWhitespace) {
     // No whitespace allowed between @ and "
-    auto lexer_h = pp_lexer_create("@ \"hello\"", nullptr);
+    auto lexer_h = pp_lexer_create("@ \"hello\"", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     // '@' alone is AT, then string literal
@@ -398,7 +400,7 @@ TEST(Lexer, StaticStringNoWhitespace) {
 }
 
 TEST(Lexer, StaticStringEscapes) {
-    auto lexer_h = pp_lexer_create("@\"a\\n b\" @\"a\\0b\" @\"\\\"\"", nullptr);
+    auto lexer_h = pp_lexer_create("@\"a\\n b\" @\"a\\0b\" @\"\\\"\"", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 4);
@@ -409,7 +411,7 @@ TEST(Lexer, StaticStringEscapes) {
 }
 
 TEST(Lexer, StaticStringEscapesHexBackslash) {
-    auto lexer_h = pp_lexer_create("@\"\\x41\\x42\\x43\" @\"\\\\\" @\"\\0\\t\\r\\\"\\n\"", nullptr);
+    auto lexer_h = pp_lexer_create("@\"\\x41\\x42\\x43\" @\"\\\\\" @\"\\0\\t\\r\\\"\\n\"", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 4);
@@ -424,7 +426,7 @@ TEST(Lexer, StaticStringEscapesHexBackslash) {
 
 TEST(Lexer, StringLiteralNoMultiline) {
     // String literals should not span lines; newline stops the token
-    auto lexer_h = pp_lexer_create("\"a\n", nullptr);
+    auto lexer_h = pp_lexer_create("\"a\n", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     // Lexer will produce a token for "a\n? The newline breaks token, so we get STRING_LITERAL for "a and then newline handling
@@ -433,7 +435,7 @@ TEST(Lexer, StringLiteralNoMultiline) {
 }
 
 TEST(Lexer, StaticStringLiteralNoMultiline) {
-    auto lexer_h = pp_lexer_create("@\"a\n\"", nullptr);
+    auto lexer_h = pp_lexer_create("@\"a\n\"", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     // Should not treat as a single static string spanning lines
@@ -441,7 +443,7 @@ TEST(Lexer, StaticStringLiteralNoMultiline) {
 }
 
 TEST(Lexer, StringLiteralContainsTab) {
-    auto lexer_h = pp_lexer_create("\"a\tb\"", nullptr);
+    auto lexer_h = pp_lexer_create("\"a\tb\"", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 2);
@@ -450,7 +452,7 @@ TEST(Lexer, StringLiteralContainsTab) {
 }
 
 TEST(Lexer, StaticStringLiteralContainsTab) {
-    auto lexer_h = pp_lexer_create("@\"a\tb\"", nullptr);
+    auto lexer_h = pp_lexer_create("@\"a\tb\"", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 2);
@@ -458,7 +460,7 @@ TEST(Lexer, StaticStringLiteralContainsTab) {
 }
 
 TEST(Lexer, AddressOfAndDerefTokens) {
-    auto lexer_h = pp_lexer_create("@ $ @var $var", nullptr);
+    auto lexer_h = pp_lexer_create("@ $ @var $var", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 7);
@@ -472,7 +474,7 @@ TEST(Lexer, AddressOfAndDerefTokens) {
 }
 
 TEST(Lexer, PointerKeywords) {
-    auto lexer_h = pp_lexer_create("ptr nullptr ptrfoo nullptrbar ptr_ foo_ptr", nullptr);
+    auto lexer_h = pp_lexer_create("ptr nullptr ptrfoo nullptrbar ptr_ foo_ptr", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 7);
@@ -486,7 +488,7 @@ TEST(Lexer, PointerKeywords) {
 }
 
 TEST(Lexer, AtKeywordBoundaries) {
-    auto lexer_h = pp_lexer_create("@ @\"hi\" @var", nullptr);
+    auto lexer_h = pp_lexer_create("@ @\"hi\" @var", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 5);

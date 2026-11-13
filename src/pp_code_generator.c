@@ -782,7 +782,7 @@ error_cleanup:
     return NULL;
 }
 
-PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
+PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp) {
     PP_CodeGenerator* cg = NULL;
     LLVMContextRef ctx = NULL;
     LLVMModuleRef mod = NULL;
@@ -835,8 +835,7 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
     cg->code = sa->code;
     sa->code = NULL;
 
-    cg->sp = sa->sp;
-    sa->sp = NULL;
+    cg->sp = sp;
 
     assert(sa->current_function_type == NULL);
     cg->current_function_type = NULL;
@@ -882,7 +881,7 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         pp_error_list_free(cg->error_list);
         pp_global_type_table_free(cg->gtt);
         free((char*)cg->code);
-        pp_string_pool_free(cg->sp);
+        /* String pool is not owned by code generator; do not free */
         free(cg->drop_stack_addresses);
         free(cg->drop_stack_types);
         free(cg->type_cache);

@@ -40,7 +40,7 @@ static size_t pp_lexer_scan_until_quote(PP_Lexer* lexer, size_t start_offset) {
     return pos;
 }
 
-PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
+PP_Lexer* pp_lexer_create(const char* code, const char* filename, PP_StringPool* sp_in) {
     PP_Lexer* lexer = NULL;
     PP_Token* tokens = NULL;
     char* code_copy = NULL;
@@ -48,6 +48,8 @@ PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
     PP_ErrorList* error_list = NULL;
 
     if (code == NULL) return NULL;
+
+    NULL_POINTER_ERROR_HANDLE(sp_in);
 
     const size_t code_length = strlen(code);
 
@@ -63,8 +65,7 @@ PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
     NULL_POINTER_ERROR_HANDLE(code_copy);
     strncpy(code_copy, code, code_length);
 
-    sp = pp_string_pool_create();
-    NULL_POINTER_ERROR_HANDLE(sp);
+    sp = sp_in;
 
     error_list = pp_error_list_create();
     NULL_POINTER_ERROR_HANDLE(error_list);
@@ -84,7 +85,6 @@ PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
 error_cleanup:
     free(tokens);
     free(code_copy);
-    pp_string_pool_free(sp);
     pp_error_list_free(error_list);
     if (lexer) free(lexer);
     return NULL;
@@ -94,7 +94,7 @@ void pp_lexer_free(PP_Lexer* lexer) {
     if (lexer != NULL) {
         free(lexer->tokens);
         free((char*)lexer->code);
-        pp_string_pool_free(lexer->sp);
+        /* String pool is owned by orchestrator, do not free here */
         pp_error_list_free(lexer->error_list);
         free(lexer);
     }
