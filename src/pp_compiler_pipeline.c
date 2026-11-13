@@ -253,9 +253,9 @@ int pp_compiler_pipeline_compile_source(const char* src_path, const char* obj_pa
     if (emit_ir) {
         ok = pp_code_generator_emit_ir_file(cg->mod, obj_path);
     } else if (to_assembly) {
-        ok = pp_code_generator_emit_assembly_file(cg->mod, obj_path);
+        ok = pp_code_generator_emit_assembly_file(cg->mod, obj_path, tm);
     } else {
-        ok = pp_code_generator_emit_object_file(cg->mod, obj_path);
+        ok = pp_code_generator_emit_object_file(cg->mod, obj_path, tm);
     }
     pp_code_generator_free(cg);
     return ok;
@@ -274,7 +274,7 @@ int pp_compiler_pipeline_compile_source_to_buffer(const char* src_path, LLVMMemo
         }
     }
     LLVMMemoryBufferRef buf = NULL;
-    if (!pp_code_generator_emit_object_to_buffer(cg->mod, &buf)) {
+    if (!pp_code_generator_emit_object_to_buffer(cg->mod, &buf, tm)) {
         pp_code_generator_free(cg);
         return 0;
     }

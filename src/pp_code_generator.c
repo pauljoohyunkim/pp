@@ -1126,25 +1126,21 @@ error_cleanup:
 }
 
 static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* output_filename,
-                                           LLVMMemoryBufferRef* out_buf, int to_assembly) {
+                                           LLVMMemoryBufferRef* out_buf, int to_assembly, LLVMTargetMachineRef tm_in) {
+    if (!module || !tm_in) {
+        fprintf(stderr, "pp_code_generator_emit_internal requires non-NULL module and target machine\n");
+        return 0;
+    }
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
 
-    char* target_triple = LLVMGetDefaultTargetTriple();
+    LLVMTargetMachineRef target_machine = tm_in;
+    char* target_triple = NULL;
+
+    /* Ensure module target triple matches the machine */
+    target_triple = LLVMGetTargetMachineTriple(target_machine);
     LLVMSetTarget(module, target_triple);
 
-    LLVMTargetRef target;
-    char* error = NULL;
-    if (LLVMGetTargetFromTriple(target_triple, &target, &error)) {
-        fprintf(stderr, "LLVM Target Error: %s\n", error);
-        LLVMDisposeMessage(error);
-        LLVMDisposeMessage(target_triple);
-        return 0;
-    }
-
-    LLVMTargetMachineRef target_machine =
-        LLVMCreateTargetMachine(target, target_triple, "generic", "", LLVMCodeGenLevelDefault, LLVMRelocPIC,
-                                LLVMCodeModelDefault);
 
     LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(target_machine);
     LLVMSetModuleDataLayout(module, data_layout);
@@ -1152,6 +1148,7 @@ static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* out
     int result = 1;
     LLVMCodeGenFileType codegen_file_type = to_assembly ? LLVMAssemblyFile : LLVMObjectFile;
     if (output_filename) {
+        char* error = NULL;
         if (LLVMTargetMachineEmitToFile(target_machine, module, (char*)output_filename, codegen_file_type, &error)) {
             fprintf(stderr, "Failed to emit object file: %s\n", error);
             LLVMDisposeMessage(error);
@@ -1159,6 +1156,7 @@ static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* out
         }
     } else if (out_buf) {
         LLVMMemoryBufferRef buf = NULL;
+        char* error = NULL;
         if (LLVMTargetMachineEmitToMemoryBuffer(target_machine, module, codegen_file_type, &error, &buf)) {
             fprintf(stderr, "Failed to emit object to buffer: %s\n", error);
             LLVMDisposeMessage(error);
@@ -1174,25 +1172,24 @@ static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* out
     }
 
     LLVMDisposeTargetData(data_layout);
-    LLVMDisposeTargetMachine(target_machine);
-    LLVMDisposeMessage(target_triple);
+    if (target_triple) LLVMDisposeMessage(target_triple);
     return result;
 }
 
-int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename) {
-    return pp_code_generator_emit_internal(module, output_filename, NULL, 0);
+int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename, LLVMTargetMachineRef tm) {
+    return pp_code_generator_emit_internal(module, output_filename, NULL, 0, tm);
 }
 
-int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* output_filename) {
-    return pp_code_generator_emit_internal(module, output_filename, NULL, 1);
+int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* output_filename, LLVMTargetMachineRef tm) {
+    return pp_code_generator_emit_internal(module, output_filename, NULL, 1, tm);
 }
 
-int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf) {
-    return pp_code_generator_emit_internal(module, NULL, out_buf, 0);
+int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf, LLVMTargetMachineRef tm) {
+    return pp_code_generator_emit_internal(module, NULL, out_buf, 0, tm);
 }
 
-int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf) {
-    return pp_code_generator_emit_internal(module, NULL, out_buf, 1);
+int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf, LLVMTargetMachineRef tm) {
+    return pp_code_generator_emit_internal(module, NULL, out_buf, 1, tm);
 }
 
 int pp_code_generator_emit_ir_file(LLVMModuleRef module, const char* output_filename) {

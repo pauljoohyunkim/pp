@@ -126,25 +126,37 @@ int pp_code_generator_generate(PP_CodeGenerator* cg);
  * @brief Emit LLVM module to an object file.
  * @param module LLVM module.
  * @param output_filename Output file name.
+ * @param tm Optional target machine, NULL for default.
  * @return 1 on success, 0 otherwise.
  */
-int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename);
+int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename, LLVMTargetMachineRef tm);
 
 /**
  * @brief Emit LLVM module to an assembly file.
  * @param module LLVM module.
  * @param output_filename Output file name.
+ * @param tm Optional target machine, NULL for default.
  * @return 1 on success, 0 otherwise.
  */
-int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* output_filename);
+int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* output_filename, LLVMTargetMachineRef tm);
 
 /**
  * @brief Emit LLVM module to an in-memory buffer.
  * @param module LLVM module.
  * @param out_buf Output memory buffer, caller must dispose with LLVMDisposeMemoryBuffer.
+ * @param tm Optional target machine, NULL for default.
  * @return 1 on success, 0 otherwise.
  */
-int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf);
+int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf, LLVMTargetMachineRef tm);
+
+/**
+ * @brief Emit LLVM module to an assembly buffer.
+ * @param module LLVM module.
+ * @param out_buf Output memory buffer, caller must dispose with LLVMDisposeMemoryBuffer.
+ * @param tm Optional target machine, NULL for default.
+ * @return 1 on success, 0 otherwise.
+ */
+int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf, LLVMTargetMachineRef tm);
 
 /**
  * @brief Emit LLVM module IR to a file.

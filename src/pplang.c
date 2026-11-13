@@ -182,12 +182,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // When optimization is required, it requires input_list->target_machine to be determined beforehand.
-    if (optimization_mode != '\0') {
+    // Create a single target machine for optimization and emission
+    {
         LLVMContextRef tmp_ctx = LLVMContextCreate();
         LLVMModuleRef tmp_mod = LLVMModuleCreateWithNameInContext("tmp", tmp_ctx);
         if (!pp_code_generator_target_machine_create_default(tmp_mod, &input_list->target_machine)) {
-            fprintf(stderr, "Failed to create target machine for optimization\n");
+            fprintf(stderr, "Failed to create target machine\n");
             LLVMDisposeModule(tmp_mod);
             LLVMContextDispose(tmp_ctx);
             pplang_input_list_free(input_list);
@@ -197,6 +197,16 @@ int main(int argc, char** argv) {
         LLVMContextDispose(tmp_ctx);
     }
 
+    /*
+    For each input,
+        if source file
+            if compile_to_object
+                compile to object
+            else
+                compile to buffer
+        else
+            do nothing
+    */
     for (unsigned int i = 0; i < input_list->count; i++) {
         PPLang_Input* inp = &input_list->inputs[i];
         if (inp->type == PP_SOURCE) {
