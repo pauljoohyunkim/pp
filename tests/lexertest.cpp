@@ -169,11 +169,11 @@ TEST(Lexer, LineAndColumnTracking) {
     ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_IDENTIFIER);
     ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_EOF);
     ASSERT_STREQ(lexer->tokens[0].lexeme, "a");
-    ASSERT_EQ(lexer->tokens[0].line, 1);
-    ASSERT_EQ(lexer->tokens[0].column, 1);
+    ASSERT_EQ(lexer->tokens[0].loc.line, 1);
+    ASSERT_EQ(lexer->tokens[0].loc.column, 1);
     ASSERT_STREQ(lexer->tokens[1].lexeme, "b");
-    ASSERT_EQ(lexer->tokens[1].line, 2);
-    ASSERT_EQ(lexer->tokens[1].column, 1);
+    ASSERT_EQ(lexer->tokens[1].loc.line, 2);
+    ASSERT_EQ(lexer->tokens[1].loc.column, 1);
 }
 
 TEST(Lexer, WhitespaceSkipping) {
@@ -196,12 +196,12 @@ TEST(Lexer, EOFPositionTracking) {
     ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_IDENTIFIER);
     ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_EOF);
     ASSERT_STREQ(lexer->tokens[0].lexeme, "hello");
-    ASSERT_EQ(lexer->tokens[0].line, 1);
-    ASSERT_EQ(lexer->tokens[0].column, 1);
+    ASSERT_EQ(lexer->tokens[0].loc.line, 1);
+    ASSERT_EQ(lexer->tokens[0].loc.column, 1);
     ASSERT_STREQ(lexer->tokens[1].lexeme, "world");
-    ASSERT_EQ(lexer->tokens[1].line, 2);
-    ASSERT_EQ(lexer->tokens[1].column, 1);
-    ASSERT_EQ(lexer->tokens[2].line, 2);
+    ASSERT_EQ(lexer->tokens[1].loc.line, 2);
+    ASSERT_EQ(lexer->tokens[1].loc.column, 1);
+    ASSERT_EQ(lexer->tokens[2].loc.line, 2);
 }
 
 TEST(Lexer, NumericEdgeCases) {

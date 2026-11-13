@@ -800,7 +800,7 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
     cg->ctx = ctx;
     ctx = NULL;
 
-    mod = LLVMModuleCreateWithNameInContext(sa->filename ? sa->filename : "input", cg->ctx);
+    mod = LLVMModuleCreateWithNameInContext("input", cg->ctx);
     if (mod == NULL) goto error_cleanup;
     cg->mod = mod;
     mod = NULL;
@@ -820,7 +820,7 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
     cg->error_list = error_list;
     error_list = NULL;
 
-    cg->filename = sa->filename;
+    // cg filename removed
     cg->code_length = sa->code_length;
 
     cg->program = sa->program;
@@ -1109,11 +1109,11 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
         char* verify_err = NULL;
         if (LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &verify_err)) {
             if (verify_err) {
-                pp_error_list_push_error(cg->error_list, cg->filename, 0, 0, "LLVM verification failed: %s",
+                pp_error_list_push_error(cg->error_list, (PP_SourceLoc){.filename="<internal>", .line=0, .column=0},  "LLVM verification failed: %s",
                                          verify_err);
                 LLVMDisposeMessage(verify_err);
             } else {
-                pp_error_list_push_error(cg->error_list, cg->filename, 0, 0, "LLVM verification failed");
+                pp_error_list_push_error(cg->error_list, (PP_SourceLoc){.filename="<internal>", .line=0, .column=0},  "LLVM verification failed");
             }
             goto error_cleanup;
         }

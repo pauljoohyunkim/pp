@@ -30,9 +30,8 @@ typedef enum {
     PP_PRECEDENCE_PRIMARY = 140
 } PP_Precedence;
 
-static inline unsigned int pp_parser_get_line(const PP_Parser* parser);
-static inline unsigned int pp_parser_get_col(const PP_Parser* parser);
 static PP_TokenType pp_parser_peek_token_type(const PP_Parser* parser, unsigned int offset);
+static PP_SourceLoc pp_parser_current_loc(const PP_Parser* parser);
 static int pp_parser_infix_binding_power(PP_TokenType token_type, unsigned char* left_bp, unsigned char* right_bp);
 static bool pp_parser_is_sync_token(PP_TokenType token_type);
 static int pp_parser_sync(PP_Parser* parser);
@@ -121,14 +120,13 @@ void pp_parser_free(PP_Parser* parser) {
     free(parser);
 }
 
-static inline unsigned int pp_parser_get_line(const PP_Parser* parser) {
-    if (!parser || parser->idx >= parser->n_tokens) return 0;
-    return parser->tokens[parser->idx].line;
-}
 
-static inline unsigned int pp_parser_get_col(const PP_Parser* parser) {
-    if (!parser || parser->idx >= parser->n_tokens) return 0;
-    return parser->tokens[parser->idx].column;
+static inline PP_SourceLoc pp_parser_current_loc(const PP_Parser* parser) {
+    if (!parser || parser->idx >= parser->n_tokens) {
+        const char* fn = parser ? parser->filename : "<unknown>";
+        return (PP_SourceLoc){ .filename = fn, .line = 0, .column = 0 };
+    }
+    return parser->tokens[parser->idx].loc;
 }
 
 static PP_TokenType pp_parser_peek_token_type(const PP_Parser* parser, unsigned int offset) {
@@ -210,7 +208,7 @@ static int pp_parser_infix_binding_power(PP_TokenType token_type, unsigned char*
 static PP_Token* pp_parser_consume_token(PP_Parser* parser, PP_TokenType expected_type) {
     if (!parser) return NULL;
     if (parser->idx >= parser->n_tokens) {
-        pp_error_list_push_error(parser->error_list, parser->filename, 0, 0, "Out of tokens");
+        pp_error_list_push_error(parser->error_list, (PP_SourceLoc){.filename=parser->filename, .line=0, .column=0},   "Out of tokens");
         return NULL;
     }
     PP_Token* t = &parser->tokens[parser->idx];
@@ -220,7 +218,7 @@ static PP_Token* pp_parser_consume_token(PP_Parser* parser, PP_TokenType expecte
     } else {
         const char* expected_name = pp_token_to_human_name(expected_type);
         const char* got_name = pp_token_to_human_name(t->token_type);
-        pp_error_list_push_error(parser->error_list, parser->filename, t->line, t->column,
+        pp_error_list_push_error(parser->error_list, t->loc,
                                  "Expected token %s but got %s", expected_name ? expected_name : "unknown",
                                  got_name ? got_name : "unknown");
         parser->idx++;
@@ -275,7 +273,7 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
 
     NULL_POINTER_ERROR_HANDLE(parser);
 
-    program = pp_ast_node_create(PP_AST_ProgramNode, 0, 0);
+    program = pp_ast_node_create(PP_AST_ProgramNode, (PP_SourceLoc){ .filename = NULL, .line = 0, .column = 0 });
     NULL_POINTER_ERROR_HANDLE(program);
 
     capacity = AST_VECTOR_INIT_CAP;
@@ -301,8 +299,7 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                     pp_parser_consume_token(parser, PP_TT_EXTERN);
                     decl = pp_parser_create_extern_operator_declaration(parser);
                 } else {
-                    pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser),
-                                             pp_parser_get_col(parser), "Expected 'func' or 'lambda' after 'extern'");
+                    pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Expected 'func' or 'lambda' after 'extern'");
                     pp_parser_sync(parser);
                 }
                 break;
@@ -329,8 +326,7 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                 decl = pp_parser_create_global_variable_declaration(parser);
                 break;
             default:
-                pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser),
-                                         pp_parser_get_col(parser), "Unexpected token at global scope.");
+                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Unexpected token at global scope.");
                 pp_parser_sync(parser);
                 continue;
         }
@@ -374,7 +370,7 @@ static PP_AST_Node* pp_parser_create_identifier(PP_Parser* parser) {
         tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
         NULL_POINTER_ERROR_HANDLE(tok);
     }
-    node = pp_ast_node_create(PP_AST_IdentifierNode, tok->line, tok->column);
+    node = pp_ast_node_create(PP_AST_IdentifierNode, tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->identifier.identifier = tok->lexeme; /* use string pool pointer */
     tok = NULL;
@@ -426,7 +422,7 @@ static PP_AST_Node* pp_parser_create_null_literal(PP_Parser* parser) {
         tok = pp_parser_consume_token(parser, PP_TT_NULLPTR);
         NULL_POINTER_ERROR_HANDLE(tok);
     }
-    node = pp_ast_node_create(PP_AST_NullLiteralNode, tok->line, tok->column);
+    node = pp_ast_node_create(PP_AST_NullLiteralNode, tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->null_literal.type_node = NULL;
     if (pp_parser_peek_token_type(parser, 0) == PP_TT_LEFT_SQUARE_BRACKET) {
@@ -435,8 +431,7 @@ static PP_AST_Node* pp_parser_create_null_literal(PP_Parser* parser) {
         PP_AST_Node* type_node = pp_parser_create_type(parser);
         NULL_POINTER_ERROR_HANDLE(type_node);
         if (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_SQUARE_BRACKET) {
-            pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser),
-                                     pp_parser_get_col(parser), "Expected ']' after nullptr type argument");
+            pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Expected ']' after nullptr type argument");
             pp_ast_root_free(type_node);
             goto error_cleanup;
         }
@@ -460,7 +455,7 @@ static PP_AST_Node* pp_parser_create_literal(PP_Parser* parser) {
         tok = pp_parser_consume_token(parser, tt);
         NULL_POINTER_ERROR_HANDLE(tok);
     }
-    node = pp_ast_node_create(PP_AST_LiteralNode, tok->line, tok->column);
+    node = pp_ast_node_create(PP_AST_LiteralNode, tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->literal.literal_type = tt;
     node->literal.lexeme = tok->lexeme; /* string pool */
@@ -486,12 +481,12 @@ static PP_AST_Node* pp_parser_create_unary(PP_Parser* parser) {
         {
             op_tok = pp_parser_consume_token(parser, tt);
             NULL_POINTER_ERROR_HANDLE(op_tok);
-            line = op_tok->line;
-            col = op_tok->column;
+            line = op_tok->loc.line;
+            col = op_tok->loc.column;
         }
         operand = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_UNARY);
         NULL_POINTER_ERROR_HANDLE(operand);
-        node = pp_ast_node_create(PP_AST_UnaryExpressionNode, line, col);
+        node = pp_ast_node_create(PP_AST_UnaryExpressionNode, op_tok->loc);
         NULL_POINTER_ERROR_HANDLE(node);
         node->unary_expression.op = tt;
         node->unary_expression.operand = operand;
@@ -537,14 +532,14 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
             NULL_POINTER_ERROR_HANDLE(r_bracket_tok);
         }
         if (size_expr) {
-            node = pp_ast_node_create(PP_AST_TypeArrayNode, l_bracket_tok->line, l_bracket_tok->column);
+            node = pp_ast_node_create(PP_AST_TypeArrayNode, l_bracket_tok->loc);
             NULL_POINTER_ERROR_HANDLE(node);
             node->type_array.element_type = inner_type;
             inner_type = NULL;
             node->type_array.size_expr = size_expr;
             size_expr = NULL;
         } else {
-            node = pp_ast_node_create(PP_AST_TypeListNode, l_bracket_tok->line, l_bracket_tok->column);
+            node = pp_ast_node_create(PP_AST_TypeListNode, l_bracket_tok->loc);
             NULL_POINTER_ERROR_HANDLE(node);
             node->type_list.element_type = inner_type;
             inner_type = NULL;
@@ -555,8 +550,7 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
             NULL_POINTER_ERROR_HANDLE(base_tok);
         }
         if (pp_parser_peek_token_type(parser, 0) != PP_TT_LEFT_SQUARE_BRACKET) {
-            pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser),
-                                     pp_parser_get_col(parser), "Expected '[' after ptr");
+            pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Expected '[' after ptr");
             goto error_cleanup;
         }
         {
@@ -569,14 +563,12 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
             r_bracket_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET);
             NULL_POINTER_ERROR_HANDLE(r_bracket_tok);
         }
-        node = pp_ast_node_create(PP_AST_TypePointerNode, base_tok->line, base_tok->column);
+        node = pp_ast_node_create(PP_AST_TypePointerNode, base_tok->loc);
         NULL_POINTER_ERROR_HANDLE(node);
         node->type_pointer.pointee_type = inner_type;
         inner_type = NULL;
     } else {
         PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
-        unsigned int line = pp_parser_get_line(parser);
-        unsigned int col = pp_parser_get_col(parser);
         int kind = PP_AST_TYPE_KIND_IDENTIFIER;
         switch (tt) {
             case PP_TT_VOID:
@@ -625,14 +617,14 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
                 kind = PP_AST_TYPE_KIND_IDENTIFIER;
                 break;
             default:
-                pp_error_list_push_error(parser->error_list, parser->filename, line, col, "Expected type name");
+                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Expected type name");
                 goto error_cleanup;
         }
         {
             base_tok = pp_parser_consume_token(parser, tt);
             NULL_POINTER_ERROR_HANDLE(base_tok);
         }
-        node = pp_ast_node_create(PP_AST_TypeBaseNode, base_tok->line, base_tok->column);
+        node = pp_ast_node_create(PP_AST_TypeBaseNode, base_tok->loc);
         NULL_POINTER_ERROR_HANDLE(node);
         node->type_base.kind = kind;
         if (tt == PP_TT_IDENTIFIER) {
@@ -655,19 +647,12 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
     const PP_Token* const_tok = NULL;
     NULL_POINTER_ERROR_HANDLE(parser);
     bool is_const = false;
-    unsigned int line = 0;
-    unsigned int col = 0;
     if (pp_parser_peek_token_type(parser, 0) == PP_TT_CONST) {
         {
             const_tok = pp_parser_consume_token(parser, PP_TT_CONST);
             NULL_POINTER_ERROR_HANDLE(const_tok);
         }
         is_const = true;
-        line = const_tok->line;
-        col = const_tok->column;
-    } else {
-        line = pp_parser_get_line(parser);
-        col = pp_parser_get_col(parser);
     }
     node = pp_parser_parse_collection_type(parser);
     NULL_POINTER_ERROR_HANDLE(node);
@@ -676,7 +661,7 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
         pp_parser_consume_token(parser, PP_TT_AMPERSAND);
         is_ref = true;
     }
-    wrapper = pp_ast_node_create(PP_AST_TypeExpressionNode, line, col);
+    wrapper = pp_ast_node_create(PP_AST_TypeExpressionNode, is_const ? const_tok->loc : parser->tokens[parser->idx].loc);
     NULL_POINTER_ERROR_HANDLE(wrapper);
     wrapper->type_expression.is_const = is_const;
     wrapper->type_expression.is_reference = is_ref;
@@ -703,7 +688,7 @@ static PP_AST_Node* pp_parser_create_expression_or_assignment(PP_Parser* parser)
     NULL_POINTER_ERROR_HANDLE(op_tok);
     rhs = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
     NULL_POINTER_ERROR_HANDLE(rhs);
-    node = pp_ast_node_create(PP_AST_AssignmentNode, op_tok->line, op_tok->column);
+    node = pp_ast_node_create(PP_AST_AssignmentNode, op_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->assignment.lhs = lhs;
     node->assignment.op = tt;
@@ -740,8 +725,7 @@ static PP_AST_Node* pp_parser_create_statement(PP_Parser* parser) {
             expr = pp_parser_create_expression_or_assignment(parser);
             NULL_POINTER_ERROR_HANDLE(expr);
             if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
-                pp_error_list_push_error(parser->error_list, parser->filename, pp_parser_get_line(parser),
-                                         pp_parser_get_col(parser), "Expected ';' after expression statement");
+                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Expected ';' after expression statement");
                 pp_parser_sync(parser);
             }
             return expr;
@@ -763,14 +747,12 @@ static PP_AST_Node* pp_parser_create_block(PP_Parser* parser) {
     NULL_POINTER_ERROR_HANDLE(parser);
 
     // left curly brace
-    {
-        PP_Token* lbrace_tok = pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET);
-        NULL_POINTER_ERROR_HANDLE(lbrace_tok);
-        line = lbrace_tok->line;
-        col = lbrace_tok->column;
-    }
+    PP_Token* lbrace_tok = pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET);
+    NULL_POINTER_ERROR_HANDLE(lbrace_tok);
+    line = lbrace_tok->loc.line;
+    col = lbrace_tok->loc.column;
 
-    block = pp_ast_node_create(PP_AST_StatementListNode, line, col);
+    block = pp_ast_node_create(PP_AST_StatementListNode, lbrace_tok->loc);
     NULL_POINTER_ERROR_HANDLE(block);
 
     capacity = AST_VECTOR_INIT_CAP;
@@ -878,7 +860,7 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
                     PP_Token* right_paren = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
                     NULL_POINTER_ERROR_HANDLE(right_paren);
                 }
-                node = pp_ast_node_create(PP_AST_FunctionCallNode, op_tok->line, op_tok->column);
+                node = pp_ast_node_create(PP_AST_FunctionCallNode, op_tok->loc);
                 NULL_POINTER_ERROR_HANDLE(node);
                 node->function_call.callee = lhs;
                 node->function_call.arguments = arguments;
@@ -894,7 +876,7 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
                     PP_Token* right_bracket = pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET);
                     NULL_POINTER_ERROR_HANDLE(right_bracket);
                 }
-                node = pp_ast_node_create(PP_AST_ArrayListAccessNode, op_tok->line, op_tok->column);
+                node = pp_ast_node_create(PP_AST_ArrayListAccessNode, op_tok->loc);
                 NULL_POINTER_ERROR_HANDLE(node);
                 node->array_list_access.expr = lhs;
                 node->array_list_access.index = index_expr;
@@ -906,7 +888,7 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
                     member_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
                     NULL_POINTER_ERROR_HANDLE(member_tok);
                 }
-                node = pp_ast_node_create(PP_AST_MemberAccessNode, op_tok->line, op_tok->column);
+                node = pp_ast_node_create(PP_AST_MemberAccessNode, op_tok->loc);
                 NULL_POINTER_ERROR_HANDLE(node);
                 node->member_access.object = lhs;
                 node->member_access.member = member_tok->lexeme;
@@ -921,7 +903,7 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
             /* Cast expression */
             type_node = pp_parser_create_type(parser);
             NULL_POINTER_ERROR_HANDLE(type_node);
-            node = pp_ast_node_create(PP_AST_CastExpressionNode, op_tok->line, op_tok->column);
+            node = pp_ast_node_create(PP_AST_CastExpressionNode, op_tok->loc);
             NULL_POINTER_ERROR_HANDLE(node);
             node->cast_expression.expression = lhs;
             node->cast_expression.type_expr = type_node;
@@ -933,7 +915,7 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
 
         rhs = pp_parser_create_expression_ext(parser, right_bp ? right_bp : 0);
         NULL_POINTER_ERROR_HANDLE(rhs);
-        node = pp_ast_node_create(PP_AST_BinaryExpressionNode, op_tok->line, op_tok->column);
+        node = pp_ast_node_create(PP_AST_BinaryExpressionNode, op_tok->loc);
         NULL_POINTER_ERROR_HANDLE(node);
         node->binary_expression.op = op_type;
         node->binary_expression.left = lhs;
@@ -970,8 +952,8 @@ static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser) {
     {
         return_tok = pp_parser_consume_token(parser, PP_TT_RETURN);
         NULL_POINTER_ERROR_HANDLE(return_tok);
-        line = return_tok->line;
-        col = return_tok->column;
+        line = return_tok->loc.line;
+        col = return_tok->loc.column;
     }
 
     // expression (optional)
@@ -988,7 +970,7 @@ static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser) {
         NULL_POINTER_ERROR_HANDLE(semicolon);
     }
 
-    node = pp_ast_node_create(PP_AST_ReturnStatementNode, line, col);
+    node = pp_ast_node_create(PP_AST_ReturnStatementNode, return_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
 
     node->return_statement.expr = expr;
@@ -1019,8 +1001,8 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
     {
         if_tok = pp_parser_consume_token(parser, PP_TT_IF);
         NULL_POINTER_ERROR_HANDLE(if_tok);
-        line = if_tok->line;
-        col = if_tok->column;
+        line = if_tok->loc.line;
+        col = if_tok->loc.column;
     }
 
     // left parenthesis
@@ -1062,7 +1044,7 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
         // else else_branch remains NULL (allowed)
     }
 
-    node = pp_ast_node_create(PP_AST_IfStatementNode, line, col);
+    node = pp_ast_node_create(PP_AST_IfStatementNode, if_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
 
     node->if_statement.cond = cond;
@@ -1096,8 +1078,8 @@ static PP_AST_Node* pp_parser_create_while_statement(PP_Parser* parser) {
     {
         while_tok = pp_parser_consume_token(parser, PP_TT_WHILE);
         NULL_POINTER_ERROR_HANDLE(while_tok);
-        line = while_tok->line;
-        col = while_tok->column;
+        line = while_tok->loc.line;
+        col = while_tok->loc.column;
     }
 
     // left parenthesis
@@ -1120,7 +1102,7 @@ static PP_AST_Node* pp_parser_create_while_statement(PP_Parser* parser) {
     body = pp_parser_create_statement(parser);
     NULL_POINTER_ERROR_HANDLE(body);
 
-    node = pp_ast_node_create(PP_AST_WhileStatementNode, line, col);
+    node = pp_ast_node_create(PP_AST_WhileStatementNode, while_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
 
     node->while_statement.cond = cond;
@@ -1154,8 +1136,8 @@ static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser) {
     // for token
     for_tok = pp_parser_consume_token(parser, PP_TT_FOR);
     NULL_POINTER_ERROR_HANDLE(for_tok);
-    line = for_tok->line;
-    col = for_tok->column;
+    line = for_tok->loc.line;
+    col = for_tok->loc.column;
 
     // left parenthesis
     left_paren = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
@@ -1197,7 +1179,7 @@ static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser) {
     body = pp_parser_create_statement(parser);
     NULL_POINTER_ERROR_HANDLE(body);
 
-    node = pp_ast_node_create(PP_AST_ForStatementNode, line, col);
+    node = pp_ast_node_create(PP_AST_ForStatementNode, for_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
 
     node->for_statement.init = init;
@@ -1240,7 +1222,7 @@ static PP_AST_Node* pp_parser_create_param_decl(PP_Parser* parser) {
     type_expr = pp_parser_create_type(parser);
     NULL_POINTER_ERROR_HANDLE(type_expr);
 
-    node = pp_ast_node_create(PP_AST_ParamDeclarationNode, ident_tok->line, ident_tok->column);
+    node = pp_ast_node_create(PP_AST_ParamDeclarationNode, ident_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->param_declaration.identifier = (char*)ident_tok->lexeme;
     node->param_declaration.type_expr = type_expr;
@@ -1265,8 +1247,8 @@ static PP_AST_Node* pp_parser_create_variable_decl(PP_Parser* parser) {
         if (tt != PP_TT_LET) return NULL;
         decl_tok = pp_parser_consume_token(parser, PP_TT_LET);
         NULL_POINTER_ERROR_HANDLE(decl_tok);
-        line = decl_tok->line;
-        col = decl_tok->column;
+        line = decl_tok->loc.line;
+        col = decl_tok->loc.column;
     }
     var_decl = pp_parser_create_param_decl(parser);
     NULL_POINTER_ERROR_HANDLE(var_decl);
@@ -1278,7 +1260,7 @@ static PP_AST_Node* pp_parser_create_variable_decl(PP_Parser* parser) {
         initializer = pp_parser_create_expression_or_assignment(parser);
         NULL_POINTER_ERROR_HANDLE(initializer);
     }
-    node = pp_ast_node_create(PP_AST_VariableDeclarationNode, line, col);
+    node = pp_ast_node_create(PP_AST_VariableDeclarationNode, decl_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->variable_declaration.var_decl = var_decl;
     var_decl = NULL;
@@ -1329,7 +1311,7 @@ static PP_AST_Node* pp_parser_create_function_declaration(PP_Parser* parser) {
     }
     body = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(body);
-    node = pp_ast_node_create(PP_AST_FunctionDeclarationNode, func_tok->line, func_tok->column);
+    node = pp_ast_node_create(PP_AST_FunctionDeclarationNode, func_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->function_declaration.name = name;
     node->function_declaration.params = params;
@@ -1370,7 +1352,7 @@ static PP_AST_Node* pp_parser_create_lambda_declaration(PP_Parser* parser) {
     }
     body = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(body);
-    node = pp_ast_node_create(PP_AST_LambdaDeclarationNode, lambda_tok->line, lambda_tok->column);
+    node = pp_ast_node_create(PP_AST_LambdaDeclarationNode, lambda_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->function_declaration.name = name;
     node->function_declaration.params = params;
@@ -1431,13 +1413,14 @@ static PP_AST_Node* pp_parser_create_operator_declaration(PP_Parser* parser) {
         operator_tok = pp_parser_consume_token(parser, PP_TT_OPERATOR);
         NULL_POINTER_ERROR_HANDLE(operator_tok);
     }
-    if (parser->idx >= parser->n_tokens) goto error_cleanup;
-    operator_symbol_tok = &parser->tokens[parser->idx++];
-    NULL_POINTER_ERROR_HANDLE(operator_symbol_tok);
-    if (!pp_parser_is_overloadable_operator_token(operator_symbol_tok->token_type)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, operator_symbol_tok->line,
-                                 operator_symbol_tok->column, "Unsupported operator token for custom operator.");
-        goto error_cleanup;
+    {
+        PP_TokenType peeked = pp_parser_peek_token_type(parser, 0);
+        operator_symbol_tok = pp_parser_consume_token(parser, peeked);
+        NULL_POINTER_ERROR_HANDLE(operator_symbol_tok);
+        if (!pp_parser_is_overloadable_operator_token(operator_symbol_tok->token_type)) {
+            pp_error_list_push_error(parser->error_list, operator_symbol_tok->loc,   "Unsupported operator token for custom operator.");
+            goto error_cleanup;
+        }
     }
     name = operator_symbol_tok->lexeme;
     {
@@ -1461,7 +1444,7 @@ static PP_AST_Node* pp_parser_create_operator_declaration(PP_Parser* parser) {
     NULL_POINTER_ERROR_HANDLE(return_type);
     body = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(body);
-    node = pp_ast_node_create(PP_AST_OperatorDeclarationNode, operator_tok->line, operator_tok->column);
+    node = pp_ast_node_create(PP_AST_OperatorDeclarationNode, operator_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->function_declaration.name = name;
     node->function_declaration.params = params;
@@ -1503,7 +1486,7 @@ static PP_AST_Node* pp_parser_create_extern_function_declaration(PP_Parser* pars
         PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
         NULL_POINTER_ERROR_HANDLE(semi_tok);
     }
-    node = pp_ast_node_create(PP_AST_ExternFunctionDeclarationNode, func_tok->line, func_tok->column);
+    node = pp_ast_node_create(PP_AST_ExternFunctionDeclarationNode, func_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->extern_function_declaration.name = name;
     node->extern_function_declaration.params = params;
@@ -1542,7 +1525,7 @@ static PP_AST_Node* pp_parser_create_extern_lambda_declaration(PP_Parser* parser
         PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
         NULL_POINTER_ERROR_HANDLE(semi_tok);
     }
-    node = pp_ast_node_create(PP_AST_ExternLambdaDeclarationNode, lambda_tok->line, lambda_tok->column);
+    node = pp_ast_node_create(PP_AST_ExternLambdaDeclarationNode, lambda_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->extern_lambda_declaration.name = name;
     node->extern_lambda_declaration.params = params;
@@ -1575,13 +1558,14 @@ static PP_AST_Node* pp_parser_create_extern_operator_declaration(PP_Parser* pars
         operator_tok = pp_parser_consume_token(parser, PP_TT_OPERATOR);
         NULL_POINTER_ERROR_HANDLE(operator_tok);
     }
-    if (parser->idx >= parser->n_tokens) goto error_cleanup;
-    operator_symbol_tok = &parser->tokens[parser->idx++];
-    NULL_POINTER_ERROR_HANDLE(operator_symbol_tok);
-    if (!pp_parser_is_overloadable_operator_token(operator_symbol_tok->token_type)) {
-        pp_error_list_push_error(parser->error_list, parser->filename, operator_symbol_tok->line,
-                                 operator_symbol_tok->column, "Unsupported operator token for custom operator.");
-        goto error_cleanup;
+    {
+        PP_TokenType peeked = pp_parser_peek_token_type(parser, 0);
+        operator_symbol_tok = pp_parser_consume_token(parser, peeked);
+        NULL_POINTER_ERROR_HANDLE(operator_symbol_tok);
+        if (!pp_parser_is_overloadable_operator_token(operator_symbol_tok->token_type)) {
+            pp_error_list_push_error(parser->error_list, operator_symbol_tok->loc,   "Unsupported operator token for custom operator.");
+            goto error_cleanup;
+        }
     }
     name = operator_symbol_tok->lexeme;
     {
@@ -1607,7 +1591,7 @@ static PP_AST_Node* pp_parser_create_extern_operator_declaration(PP_Parser* pars
         PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
         NULL_POINTER_ERROR_HANDLE(semi_tok);
     }
-    node = pp_ast_node_create(PP_AST_ExternOperatorDeclarationNode, operator_tok->line, operator_tok->column);
+    node = pp_ast_node_create(PP_AST_ExternOperatorDeclarationNode, operator_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->extern_function_declaration.name = name;
     node->extern_function_declaration.params = params;
@@ -1688,7 +1672,7 @@ static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser) {
         PP_Token* right_brace = pp_parser_consume_token(parser, PP_TT_RIGHT_CURLY_BRACKET);
         NULL_POINTER_ERROR_HANDLE(right_brace);
     }
-    node = pp_ast_node_create(PP_AST_StructDeclarationNode, struct_tok->line, struct_tok->column);
+    node = pp_ast_node_create(PP_AST_StructDeclarationNode, struct_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->struct_declaration.name = name_tok->lexeme;
     node->struct_declaration.fields = fields;
@@ -1734,7 +1718,7 @@ static PP_AST_Node* pp_parser_create_typedef_declaration(PP_Parser* parser) {
         semicolon_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
         NULL_POINTER_ERROR_HANDLE(semicolon_tok);
     }
-    node = pp_ast_node_create(PP_AST_TypedefDeclarationNode, typedef_tok->line, typedef_tok->column);
+    node = pp_ast_node_create(PP_AST_TypedefDeclarationNode, typedef_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->typedef_declaration.base_type = base_type;
     node->typedef_declaration.identifier = name_tok->lexeme;
@@ -1761,8 +1745,8 @@ static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser) {
     {
         newtype_tok = pp_parser_consume_token(parser, PP_TT_NEWTYPE);
         NULL_POINTER_ERROR_HANDLE(newtype_tok);
-        line = newtype_tok->line;
-        col = newtype_tok->column;
+        line = newtype_tok->loc.line;
+        col = newtype_tok->loc.column;
     }
 
     base_type = pp_parser_create_type(parser);
@@ -1778,7 +1762,7 @@ static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser) {
         NULL_POINTER_ERROR_HANDLE(semicolon_tok);
     }
 
-    node = pp_ast_node_create(PP_AST_NewtypeDeclarationNode, line, col);
+    node = pp_ast_node_create(PP_AST_NewtypeDeclarationNode, newtype_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->newtype_declaration.base_type = base_type;
     node->newtype_declaration.identifier = name_tok->lexeme;
@@ -1807,8 +1791,8 @@ static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser) {
     {
         ident_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
         NULL_POINTER_ERROR_HANDLE(ident_tok);
-        line = ident_tok->line;
-        col = ident_tok->column;
+        line = ident_tok->loc.line;
+        col = ident_tok->loc.column;
     }
 
     {
@@ -1816,7 +1800,7 @@ static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser) {
         NULL_POINTER_ERROR_HANDLE(left_brace);
     }
 
-    node = pp_ast_node_create(PP_AST_StructInitializerNode, line, col);
+    node = pp_ast_node_create(PP_AST_StructInitializerNode, ident_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->struct_initializer.identifier = ident_tok->lexeme;
 
@@ -1848,7 +1832,7 @@ static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser) {
             entries = tmp;
             capacity = new_cap;
         }
-        member_id_node = pp_ast_node_create(PP_AST_IdentifierNode, member_tok->line, member_tok->column);
+        member_id_node = pp_ast_node_create(PP_AST_IdentifierNode, member_tok->loc);
         NULL_POINTER_ERROR_HANDLE(member_id_node);
         member_id_node->identifier.identifier = member_tok->lexeme;
         entries[count].member_identifier = member_id_node;
@@ -1954,7 +1938,7 @@ static PP_AST_Node* pp_parser_create_collection_initializer(PP_Parser* parser) {
         NULL_POINTER_ERROR_HANDLE(rbrack);
     }
 
-    node = pp_ast_node_create(PP_AST_CollectionInitializerNode, type_expr->line, type_expr->col);
+    node = pp_ast_node_create(PP_AST_CollectionInitializerNode, type_expr->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->collection_initializer.type_expr = type_expr;
     node->collection_initializer.size_expr = size_expr;

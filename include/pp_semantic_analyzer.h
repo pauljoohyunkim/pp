@@ -27,7 +27,6 @@ typedef struct PP_OperatorOverloadRegistry {
 } PP_OperatorOverloadRegistry;
 
 typedef struct {
-    const char* filename;
     const char* code;
     size_t code_length;
     PP_Token* tokens;

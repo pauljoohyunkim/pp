@@ -406,8 +406,8 @@ static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGen
         generate_code = false;
         for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
             PP_Error* e = &lexer->error_list->errors[i];
-            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
-                    e->column, e->message);
+            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->loc.filename ? e->loc.filename : "<unknown>", e->loc.line,
+                    e->loc.column, e->message);
         }
     }
 
@@ -419,8 +419,8 @@ static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGen
         generate_code = false;
         for (size_t i = 0; i < parser->error_list->n_errors; i++) {
             PP_Error* e = &parser->error_list->errors[i];
-            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>", e->line,
-                    e->column, e->message);
+            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->loc.filename ? e->loc.filename : "<unknown>", e->loc.line,
+                    e->loc.column, e->message);
         }
     }
     if (verbose && parser->error_list && parser->error_list->n_errors == 0) {
@@ -436,8 +436,8 @@ static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGen
         generate_code = false;
         for (size_t i = 0; i < sa->error_list->n_errors; i++) {
             PP_Error* e = &sa->error_list->errors[i];
-            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->filename ? e->filename : "<unknown>",
-                    e->line, e->column, e->message);
+            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->loc.filename ? e->loc.filename : "<unknown>",
+                    e->loc.line, e->loc.column, e->message);
         }
     }
     if (verbose && sa->error_list && sa->error_list->n_errors == 0) { printf("Semantic analysis succeeded.\n"); }

@@ -126,7 +126,7 @@ TEST(SemanticTest, Pass1VariableDeclaration) {
         pp_semantic_analyzer_analyze(sa.get());
         if (sa->error_list) {
             for (size_t i=0;i<sa->error_list->n_errors;i++) {
-                printf("SEMERR %zu: %s at %d:%d\n", i, sa->error_list->errors[i].message, sa->error_list->errors[i].line, sa->error_list->errors[i].column);
+                printf("SEMERR %zu: %s at %d:%d\n", i, sa->error_list->errors[i].message, sa->error_list->errors[i].loc.line, sa->error_list->errors[i].loc.column);
             }
         }
     }

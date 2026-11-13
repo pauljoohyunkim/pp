@@ -113,10 +113,8 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
 static bool pp_type_contains_reference(const PPType* type);
 static bool pp_type_contains_reference_impl(const PPType* t, const PPType** stack, int depth);
 static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node);
-static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, unsigned int line,
-                                               unsigned int col);
-static int pp_semantic_check_static_string_size_mismatch(PP_SemanticAnalyzer* sa, const char* filename,
-                                                         unsigned int line, unsigned int col, const char* context,
+static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, PP_SourceLoc loc);
+static int pp_semantic_check_static_string_size_mismatch(PP_SemanticAnalyzer* sa, PP_SourceLoc loc, const char* context,
                                                          const PPType* lhs_type, const PPType* rhs_type);
 /* Pass I */
 static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa);
@@ -199,18 +197,18 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
     PPSymbolTable* gst = NULL;
 
     if (!parser) {
-        pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Parser is NULL");
+        pp_error_list_push_error(sa->error_list, (PP_SourceLoc){.filename=NULL, .line=0, .column=0},  "Parser is NULL");
         goto error_cleanup;
     }
 
     sa = (PP_SemanticAnalyzer*)calloc(1, sizeof(PP_SemanticAnalyzer));
     if (!sa) {
-        pp_error_list_push_error(NULL, 0, 0, 0, "Failed to allocate memory for semantic analyzer");
+        pp_error_list_push_error(NULL, (PP_SourceLoc){.filename=0, .line=0, .column=0},  "Failed to allocate memory for semantic analyzer");
         goto error_cleanup;
     }
 
     /* Transfer ownership of parser resources */
-    sa->filename = parser->filename;
+    
     sa->code = parser->code;
     parser->code = NULL;
     sa->code_length = parser->code_length;
@@ -232,13 +230,13 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
 
     gtt = pp_global_type_table_create();
     if (!gtt) {
-        pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Failed to create global type table");
+        pp_error_list_push_error(sa->error_list, (PP_SourceLoc){.filename=NULL, .line=0, .column=0},  "Failed to create global type table");
         goto error_cleanup;
     }
 
     gst = pp_symbol_table_create(SCOPE_LEVEL_GLOBAL);
     if (!gst) {
-        pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Failed to create symbol table");
+        pp_error_list_push_error(sa->error_list, (PP_SourceLoc){.filename=NULL, .line=0, .column=0},  "Failed to create symbol table");
         goto error_cleanup;
     }
 
@@ -381,7 +379,7 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser) {
 
     sa->operator_overloads = (PP_OperatorOverloadRegistry*)calloc(1, sizeof(PP_OperatorOverloadRegistry));
     if (!sa->operator_overloads) {
-        pp_error_list_push_error(sa->error_list, sa->filename, 0, 0, "Failed to allocate operator overload registry");
+        pp_error_list_push_error(sa->error_list, (PP_SourceLoc){.filename=NULL, .line=0, .column=0},  "Failed to allocate operator overload registry");
         goto error_cleanup;
     }
 
@@ -536,8 +534,7 @@ static bool pp_ast_node_returns_on_all_paths(const PP_AST_Node* node) {
     }
 }
 
-static int pp_semantic_check_static_string_size_mismatch(PP_SemanticAnalyzer* sa, const char* filename,
-                                                         unsigned int line, unsigned int col, const char* context,
+static int pp_semantic_check_static_string_size_mismatch(PP_SemanticAnalyzer* sa, PP_SourceLoc loc, const char* context,
                                                          const PPType* lhs_type, const PPType* rhs_type) {
     const PPType* dl = pp_type_decay(sa->gtt, lhs_type);
     const PPType* dr = pp_type_decay(sa->gtt, rhs_type);
@@ -550,7 +547,7 @@ static int pp_semantic_check_static_string_size_mismatch(PP_SemanticAnalyzer* sa
     size_t lhs_size = dl->type.pp_type_array.size;
     size_t rhs_size = dr->type.pp_type_array.size;
     if (lhs_size != rhs_size) {
-        pp_error_list_push_error(sa->error_list, filename, line, col,
+        pp_error_list_push_error(sa->error_list, loc, 
                                  "Static string literal size mismatch %s: target array size is %zu but literal "
                                  "requires %zu",
                                  context, lhs_size, rhs_size);
@@ -567,7 +564,7 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
     switch (simple_expr_node->node_type) {
         case PP_AST_LiteralNode: {
             if (simple_expr_node->literal.literal_type != PP_TT_INTEGER_LITERAL) {
-                pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                pp_error_list_push_error(sa->error_list, simple_expr_node->loc, 
                                          "For array size expression, literals can only be unsigned integer");
                 goto error_cleanup;
             }
@@ -575,7 +572,7 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
             PPTypeKind k = pp_type_parse_int_literal_suffix(lex, NULL);
             bool is_unsigned = pp_type_kind_is_unsigned(k);
             if (!is_unsigned) {
-                pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                pp_error_list_push_error(sa->error_list, simple_expr_node->loc, 
                                          "For array size expression, literals can only be unsigned integer");
                 goto error_cleanup;
             }
@@ -585,12 +582,12 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
             errno = 0;
             unsigned long long parsed_val = strtoull(numbuf, &endptr, 10);
             if (errno != 0 || simple_expr_node->literal.lexeme == endptr) {
-                pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                pp_error_list_push_error(sa->error_list, simple_expr_node->loc, 
                                          "Could not parse literal to number");
                 goto error_cleanup;
             }
             if (parsed_val > SIZE_MAX) {
-                pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line, simple_expr_node->col,
+                pp_error_list_push_error(sa->error_list, simple_expr_node->loc, 
                                          "Array size literal out of range for size_t");
                 goto error_cleanup;
             }
@@ -607,8 +604,7 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                 case PP_TT_GREATER_GREATER:
                     break;
                 default:
-                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                             simple_expr_node->col,
+                    pp_error_list_push_error(sa->error_list, simple_expr_node->loc, 
                                              "The only binary operator allowed in array size are \'+\', \'*\', \'/\', "
                                              "\'%\', \'<<\', and \'>>\'");
                     goto error_cleanup;
@@ -626,40 +622,35 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
             switch (simple_expr_node->binary_expression.op) {
                 case PP_TT_PLUS:
                     if (left_val > SIZE_MAX - right_val) {
-                        pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                                 simple_expr_node->col, "Array size addition overflow");
+                        pp_error_list_push_error(sa->error_list, simple_expr_node->loc,  "Array size addition overflow");
                         goto error_cleanup;
                     }
                     *val = left_val + right_val;
                     break;
                 case PP_TT_STAR:
                     if (left_val != 0 && right_val > SIZE_MAX / left_val) {
-                        pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                                 simple_expr_node->col, "Array size multiplication overflow");
+                        pp_error_list_push_error(sa->error_list, simple_expr_node->loc,  "Array size multiplication overflow");
                         goto error_cleanup;
                     }
                     *val = left_val * right_val;
                     break;
                 case PP_TT_SLASH:
                     if (right_val == 0) {
-                        pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                                 simple_expr_node->col, "Division by zero in array size expression");
+                        pp_error_list_push_error(sa->error_list, simple_expr_node->loc,  "Division by zero in array size expression");
                         goto error_cleanup;
                     }
                     *val = left_val / right_val;
                     break;
                 case PP_TT_PERCENT:
                     if (right_val == 0) {
-                        pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                                 simple_expr_node->col, "Modulo by zero in array size expression");
+                        pp_error_list_push_error(sa->error_list, simple_expr_node->loc,  "Modulo by zero in array size expression");
                         goto error_cleanup;
                     }
                     *val = left_val % right_val;
                     break;
                 case PP_TT_LESS_LESS:
                     if (right_val >= sizeof(size_t) * 8) {
-                        pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                                 simple_expr_node->col,
+                        pp_error_list_push_error(sa->error_list, simple_expr_node->loc, 
                                                  "Shift amount too large in array size expression");
                         goto error_cleanup;
                     }
@@ -667,16 +658,14 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                     break;
                 case PP_TT_GREATER_GREATER:
                     if (right_val >= sizeof(size_t) * 8) {
-                        pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                                 simple_expr_node->col,
+                        pp_error_list_push_error(sa->error_list, simple_expr_node->loc, 
                                                  "Shift amount too large in array size expression");
                         goto error_cleanup;
                     }
                     *val = left_val >> right_val;
                     break;
                 default:
-                    pp_error_list_push_error(sa->error_list, sa->filename, simple_expr_node->line,
-                                             simple_expr_node->col, "Unsupported operator in array size expression");
+                    pp_error_list_push_error(sa->error_list, simple_expr_node->loc,  "Unsupported operator in array size expression");
                     goto error_cleanup;
             }
             return 1;
@@ -689,27 +678,26 @@ error_cleanup:
     return 0;
 }
 
-static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, unsigned int line,
-                                               unsigned int col) {
+static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PPType* elem_type, PP_SourceLoc loc) {
     if (!elem_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, line, col, "Element type is null");
+        pp_error_list_push_error(sa->error_list, loc,  "Element type is null");
         return 0;
     }
     if (pp_type_is_reference(elem_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, line, col, "element type cannot be a reference");
+        pp_error_list_push_error(sa->error_list, loc,  "element type cannot be a reference");
         return 0;
     }
     if (elem_type->kind == PP_TK_Void) {
-        pp_error_list_push_error(sa->error_list, sa->filename, line, col, "Array/List element type cannot be void");
+        pp_error_list_push_error(sa->error_list, loc,  "Array/List element type cannot be void");
         return 0;
     }
     if (elem_type->kind == PP_TK_Function || elem_type->kind == PP_TK_Lambda) {
-        pp_error_list_push_error(sa->error_list, sa->filename, line, col,
+        pp_error_list_push_error(sa->error_list, loc, 
                                  "Array/List element type cannot be function/lambda");
         return 0;
     }
     if (pp_type_contains_reference(elem_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, line, col,
+        pp_error_list_push_error(sa->error_list, loc, 
                                  "Array/List element type cannot transitively contain a reference");
         return 0;
     }
@@ -736,7 +724,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         base_identifier = inner->type_base.identifier_name;
     } else if (inner->node_type != PP_AST_TypeArrayNode && inner->node_type != PP_AST_TypeListNode &&
                inner->node_type != PP_AST_TypePointerNode) {
-        pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+        pp_error_list_push_error(sa->error_list, type_node->loc, 
                                  "Unsupported type node");
         goto error_cleanup;
     }
@@ -749,7 +737,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             if (!pointee_type) goto error_cleanup;
             // Disallow mixing pointer and reference
             if (pp_type_is_reference(pointee_type) || pp_type_contains_reference(pointee_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                pp_error_list_push_error(sa->error_list, type_node->loc, 
                                          "Pointer cannot contain reference");
                 goto error_cleanup;
             }
@@ -759,7 +747,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
             temp_type = NULL;
             if (!gtt_registered_type) {
-                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                pp_error_list_push_error(sa->error_list, type_node->loc, 
                                          "Failed to intern pointer type");
                 goto error_cleanup;
             }
@@ -771,17 +759,17 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 elem_type = pp_type_from_type_node(sa, inner->type_list.element_type);
             }
             if (!elem_type) goto error_cleanup;
-            if (!pp_type_validate_collection_element(sa, elem_type, type_node->line, type_node->col))
+            if (!pp_type_validate_collection_element(sa, elem_type, type_node->loc))
                 goto error_cleanup;
             if (inner->node_type == PP_AST_TypeArrayNode) {
                 size_t sz = 0;
                 if (!pp_array_size_from_simple_expr(sa, inner->type_array.size_expr, &sz)) {
-                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                    pp_error_list_push_error(sa->error_list, type_node->loc, 
                                              "Could not compute array size");
                     goto error_cleanup;
                 }
                 if (sz == 0) {
-                    pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                    pp_error_list_push_error(sa->error_list, type_node->loc, 
                                              "Array size cannot be zero");
                     goto error_cleanup;
                 }
@@ -797,7 +785,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
             temp_type = NULL;
             if (!gtt_registered_type) {
-                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                pp_error_list_push_error(sa->error_list, type_node->loc, 
                                          "Failed to intern array/list");
                 goto error_cleanup;
             }
@@ -857,7 +845,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 break;
         }
         if (!temp_type && !gtt_lookedup_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+            pp_error_list_push_error(sa->error_list, type_node->loc, 
                                      "Failed to create type");
             goto error_cleanup;
         }
@@ -866,7 +854,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         gtt_registered_type = temp_type ? pp_global_type_table_intern(sa->gtt, temp_type) : gtt_lookedup_type;
         temp_type = NULL;
         if (!gtt_registered_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+            pp_error_list_push_error(sa->error_list, type_node->loc, 
                                      "Failed to intern type");
             goto error_cleanup;
         }
@@ -909,7 +897,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             // Regular const wrapping for non-collection types
             temp_type = pp_type_create(PP_TK_Const);
             if (!temp_type) {
-                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                pp_error_list_push_error(sa->error_list, type_node->loc, 
                                          "Failed to create const type");
                 goto error_cleanup;
             }
@@ -917,7 +905,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
             temp_type = NULL;
             if (!gtt_registered_type) {
-                pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+                pp_error_list_push_error(sa->error_list, type_node->loc, 
                                          "Failed to intern const type");
                 goto error_cleanup;
             }
@@ -927,13 +915,13 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     if (type_node->type_expression.is_reference) {
         // Disallow mixing pointer and reference
         if (pp_type_is_pointer(gtt_registered_type) || pp_type_contains_pointer(gtt_registered_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+            pp_error_list_push_error(sa->error_list, type_node->loc, 
                                      "Reference cannot contain pointer");
             goto error_cleanup;
         }
         temp_type = pp_type_create(PP_TK_Reference);
         if (!temp_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+            pp_error_list_push_error(sa->error_list, type_node->loc, 
                                      "Failed to create reference type");
             goto error_cleanup;
         }
@@ -941,7 +929,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
         temp_type = NULL;
         if (!gtt_registered_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, type_node->line, type_node->col,
+            pp_error_list_push_error(sa->error_list, type_node->loc, 
                                      "Failed to intern reference type");
             goto error_cleanup;
         }
@@ -1030,14 +1018,14 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
 
     tmp_func = pp_type_create(PP_TK_Function);
     if (!tmp_func) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate memory for function type");
         goto error_cleanup;
     }
 
     const PPType* return_type = pp_type_from_type_node(sa, node->function_declaration.return_type);
     if (!return_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Invalid return type for function '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1051,7 +1039,7 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
         const PPType* param_type =
             pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
         if (!param_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Invalid parameter type for function '%s'",
                                      node->function_declaration.name ? node->function_declaration.name : "<unknown>");
             goto error_cleanup;
@@ -1062,7 +1050,7 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     // Add to type table
     func_type = pp_global_type_table_intern(sa->gtt, tmp_func);
     if (!func_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to intern function type for function '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1075,7 +1063,7 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
         if (existing->type == func_type) {
             if (existing->is_definition) {
                 // Duplicate definition
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Symbol '%s' is previously defined.",
                                          node->function_declaration.name ? node->function_declaration.name
                                                                          : "<unknown>");
@@ -1084,7 +1072,7 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
             // Existing is a forward declaration, identical type → allow upgrade
             return 1;
         } else {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Conflicting types for symbol '%s'",
                                      node->function_declaration.name ? node->function_declaration.name : "<unknown>");
             goto error_cleanup;
@@ -1094,7 +1082,7 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     // Create symbol
     func_symbol = pp_symbol_create(func_type, false, false, true, true);
     if (!func_symbol) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate symbol for function '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1102,7 +1090,7 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
 
     // Register to symbol table.
     if (!pp_symbol_table_push(sa->gst, node->function_declaration.name, func_symbol)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to register function '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1212,14 +1200,14 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
 
     tmp_func = pp_type_create(PP_TK_Operator);
     if (!tmp_func) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate memory for function type");
         goto error_cleanup;
     }
 
     const PPType* return_type = pp_type_from_type_node(sa, node->function_declaration.return_type);
     if (!return_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Invalid return type for function '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1233,7 +1221,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
         const PPType* param_type =
             pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
         if (!param_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Invalid parameter type for function '%s'",
                                      node->function_declaration.name ? node->function_declaration.name : "<unknown>");
             goto error_cleanup;
@@ -1245,14 +1233,14 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
         for (size_t i = 0; i < node->function_declaration.param_count; i++) {
             const PPType* param_type = tmp_func->type.pp_type_function.param_types[i];
             if (!pp_type_is_const(param_type) || !pp_type_is_reference(param_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Operator '%s' parameters must be const references.",
                                          node->function_declaration.name);
                 goto error_cleanup;
             }
         }
         if (pp_type_is_reference(return_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Operator '%s' return type must be non-reference.",
                                      node->function_declaration.name);
             goto error_cleanup;
@@ -1263,14 +1251,14 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
         for (size_t i = 0; i < node->function_declaration.param_count; i++) {
             const PPType* param_type = tmp_func->type.pp_type_function.param_types[i];
             if (!pp_type_is_const(param_type) || !pp_type_is_reference(param_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Operator '%s' parameters must be const references.",
                                          node->function_declaration.name);
                 goto error_cleanup;
             }
         }
         if (pp_type_is_reference(return_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Operator '%s' return type must be non-reference.",
                                      node->function_declaration.name);
             goto error_cleanup;
@@ -1291,7 +1279,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
     if (pp_semantic_analyzer_is_operator_symbol(node->function_declaration.name) &&
         node->function_declaration.param_count >= 2 && decayed_p[0] && decayed_p[1]) {
         if (pp_builtin_binary_supported(node->function_declaration.name, decayed_p[0]->kind, decayed_p[1]->kind)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Operator '%s' cannot redefine supported built-in operator pair.",
                                      node->function_declaration.name);
             goto error_cleanup;
@@ -1301,7 +1289,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
     if (pp_semantic_analyzer_is_operator_symbol(node->function_declaration.name) &&
         node->function_declaration.param_count == 1 && decayed_p[0]) {
         if (pp_builtin_unary_supported(node->function_declaration.name, decayed_p[0]->kind)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Operator '%s' cannot redefine supported built-in unary operator.",
                                      node->function_declaration.name);
             goto error_cleanup;
@@ -1321,7 +1309,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
     }
     const char* mangled_name = pp_string_pool_push(sa->sp, mangle_buf, pos);
     if (!mangled_name) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to intern mangled name for operator '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1330,7 +1318,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
     // Intern type before publishing the mangled symbol name.
     func_type = pp_global_type_table_intern(sa->gtt, tmp_func);
     if (!func_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to intern function type for function '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1346,7 +1334,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
     if (existing) {
         if (existing->type == func_type) {
             if (existing->is_definition) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Symbol '%s' is previously defined.",
                                          node->function_declaration.name ? node->function_declaration.name
                                                                          : "<unknown>");
@@ -1354,7 +1342,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
             }
             return 1;
         } else {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Conflicting types for symbol '%s'",
                                      node->function_declaration.name ? node->function_declaration.name : "<unknown>");
             goto error_cleanup;
@@ -1365,7 +1353,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
 
     func_symbol = pp_symbol_create(func_type, false, false, true, true);
     if (!func_symbol) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate symbol for function '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1373,7 +1361,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
 
     // Register to symbol table (name already mangled above).
     if (!pp_symbol_table_push(sa->gst, node->function_declaration.name, func_symbol)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to register function '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1422,14 +1410,14 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
 
     tmp_lambda = pp_type_create(PP_TK_Lambda);
     if (!tmp_lambda) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate memory for lambda type");
         goto error_cleanup;
     }
 
     const PPType* return_type = pp_type_from_type_node(sa, node->function_declaration.return_type);
     if (!return_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid return type for lambda");
+        pp_error_list_push_error(sa->error_list, node->loc,  "Invalid return type for lambda");
         goto error_cleanup;
     }
 
@@ -1441,7 +1429,7 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
         const PPType* param_type =
             pp_type_from_type_node(sa, node->function_declaration.params[i]->param_declaration.type_expr);
         if (!param_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Invalid parameter type for lambda '%s'",
                                      node->function_declaration.name ? node->function_declaration.name : "<unknown>");
             goto error_cleanup;
@@ -1452,7 +1440,7 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     // Add to type table
     lambda_type = pp_global_type_table_intern(sa->gtt, tmp_lambda);
     if (!lambda_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to intern lambda type for lambda '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1464,7 +1452,7 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     if (existing) {
         if (existing->type == lambda_type) {
             if (existing->is_definition) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Symbol '%s' is previously defined.",
                                          node->function_declaration.name ? node->function_declaration.name
                                                                          : "<unknown>");
@@ -1472,7 +1460,7 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
             }
             return 1;
         } else {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Conflicting types for symbol '%s'",
                                      node->function_declaration.name ? node->function_declaration.name : "<unknown>");
             goto error_cleanup;
@@ -1482,7 +1470,7 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     // Create symbol
     lambda_symbol = pp_symbol_create(lambda_type, false, false, true, true);
     if (!lambda_symbol) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate symbol for lambda '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
@@ -1490,7 +1478,7 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
 
     // Register to symbol table.
     if (!pp_symbol_table_push(sa->gst, node->function_declaration.name, lambda_symbol)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register lambda '%s'",
+        pp_error_list_push_error(sa->error_list, node->loc,  "Failed to register lambda '%s'",
                                  node->function_declaration.name ? node->function_declaration.name : "<unknown>");
         goto error_cleanup;
     }
@@ -1516,14 +1504,14 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
 
     tmp_func = pp_type_create(PP_TK_Function);
     if (!tmp_func) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate memory for function type");
         goto error_cleanup;
     }
 
     const PPType* return_type = pp_type_from_type_node(sa, node->extern_function_declaration.return_type);
     if (!return_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Invalid return type for function '%s'",
                                  node->extern_function_declaration.name ? node->extern_function_declaration.name
                                                                         : "<unknown>");
@@ -1536,7 +1524,7 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
         const PPType* param_type =
             pp_type_from_type_node(sa, node->extern_function_declaration.params[i]->param_declaration.type_expr);
         if (!param_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Invalid parameter type for function '%s'",
                                      node->extern_function_declaration.name ? node->extern_function_declaration.name
                                                                             : "<unknown>");
@@ -1549,14 +1537,14 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
         for (size_t i = 0; i < node->extern_function_declaration.param_count; i++) {
             const PPType* param_type = tmp_func->type.pp_type_function.param_types[i];
             if (!pp_type_is_const(param_type) || !pp_type_is_reference(param_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Operator '%s' parameters must be const references.",
                                          node->extern_function_declaration.name);
                 goto error_cleanup;
             }
         }
         if (pp_type_is_reference(return_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Operator '%s' return type must be non-reference.",
                                      node->extern_function_declaration.name);
             goto error_cleanup;
@@ -1565,7 +1553,7 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
 
     func_type = pp_global_type_table_intern(sa->gtt, tmp_func);
     if (!func_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to intern function type for function '%s'",
                                  node->extern_function_declaration.name ? node->extern_function_declaration.name
                                                                         : "<unknown>");
@@ -1579,7 +1567,7 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
         if (existing->type == func_type) {
             return 1;
         } else {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Conflicting types for symbol '%s'",
                                      node->extern_function_declaration.name ? node->extern_function_declaration.name
                                                                             : "<unknown>");
@@ -1589,7 +1577,7 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
 
     func_symbol = pp_symbol_create(func_type, false, false, true, false);
     if (!func_symbol) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate symbol for function '%s'",
                                  node->extern_function_declaration.name ? node->extern_function_declaration.name
                                                                         : "<unknown>");
@@ -1597,7 +1585,7 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
     }
 
     if (!pp_symbol_table_push(sa->gst, node->extern_function_declaration.name, func_symbol)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to register function '%s'",
                                  node->extern_function_declaration.name ? node->extern_function_declaration.name
                                                                         : "<unknown>");
@@ -1625,14 +1613,14 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
 
     tmp_lambda = pp_type_create(PP_TK_Lambda);
     if (!tmp_lambda) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate memory for lambda type");
         goto error_cleanup;
     }
 
     const PPType* return_type = pp_type_from_type_node(sa, node->extern_lambda_declaration.return_type);
     if (!return_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid return type for lambda");
+        pp_error_list_push_error(sa->error_list, node->loc,  "Invalid return type for lambda");
         goto error_cleanup;
     }
 
@@ -1642,7 +1630,7 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
         const PPType* param_type =
             pp_type_from_type_node(sa, node->extern_lambda_declaration.params[i]->param_declaration.type_expr);
         if (!param_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Invalid parameter type for lambda '%s'",
                                      node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name
                                                                           : "<unknown>");
@@ -1653,7 +1641,7 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
 
     lambda_type = pp_global_type_table_intern(sa->gtt, tmp_lambda);
     if (!lambda_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to intern lambda type for lambda '%s'",
                                  node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name
                                                                       : "<unknown>");
@@ -1667,7 +1655,7 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
         if (existing->type == lambda_type) {
             return 1;
         } else {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Conflicting types for symbol '%s'",
                                      node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name
                                                                           : "<unknown>");
@@ -1677,7 +1665,7 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
 
     lambda_symbol = pp_symbol_create(lambda_type, false, false, true, false);
     if (!lambda_symbol) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate symbol for lambda '%s'",
                                  node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name
                                                                       : "<unknown>");
@@ -1685,7 +1673,7 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
     }
 
     if (!pp_symbol_table_push(sa->gst, node->extern_lambda_declaration.name, lambda_symbol)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register lambda '%s'",
+        pp_error_list_push_error(sa->error_list, node->loc,  "Failed to register lambda '%s'",
                                  node->extern_lambda_declaration.name ? node->extern_lambda_declaration.name
                                                                       : "<unknown>");
         goto error_cleanup;
@@ -1716,7 +1704,7 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
     // Duplicate type name check in GTT (named types and aliases)
     if (pp_global_type_table_find_by_name(sa->gtt, node->struct_declaration.name) != NULL ||
         pp_global_type_table_find_alias(sa->gtt, node->struct_declaration.name) != NULL) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Type '%s' previously defined.",
+        pp_error_list_push_error(sa->error_list, node->loc,  "Type '%s' previously defined.",
                                  node->struct_declaration.name);
         goto error_cleanup;
     }
@@ -1725,7 +1713,7 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
 
     tmp_struct = pp_type_create(PP_TK_Struct);
     if (!tmp_struct) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate struct type for struct '%s'", node->struct_declaration.name);
         goto error_cleanup;
     }
@@ -1737,14 +1725,14 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
     /* Add to type table */
     struct_type = pp_global_type_table_intern(sa->gtt, tmp_struct);
     if (!struct_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to intern struct type for struct '%s'", node->struct_declaration.name);
         goto error_cleanup;
     }
     tmp_struct = NULL;
 
     if (!pp_global_type_table_register_named(sa->gtt, node->struct_declaration.name, struct_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to register struct type for struct '%s'", node->struct_declaration.name);
         goto error_cleanup;
     }
@@ -1772,7 +1760,7 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
 
     // Duplicate symbol check
     if (pp_symbol_table_lookup(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, false)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Symbol '%s' previously defined.",
+        pp_error_list_push_error(sa->error_list, node->loc,  "Symbol '%s' previously defined.",
                                  node->variable_declaration.var_decl->param_declaration.identifier);
         goto error_cleanup;
     }
@@ -1780,12 +1768,12 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
     const PPType* var_type =
         pp_type_from_type_node(sa, node->variable_declaration.var_decl->param_declaration.type_expr);
     if (!var_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid type for variable '%s'",
+        pp_error_list_push_error(sa->error_list, node->loc,  "Invalid type for variable '%s'",
                                  node->variable_declaration.var_decl->param_declaration.identifier);
         goto error_cleanup;
     }
     if (pp_type_is_reference(var_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Global variable '%s' cannot be a reference",
                                  node->variable_declaration.var_decl->param_declaration.identifier);
         goto error_cleanup;
@@ -1793,14 +1781,14 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
 
     symbol = pp_symbol_create(var_type, false, false, true, true);
     if (!symbol) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate symbol for variable '%s'",
                                  node->variable_declaration.var_decl->param_declaration.identifier);
         goto error_cleanup;
     }
 
     if (!pp_symbol_table_push(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, symbol)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to register variable '%s'",
                                  node->variable_declaration.var_decl->param_declaration.identifier);
         goto error_cleanup;
@@ -1827,27 +1815,27 @@ static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnaly
 
     if (pp_global_type_table_find_alias(sa->gtt, node->typedef_declaration.identifier) ||
         pp_global_type_table_find_by_name(sa->gtt, node->typedef_declaration.identifier)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Type '%s' previously defined",
+        pp_error_list_push_error(sa->error_list, node->loc,  "Type '%s' previously defined",
                                  node->typedef_declaration.identifier);
         goto error_cleanup;
     }
 
     const PPType* base_type = pp_type_from_type_node(sa, node->typedef_declaration.base_type);
     if (!base_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Invalid base type for typedef '%s'", node->typedef_declaration.identifier);
         goto error_cleanup;
     }
 
     if (pp_type_is_const(base_type) || pp_type_is_reference(base_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Base type for typedef '%s' cannot be const or reference",
                                  node->typedef_declaration.identifier);
         goto error_cleanup;
     }
 
     if (!pp_global_type_table_register_alias(sa->gtt, node->typedef_declaration.identifier, base_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to register typedef alias '%s'", node->typedef_declaration.identifier);
         goto error_cleanup;
     }
@@ -1874,27 +1862,27 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
 
     if (pp_global_type_table_find_alias(sa->gtt, node->newtype_declaration.identifier) ||
         pp_global_type_table_find_by_name(sa->gtt, node->newtype_declaration.identifier)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Type '%s' previously defined",
+        pp_error_list_push_error(sa->error_list, node->loc,  "Type '%s' previously defined",
                                  node->newtype_declaration.identifier);
         goto error_cleanup;
     }
 
     const PPType* base_type = pp_type_from_type_node(sa, node->newtype_declaration.base_type);
     if (!base_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Invalid base type for newtype '%s'", node->newtype_declaration.identifier);
         goto error_cleanup;
     }
 
     if (pp_type_is_const(base_type) || pp_type_is_reference(base_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Base type for newtype '%s' cannot be const or reference",
                                  node->newtype_declaration.identifier);
         goto error_cleanup;
     }
 
     if (base_type->kind == PP_TK_Function || base_type->kind == PP_TK_Lambda) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Base type for newtype \%s cannot be function or lambda",
                                  node->newtype_declaration.identifier);
         goto error_cleanup;
@@ -1903,7 +1891,7 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
     // Create a distinct newtype node instead of aliasing the base type.
     nt = pp_type_create(PP_TK_Newtype);
     if (!nt) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate newtype node for '%s'", node->newtype_declaration.identifier);
         goto error_cleanup;
     }
@@ -1912,14 +1900,14 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
 
     const PPType* interned = pp_global_type_table_intern(sa->gtt, nt);
     if (!interned) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to intern newtype '%s'",
+        pp_error_list_push_error(sa->error_list, node->loc,  "Failed to intern newtype '%s'",
                                  node->newtype_declaration.identifier);
         goto error_cleanup;
     }
     nt = NULL;  // ownership transferred to GTT
     // Register the newtype as a named type.
     if (!pp_global_type_table_register_named(sa->gtt, node->newtype_declaration.identifier, interned)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Failed to register newtype '%s'",
+        pp_error_list_push_error(sa->error_list, node->loc,  "Failed to register newtype '%s'",
                                  node->newtype_declaration.identifier);
         goto error_cleanup;
     }
@@ -1953,7 +1941,7 @@ static int pp_semantic_analyzer_struct_cycle_detect(PP_SemanticAnalyzer* sa, con
             PP_AST_Node* decl = sa->program->program.decls[i];
             if (decl->node_type == PP_AST_StructDeclarationNode && decl->struct_declaration.name &&
                 strcmp(decl->struct_declaration.name, name) == 0) {
-                pp_error_list_push_error(sa->error_list, sa->filename, decl->line, decl->col,
+                pp_error_list_push_error(sa->error_list, decl->loc, 
                                          "Struct '%s' contains recursive cycle", name);
                 break;
             }
@@ -2029,7 +2017,7 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
         if (type_count > 0) {
             states = calloc(type_count, sizeof(PP_StructRecursiveCycleState));
             if (!states) {
-                pp_error_list_push_error(sa->error_list, sa->filename, 0, 0,
+                pp_error_list_push_error(sa->error_list, (PP_SourceLoc){.filename=NULL, .line=0, .column=0}, 
                                          "Failed to allocate cycle detection states");
                 goto error_cleanup;
             }
@@ -2140,7 +2128,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
     // Check if the type is actually function
     // Since newtype does not allow function types and lambda types, this is justified.
     if (func_symbol->type->kind != PP_TK_Function && func_symbol->type->kind != PP_TK_Operator) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "\"%s\" is not a function",
+        pp_error_list_push_error(sa->error_list, node->loc,  "\"%s\" is not a function",
                                  func_name);
         goto error_cleanup;
     }
@@ -2153,7 +2141,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
         const PPType* ret_type = sa->current_function_type->type.pp_type_function.return_type;
         if (ret_type && ret_type->kind != PP_TK_Void) {
             if (!pp_ast_node_returns_on_all_paths(node->function_declaration.body)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Function \"%s\" returns non-void, but there may exist a path that it exits "
                                          "without returning something.",
                                          func_name);
@@ -2170,7 +2158,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
     // Check number of parameters in declaration = number of parameters in symbol type.
     // TODO: This might actually be a dead code. Check this later.
     if (func_symbol->type->type.pp_type_function.param_count != node->function_declaration.param_count) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Function \"%s\" has wrong number of types.", func_name);
         goto error_cleanup;
     }
@@ -2180,8 +2168,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
         assert(node->function_declaration.params[i]->node_type == PP_AST_ParamDeclarationNode);
         const char* param_name = node->function_declaration.params[i]->param_declaration.identifier;
         if (pp_symbol_table_lookup(func_param_symbol_table, param_name, false)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
-                                     node->function_declaration.params[i]->col, "Duplicate parameter \"%s\" detected",
+            pp_error_list_push_error(sa->error_list, node->function_declaration.params[i]->loc,  "Duplicate parameter \"%s\" detected",
                                      param_name);
             goto error_cleanup;
         }
@@ -2195,8 +2182,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
         // {
         //     const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
         //     if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
-        //         pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
-        //                                  node->function_declaration.params[i]->col,
+        //         pp_error_list_push_error(sa->error_list, (PP_SourceLoc){.filename=NULL, .line=node->function_declaration.params[i]->loc.line, .column=//                                  node->function_declaration.params[i]->loc.column}, 
         //                                  "By-value List parameter is not allowed in move-only v1; use a reference");
         //         goto error_cleanup;
         //     }
@@ -2204,8 +2190,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
 
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
         if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
-                                     node->function_declaration.params[i]->col,
+            pp_error_list_push_error(sa->error_list, node->function_declaration.params[i]->loc, 
                                      "Could not push parameter \"%s\" to parameter scope", param_name);
             goto error_cleanup;
         }
@@ -2272,7 +2257,7 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
     // Check if the type is actually function
     // Since newtype does not allow function types and lambda types, this is justified.
     if (lambda_symbol->type->kind != PP_TK_Lambda) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "\"%s\" is not a lambda function",
+        pp_error_list_push_error(sa->error_list, node->loc,  "\"%s\" is not a lambda function",
                                  func_name);
         goto error_cleanup;
     }
@@ -2285,7 +2270,7 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
         const PPType* ret_type = sa->current_function_type->type.pp_type_lambda.return_type;
         if (ret_type && ret_type->kind != PP_TK_Void) {
             if (!pp_ast_node_returns_on_all_paths(node->function_declaration.body)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Lambda \"%s\" returns non-void, but there may exist a path that it exits "
                                          "without returning something.",
                                          func_name);
@@ -2302,7 +2287,7 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
     // Check number of parameters in declaration = number of parameters in symbol type.
     // TODO: This might actually be a dead code. Check this later.
     if (lambda_symbol->type->type.pp_type_function.param_count != node->function_declaration.param_count) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Function \"%s\" has wrong number of types.", func_name);
         goto error_cleanup;
     }
@@ -2312,8 +2297,7 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
         assert(node->function_declaration.params[i]->node_type == PP_AST_ParamDeclarationNode);
         const char* param_name = node->function_declaration.params[i]->param_declaration.identifier;
         if (pp_symbol_table_lookup(lambda_param_symbol_table, param_name, false)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
-                                     node->function_declaration.params[i]->col, "Duplicate parameter \"%s\" detected",
+            pp_error_list_push_error(sa->error_list, node->function_declaration.params[i]->loc,  "Duplicate parameter \"%s\" detected",
                                      param_name);
             goto error_cleanup;
         }
@@ -2327,8 +2311,7 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
         // {
         //     const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
         //     if (decayed_param_type->kind == PP_TK_List && !pp_type_is_reference(param_type)) {
-        //         pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
-        //                                  node->function_declaration.params[i]->col,
+        //         pp_error_list_push_error(sa->error_list, (PP_SourceLoc){.filename=NULL, .line=node->function_declaration.params[i]->loc.line, .column=//                                  node->function_declaration.params[i]->loc.column}, 
         //                                  "By-value List parameter is not allowed in move-only v1; use a reference");
         //         goto error_cleanup;
         //     }
@@ -2336,8 +2319,7 @@ static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa
 
         param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
         if (!pp_symbol_table_push(lambda_param_symbol_table, param_name, param_symbol)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->function_declaration.params[i]->line,
-                                     node->function_declaration.params[i]->col,
+            pp_error_list_push_error(sa->error_list, node->function_declaration.params[i]->loc, 
                                      "Could not push parameter \"%s\" to parameter scope", param_name);
             goto error_cleanup;
         }
@@ -2399,7 +2381,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnaly
     // Note that this is not an allocation.
     PPType* struct_type = pp_global_type_table_find_by_name_mut(sa->gtt, struct_name);
     if (!struct_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Could not find struct '%s' from type table from pass 1.",
                                  node->struct_declaration.name);
         goto error_cleanup;
@@ -2408,7 +2390,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnaly
     // Create layout and push fields.
     struct_layout = pp_struct_layout_create();
     if (!struct_layout) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Failed to allocate struct layout for struct '%s'", node->struct_declaration.name);
         goto error_cleanup;
     }
@@ -2420,8 +2402,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnaly
         // Duplicate field check
         for (size_t j = 0; j < i; j++) {
             if (struct_layout->fields[j].field_name == field->field->param_declaration.identifier) {
-                pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line,
-                                         field->field->param_declaration.type_expr->col,
+                pp_error_list_push_error(sa->error_list, field->field->param_declaration.type_expr->loc, 
                                          "Struct field '%s' is duplicate", field->field->param_declaration.identifier);
                 goto error_cleanup;
             }
@@ -2429,8 +2410,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnaly
 
         const PPType* field_type = pp_type_from_type_node(sa, field->field->param_declaration.type_expr);
         if (!field_type) {
-            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line,
-                                     field->field->param_declaration.type_expr->col,
+            pp_error_list_push_error(sa->error_list, field->field->param_declaration.type_expr->loc, 
                                      "Failed to create type for struct field '%s'",
                                      field->field->param_declaration.identifier);
             goto error_cleanup;
@@ -2439,7 +2419,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnaly
         // If initializer = NULL, it stores NULL, and if initializer exists, it stores the initializer.
         if (!pp_struct_layout_push_field(struct_layout, field->field->param_declaration.identifier, field_type,
                                          field->initializer)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, field->field->line, field->field->col,
+            pp_error_list_push_error(sa->error_list, field->field->loc, 
                                      "Failed to add struct field '%s'", field->field->param_declaration.identifier);
             goto error_cleanup;
         }
@@ -2465,14 +2445,14 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_Semanti
 
     PPType* struct_type = pp_global_type_table_find_by_name_mut(sa->gtt, struct_name);
     if (!struct_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Could not find struct '%s' from type table.", struct_name);
         goto error_cleanup;
     }
 
     const PP_StructLayout* layout = struct_type->type.pp_type_struct.layout;
     if (!layout) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Struct '%s' layout not initialized.", struct_name);
         goto error_cleanup;
     }
@@ -2483,8 +2463,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_Semanti
 
         // Expression check
         if (!pp_semantic_analyzer_check_expression(sa, sa->gst, field->initializer)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line,
-                                     field->field->param_declaration.type_expr->col,
+            pp_error_list_push_error(sa->error_list, field->field->param_declaration.type_expr->loc, 
                                      "Initializer for struct field '%s' is invalid",
                                      field->field->param_declaration.identifier);
             goto error_cleanup;
@@ -2495,8 +2474,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_Semanti
 
         // Require constexpr
         if (!initializer_decoration->is_constexpr) {
-            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line,
-                                     field->field->param_declaration.type_expr->col,
+            pp_error_list_push_error(sa->error_list, field->field->param_declaration.type_expr->loc, 
                                      "Global scope initializer for struct field '%s' should be constexpr",
                                      field->field->param_declaration.identifier);
             goto error_cleanup;
@@ -2505,8 +2483,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_Semanti
         // Use layout field type
         const PPType* field_type = layout->fields[i].field_type;
         if (pp_type_is_reference(field_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line,
-                                     field->field->param_declaration.type_expr->col,
+            pp_error_list_push_error(sa->error_list, field->field->param_declaration.type_expr->loc, 
                                      "Struct field '%s' is a reference and cannot have a default initializer at global "
                                      "scope",
                                      field->field->param_declaration.identifier);
@@ -2522,17 +2499,14 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_Semanti
             field->initializer->literal.literal_type == PP_TT_STATIC_STRING_LITERAL) {
             char context[256];
             snprintf(context, sizeof(context), "for struct field '%s'", field->field->param_declaration.identifier);
-            if (!pp_semantic_check_static_string_size_mismatch(sa, sa->filename,
-                                                               field->field->param_declaration.type_expr->line,
-                                                               field->field->param_declaration.type_expr->col, context,
+            if (!pp_semantic_check_static_string_size_mismatch(sa, field->field->param_declaration.type_expr->loc, context,
                                                                field_type, initializer_decoration->resolved_type)) {
                 goto error_cleanup;
             }
         }
 
         if (!pp_type_equal(decayed_field_type, decayed_initializer_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, field->field->param_declaration.type_expr->line,
-                                     field->field->param_declaration.type_expr->col,
+            pp_error_list_push_error(sa->error_list, field->field->param_declaration.type_expr->loc, 
                                      "Initializer for struct field '%s' does not match the field type",
                                      field->field->param_declaration.identifier);
             goto error_cleanup;
@@ -2570,14 +2544,14 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
     if (variable_symbol->type->kind == PP_TK_Struct) {
         const PP_StructLayout* struct_layout = variable_symbol->type->type.pp_type_struct.layout;
         if (!struct_layout) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Struct \"%s\" could not be previously analyzed.",
                                      node->variable_declaration.var_decl->param_declaration.identifier);
             goto error_cleanup;
         }
         for (size_t i = 0; i < struct_layout->field_count; i++) {
             if (pp_type_is_reference(struct_layout->fields[i].field_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Global variable \"%s\" is a struct, but global variable cannot contain any "
                                          "references.",
                                          node->variable_declaration.var_decl->param_declaration.identifier);
@@ -2588,7 +2562,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
 
     // Global variable cannot be reference.
     if (pp_type_is_reference(variable_symbol->type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Global variable \"%s\" declared as reference, which is not allowed.",
                                  node->variable_declaration.var_decl->param_declaration.identifier);
         goto error_cleanup;
@@ -2597,7 +2571,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
     // Check for initializer.
     if (!node->variable_declaration.initializer) {
         if (pp_type_is_const(variable_symbol->type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Variable \"%s\" declared as const must have initializer.",
                                      node->variable_declaration.var_decl->param_declaration.identifier);
             goto error_cleanup;
@@ -2605,7 +2579,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
     } else {
         // Initializer exists here.
         if (!pp_semantic_analyzer_check_expression(sa, sa->gst, node->variable_declaration.initializer)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Variable \"%s\" has an invalid initializer.",
                                      node->variable_declaration.var_decl->param_declaration.identifier);
             goto error_cleanup;
@@ -2620,7 +2594,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         if (decayed_type->kind == PP_TK_List &&
             node->variable_declaration.initializer->node_type == PP_AST_CollectionInitializerNode &&
             node->variable_declaration.initializer->collection_initializer.element_count > 0) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Global list initialization with non-empty initializer is not allowed; only empty "
                                      "list is permitted at global scope.");
             goto error_cleanup;
@@ -2631,7 +2605,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
             const char* lexeme = node->variable_declaration.initializer->literal.lexeme;
             assert(lexeme);
             if (strlen(lexeme) > 2) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Global string initialization with non-empty initializer is not allowed; only "
                                          "empty "
                                          "string is permitted at global scope.");
@@ -2639,7 +2613,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
             }
         }
         if (!decor->is_constexpr) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Global variable \"%s\" has a non constexpr initializer.",
                                      node->variable_declaration.var_decl->param_declaration.identifier);
             goto error_cleanup;
@@ -2652,7 +2626,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
             char context[256];
             snprintf(context, sizeof(context), "for variable '%s'",
                      node->variable_declaration.var_decl->param_declaration.identifier);
-            if (!pp_semantic_check_static_string_size_mismatch(sa, sa->filename, node->line, node->col, context,
+            if (!pp_semantic_check_static_string_size_mismatch(sa, node->loc, context,
                                                                variable_symbol->type, decor->resolved_type)) {
                 goto error_cleanup;
             }
@@ -2664,7 +2638,7 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
         NULL_POINTER_ERROR_HANDLE(decayed_lhs_type);
         NULL_POINTER_ERROR_HANDLE(decayed_rhs_type);
         if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Type mismatch during variable declaration.");
             goto error_cleanup;
         }
@@ -2769,7 +2743,7 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
     {
         const PPSymbol* symbol = pp_symbol_table_lookup(symbol_table, symbol_name, true);
         if (symbol) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Shadowing \"%s\" is not allowed.", symbol_name);
             goto error_cleanup;
         }
@@ -2779,7 +2753,7 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
     const PPType* symbol_type =
         pp_type_from_type_node(sa, node->variable_declaration.var_decl->param_declaration.type_expr);
     if (!symbol_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Deducing type for \"%s\" failed",
+        pp_error_list_push_error(sa->error_list, node->loc,  "Deducing type for \"%s\" failed",
                                  symbol_name);
         goto error_cleanup;
     }
@@ -2787,7 +2761,7 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
     // If reference or const, initializer must exist.
     if (pp_type_is_const(symbol_type) || pp_type_is_reference(symbol_type)) {
         if (!node->variable_declaration.initializer) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Variable \"%s\" is declared as const or reference, but initializer does not "
                                      "exist.",
                                      symbol_name);
@@ -2798,7 +2772,7 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
     // If initializer exists, check validity.
     if (node->variable_declaration.initializer) {
         if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->variable_declaration.initializer)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Initializer for variable \"%s\" is not valid", symbol_name);
             goto error_cleanup;
         }
@@ -2810,14 +2784,14 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         if (pp_type_is_reference(symbol_type)) {
             // l-value
             if (initializer_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Variable \"%s\" is a reference, but initializer is not an l-value",
                                          symbol_name);
                 goto error_cleanup;
             }
             // const-correctness
             if (!pp_type_is_const(symbol_type) && pp_type_is_const(initializer_decor->resolved_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "Variable \"%s\" is a mutable reference, but initializer is const. Cannot "
                                          "remove constness",
                                          symbol_name);
@@ -2837,14 +2811,14 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
             node->variable_declaration.initializer->literal.literal_type == PP_TT_STATIC_STRING_LITERAL) {
             char context[256];
             snprintf(context, sizeof(context), "for variable '%s'", symbol_name);
-            if (!pp_semantic_check_static_string_size_mismatch(sa, sa->filename, node->line, node->col, context,
+            if (!pp_semantic_check_static_string_size_mismatch(sa, node->loc, context,
                                                                symbol_type, initializer_decor->resolved_type)) {
                 goto error_cleanup;
             }
         }
 
         if (!pp_type_equal(decayed_symbol_type, decayed_initializer_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Type of variable \"%s\" does not match its initializer", symbol_name);
             goto error_cleanup;
         }
@@ -2852,7 +2826,7 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         // Copyability check: if source is lvalue and type needs drop, ensure type is copyable
         if (initializer_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_symbol_type) &&
             !pp_type_is_copyable(decayed_symbol_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Cannot copy initialize variable \"%s\": type is move-only or contains "
                                      "non-copyable elements",
                                      symbol_name);
@@ -2905,13 +2879,13 @@ static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyze
     // If return type is not void, expression must exist.
     if (sa->current_function_type->type.pp_type_function.return_type->kind == PP_TK_Void &&
         node->return_statement.expr) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Return type is void, but an expression is returned.");
         goto error_cleanup;
     }
     if (sa->current_function_type->type.pp_type_function.return_type->kind != PP_TK_Void &&
         !node->return_statement.expr) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Expected a return expression.");
+        pp_error_list_push_error(sa->error_list, node->loc,  "Expected a return expression.");
         goto error_cleanup;
     }
 
@@ -2920,7 +2894,7 @@ static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyze
 
     // Check expression
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->return_statement.expr)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col, "Invalid expression");
+        pp_error_list_push_error(sa->error_list, node->loc,  "Invalid expression");
         goto error_cleanup;
     }
     const PP_AST_Decoration* expr_decor = pp_ast_get_decoration(node->return_statement.expr);
@@ -2931,7 +2905,7 @@ static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyze
         pp_type_decay(sa->gtt, sa->current_function_type->type.pp_type_function.return_type);
     const PPType* decayed_expr_type = pp_type_decay(sa->gtt, expr_decor->resolved_type);
     if (!pp_type_equal(decayed_return_type, decayed_expr_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Return type and expression type in the return statement do not match.");
         goto error_cleanup;
     }
@@ -2940,14 +2914,14 @@ static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyze
     if (pp_type_is_reference(sa->current_function_type->type.pp_type_function.return_type)) {
         // L-value
         if (expr_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Return type is reference, but the return expression is not an l-value.");
             goto error_cleanup;
         }
 
         // Dangling reference check
         if (!expr_decor->is_escapable_ref) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Cannot return a dangling reference");
             goto error_cleanup;
         }
@@ -2955,7 +2929,7 @@ static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyze
         // Const-dropping detection
         if (!pp_type_is_const(sa->current_function_type->type.pp_type_function.return_type) &&
             pp_type_is_const(expr_decor->resolved_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Cannot strip away constness when function return type is non-const.");
             goto error_cleanup;
         }
@@ -2984,12 +2958,12 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     assert(pp_token_type_is_assignment(node->assignment.op));
 
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->assignment.lhs)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "LHS of assignment is an invalid expression.");
         goto error_cleanup;
     }
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->assignment.rhs)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "RHS of assignment is an invalid expression.");
         goto error_cleanup;
     }
@@ -3000,7 +2974,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
 
     // LHS must be l-value
     if (lhs_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "LHS of assignment should be an l-value.");
         goto error_cleanup;
     }
@@ -3013,7 +2987,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
         lhs_immutable = pp_type_is_const(lhs_type_check->type.pp_type_reference.reference_to);
     }
     if (lhs_immutable) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "LHS of assignment should be mutable (non-const)");
         goto error_cleanup;
     }
@@ -3026,14 +3000,14 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     // Static string literal size check for [uint8 : N] assignment
     if (node->assignment.rhs && node->assignment.rhs->node_type == PP_AST_LiteralNode &&
         node->assignment.rhs->literal.literal_type == PP_TT_STATIC_STRING_LITERAL) {
-        if (!pp_semantic_check_static_string_size_mismatch(sa, sa->filename, node->line, node->col, "in assignment",
+        if (!pp_semantic_check_static_string_size_mismatch(sa, node->loc, "in assignment",
                                                            lhs_decor->resolved_type, rhs_decor->resolved_type)) {
             goto error_cleanup;
         }
     }
 
     if (!pp_type_can_assign(decayed_lhs_type, decayed_rhs_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "LHS and RHS of assignment must have compatible types.");
         goto error_cleanup;
     }
@@ -3041,7 +3015,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
     // Copyability check: if RHS is lvalue and LHS type needs drop, ensure type is copyable
     if (rhs_decor->value_category == PP_VALUE_CATEGORY_LVALUE && pp_type_needs_drop(decayed_lhs_type) &&
         !pp_type_is_copyable(decayed_lhs_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Cannot assign from lvalue: type is move-only or contains non-copyable elements");
         goto error_cleanup;
     }
@@ -3066,7 +3040,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 (decayed_lhs_type->kind == PP_TK_String && decayed_rhs_type->kind == PP_TK_String)) {
                 // Valid
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "+= only defined for numeric and string types.");
                 goto error_cleanup;
             }
@@ -3085,7 +3059,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
                 // Valid
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "-= only defined for numeric types.");
                 goto error_cleanup;
             }
@@ -3104,7 +3078,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
                 // Valid
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "*= only defined for numeric types.");
                 goto error_cleanup;
             }
@@ -3123,7 +3097,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
                 // Valid
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "/= only defined for numeric types.");
                 goto error_cleanup;
             }
@@ -3141,7 +3115,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
                 // Valid
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "%= only defined for integer types.");
                 goto error_cleanup;
             }
@@ -3159,7 +3133,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
                 // Valid
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "&= only defined for integer types.");
                 goto error_cleanup;
             }
@@ -3177,7 +3151,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
                 // Valid
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "|= only defined for integer types.");
                 goto error_cleanup;
             }
@@ -3195,7 +3169,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
                 // Valid
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "^= only defined for integer types.");
                 goto error_cleanup;
             }
@@ -3209,13 +3183,13 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
                 // Valid
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+                pp_error_list_push_error(sa->error_list, node->loc, 
                                          "<<= / >>= only defined for unsigned integer types.");
                 goto error_cleanup;
             }
             break;
         default:
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Unknown assignment operator.");
             goto error_cleanup;
     }
@@ -3240,7 +3214,7 @@ static int pp_semantic_analyzer_full_analyze_if_statement(PP_SemanticAnalyzer* s
 
     // Check condition
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->if_statement.cond)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Condition for if statement could not be analyzed.");
         goto error_cleanup;
     }
@@ -3251,14 +3225,14 @@ static int pp_semantic_analyzer_full_analyze_if_statement(PP_SemanticAnalyzer* s
     const PPType* decayed_cond_type = pp_type_decay(sa->gtt, cond_decor->resolved_type);
     assert(decayed_cond_type);
     if (decayed_cond_type->kind != PP_TK_Bool) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Condition for if statement must be boolean");
         goto error_cleanup;
     }
 
     // Then branch
     if (!pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, node->if_statement.then_branch)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Then branch for if statement is invalid");
         goto error_cleanup;
     }
@@ -3266,7 +3240,7 @@ static int pp_semantic_analyzer_full_analyze_if_statement(PP_SemanticAnalyzer* s
     // Else branch
     if (node->if_statement.else_branch) {
         if (!pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, node->if_statement.else_branch)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Else branch for if statement is invalid");
             goto error_cleanup;
         }
@@ -3305,8 +3279,7 @@ static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* 
             // Variable declaration
             if (!pp_semantic_analyzer_full_analyze_variable_declaration(sa, for_init_symbol_table,
                                                                         node->for_statement.init)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->for_statement.init->line,
-                                         node->for_statement.init->col,
+                pp_error_list_push_error(sa->error_list, node->for_statement.init->loc, 
                                          "Invalid for statement initialization (nothing, variable declaration, or "
                                          "assignments only)");
                 goto error_cleanup;
@@ -3315,8 +3288,7 @@ static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* 
             // Assignment
             if (!pp_semantic_analyzer_full_analyze_assignment_statement(sa, for_init_symbol_table,
                                                                         node->for_statement.init)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, node->for_statement.init->line,
-                                         node->for_statement.init->col,
+                pp_error_list_push_error(sa->error_list, node->for_statement.init->loc, 
                                          "Invalid for statement initialization (nothing, variable declaration, or "
                                          "assignments only)");
                 goto error_cleanup;
@@ -3330,7 +3302,7 @@ static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* 
     // Condition
     if (node->for_statement.cond) {
         if (!pp_semantic_analyzer_check_expression(sa, for_init_symbol_table, node->for_statement.cond)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Condition for for statement could not be analyzed.");
             goto error_cleanup;
         }
@@ -3341,7 +3313,7 @@ static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* 
         const PPType* decayed_cond_type = pp_type_decay(sa->gtt, cond_decor->resolved_type);
         assert(decayed_cond_type);
         if (decayed_cond_type->kind != PP_TK_Bool) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Condition for for statement must be boolean");
             goto error_cleanup;
         }
@@ -3350,7 +3322,7 @@ static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* 
     // Update
     if (node->for_statement.update) {
         if (!pp_semantic_analyzer_full_analyze_statement(sa, for_init_symbol_table, node->for_statement.update)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+            pp_error_list_push_error(sa->error_list, node->loc, 
                                      "Update for for statement is invalid");
             goto error_cleanup;
         }
@@ -3360,7 +3332,7 @@ static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* 
     assert(node->for_statement.body);
     assert(node->for_statement.body->node_type == PP_AST_StatementListNode);
     if (!pp_semantic_analyzer_full_analyze_statement(sa, for_init_symbol_table, node->for_statement.body)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Body for for statement is invalid");
         goto error_cleanup;
     }
@@ -3390,7 +3362,7 @@ static int pp_semantic_analyzer_full_analyze_while_statement(PP_SemanticAnalyzer
 
     // Check condition
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->while_statement.cond)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Condition for while statement could not be analyzed.");
         goto error_cleanup;
     }
@@ -3401,14 +3373,14 @@ static int pp_semantic_analyzer_full_analyze_while_statement(PP_SemanticAnalyzer
     const PPType* decayed_cond_type = pp_type_decay(sa->gtt, cond_decor->resolved_type);
     assert(decayed_cond_type);
     if (decayed_cond_type->kind != PP_TK_Bool) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Condition for whilte statement must be boolean");
         goto error_cleanup;
     }
 
     // Then branch
     if (!pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, node->while_statement.body)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, node->line, node->col,
+        pp_error_list_push_error(sa->error_list, node->loc, 
                                  "Body of while statement is invalid");
         goto error_cleanup;
     }
@@ -3526,14 +3498,14 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
 
     // Function calls are not allowed at global scope
     if (!sa->current_function_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Function calls are not allowed at global scope");
         goto error_cleanup;
     }
 
     // Check callee (to support expressions like (f(2))(3), that is, higher-order functions)
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->function_call.callee)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Function callee could not be validated.");
         goto error_cleanup;
     }
@@ -3543,7 +3515,7 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
     // Check indeed that it is a function.
     if (callee_decoration->resolved_type->kind != PP_TK_Function &&
         callee_decoration->resolved_type->kind != PP_TK_Lambda) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Callee is not a registered function.");
         goto error_cleanup;
     }
@@ -3556,7 +3528,7 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
     if (sa->current_function_type &&
         (sa->current_function_type->kind == PP_TK_Lambda || sa->current_function_type->kind == PP_TK_Operator)) {
         if (callee_decoration->resolved_type->kind == PP_TK_Function) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Lambda/operator function cannot call regular function");
             goto error_cleanup;
         }
@@ -3565,7 +3537,7 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
     // Param count validation
     if (function_is_lambda) {
         if (callee_decoration->resolved_type->type.pp_type_lambda.param_count != expr->function_call.arg_count) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Lambda function expects %d arguments but only received %d arguments",
                                      callee_decoration->resolved_type->type.pp_type_lambda.param_count,
                                      expr->function_call.arg_count);
@@ -3573,7 +3545,7 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
         }
     } else {
         if (callee_decoration->resolved_type->type.pp_type_function.param_count != expr->function_call.arg_count) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Function expects %d arguments but only received %d arguments",
                                      callee_decoration->resolved_type->type.pp_type_function.param_count,
                                      expr->function_call.arg_count);
@@ -3589,7 +3561,7 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
     for (size_t i = 0; i < param_count; i++) {
         // Check argument.
         if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->function_call.arguments[i])) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Function argument could not be deduced");
             goto error_cleanup;
         }
@@ -3606,8 +3578,7 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
         const PPType* decayed_arg_type = pp_type_decay(sa->gtt, arg_type);
         const PPType* decayed_param_type = pp_type_decay(sa->gtt, param_type);
         if (!pp_type_equal(decayed_arg_type, decayed_param_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line,
-                                     expr->function_call.arguments[i]->col,
+            pp_error_list_push_error(sa->error_list, expr->function_call.arguments[i]->loc, 
                                      "Type mismatch between parameter and passed argument.");
             goto error_cleanup;
         }
@@ -3616,23 +3587,20 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
             // If parameter is reference, mutable references require an l-value.
             // Const references may bind rvalues through materialized temporaries.
             if (arg_decor->value_category != PP_VALUE_CATEGORY_LVALUE && !pp_type_is_const(param_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line,
-                                         expr->function_call.arguments[i]->col,
+                pp_error_list_push_error(sa->error_list, expr->function_call.arguments[i]->loc, 
                                          "Parameter is mutable reference, so l-value is expected.");
                 goto error_cleanup;
             }
             // Lambda does not allow mutable references.
             if (function_is_lambda && !pp_type_is_const(param_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line,
-                                         expr->function_call.arguments[i]->col,
+                pp_error_list_push_error(sa->error_list, expr->function_call.arguments[i]->loc, 
                                          "Lambda function requires all reference parameters to be immutable.");
                 goto error_cleanup;
             }
 
             // Constness check
             if (pp_type_is_const(arg_type) && !pp_type_is_const(param_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->function_call.arguments[i]->line,
-                                         expr->function_call.arguments[i]->col,
+                pp_error_list_push_error(sa->error_list, expr->function_call.arguments[i]->loc, 
                                          "Parameter is mutable reference, but const l-value is passed.");
                 goto error_cleanup;
             }
@@ -3648,7 +3616,7 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
     if (function_is_lambda) {
         // Void cannot be returned in lambda function
         if (return_type->kind == PP_TK_Void) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Lambda function forbids returning void");
             goto error_cleanup;
         }
@@ -3656,7 +3624,7 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
         // TODO: For now lambda does not allow returning references.
         // This condition will be lifted later in v2
         if (pp_type_is_reference(return_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Lambda function (for now) forbids returning references.");
             goto error_cleanup;
         }
@@ -3718,12 +3686,12 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
 
     const PPType* decayed_lhs_type = pp_type_decay(sa->gtt, lhs_type);
     if (!decayed_lhs_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Decaying type failure");
+        pp_error_list_push_error(sa->error_list, expr->loc,  "Decaying type failure");
         goto error_cleanup;
     }
     const PPType* decayed_rhs_type = pp_type_decay(sa->gtt, rhs_type);
     if (!decayed_rhs_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Decaying type failure");
+        pp_error_list_push_error(sa->error_list, expr->loc,  "Decaying type failure");
         goto error_cleanup;
     }
 
@@ -3873,7 +3841,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
             }
             break;
         default:
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Unsupported binary operator");
             goto error_cleanup;
     }
@@ -3908,14 +3876,14 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
         }
     }
     if (!binary_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Binary operator requires compatible operand types");
         goto error_cleanup;
     }
 
     const PPType* interned_binary_type = pp_global_type_table_intern(sa->gtt, binary_type);
     if (!interned_binary_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Failed to intern binary result type");
         goto error_cleanup;
     }
@@ -4033,7 +4001,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
 
     const PPType* decayed_operand_type = pp_type_decay(sa->gtt, operand_type);
     if (!decayed_operand_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Failure decaying type");
+        pp_error_list_push_error(sa->error_list, expr->loc,  "Failure decaying type");
         goto error_cleanup;
     }
 
@@ -4081,7 +4049,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                     unary_type = pp_type_create(decayed_operand_type->kind);
                     break;
                 default:
-                    pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                    pp_error_list_push_error(sa->error_list, expr->loc, 
                                              "Unary operator '-' requires signed integer or float");
                     goto error_cleanup;
             }
@@ -4090,7 +4058,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
             if (decayed_operand_type->kind == PP_TK_Bool) {
                 unary_type = pp_type_create(PP_TK_Bool);
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Unary operator '!' requires Bool");
                 goto error_cleanup;
             }
@@ -4100,7 +4068,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                 decayed_operand_type->kind == PP_TK_String) {
                 unary_type = pp_type_create(PP_TK_UInt32);
             } else {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Unary operator '#' requires array, list, or string");
                 goto error_cleanup;
             }
@@ -4108,19 +4076,19 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
         case PP_TT_AT:
             // address-of
             if (operand_decoration->value_category != PP_VALUE_CATEGORY_LVALUE) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Address-of operator '@' requires l-value operand");
                 goto error_cleanup;
             }
             if (pp_type_is_reference(operand_type) || pp_type_contains_reference(operand_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Address-of operator '@' cannot be applied to reference");
                 goto error_cleanup;
             }
             // build pointer type ptr[operand_type]
             unary_type = pp_type_create(PP_TK_Pointer);
             if (!unary_type) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Failed to create pointer type for address-of");
                 goto error_cleanup;
             }
@@ -4129,14 +4097,14 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
         case PP_TT_DOLLAR:
             // dereference
             if (decayed_operand_type->kind != PP_TK_Pointer) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Dereference operator '$' requires pointer operand");
                 goto error_cleanup;
             }
             {
                 const PPType* pointee = decayed_operand_type->type.pp_type_pointer.pointee;
                 if (!pointee) {
-                    pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                    pp_error_list_push_error(sa->error_list, expr->loc, 
                                              "Pointer dereference has null pointee type");
                     goto error_cleanup;
                 }
@@ -4153,14 +4121,14 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
     }
 
     if (!unary_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Unary operator requires compatible operand type");
         goto error_cleanup;
     }
 
     const PPType* interned_unary_type = pp_global_type_table_intern(sa->gtt, unary_type);
     if (!interned_unary_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Failed to intern unary result type");
         goto error_cleanup;
     }
@@ -4212,13 +4180,13 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
         case PP_TT_INTEGER_LITERAL: {
             const char* lexeme = expr->literal.lexeme;
             if (!lexeme) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Integer literal lexeme is NULL");
                 goto error_cleanup;
             }
             PPTypeKind kind = pp_type_parse_int_literal_suffix(lexeme, NULL);
             if (kind == PP_TK_Void) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Unsupported integer literal suffix");
                 goto error_cleanup;
             }
@@ -4259,13 +4227,13 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
                     break;
             }
             if (!type_name) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Unknown integer literal type");
                 goto error_cleanup;
             }
             resolved_type = pp_global_type_table_find_alias(sa->gtt, type_name);
             if (!resolved_type) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Unknown integer literal type '%s'", type_name);
                 goto error_cleanup;
             }
@@ -4288,7 +4256,7 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
                 assert(lexeme);
                 ssize_t len = pp_tokens_unescape_string_length(lexeme);
                 if (len < 0) {
-                    pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                    pp_error_list_push_error(sa->error_list, expr->loc, 
                                              "Invalid escape sequence in string literal");
                     goto error_cleanup;
                 }
@@ -4299,7 +4267,7 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
             assert(lexeme);
             ssize_t len = pp_tokens_unescape_string_length(lexeme);
             if (len < 0) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Invalid escape sequence in static string literal");
                 goto error_cleanup;
             }
@@ -4315,7 +4283,7 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
             arr_type = NULL;
 
             if (!resolved_type) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Failed to intern array type for static string literal");
                 goto error_cleanup;
             }
@@ -4363,7 +4331,7 @@ static int pp_semantic_analyzer_check_null_literal_expression(PP_SemanticAnalyze
         // Explicitly typed nullptr[T] where T is pointee type
         const PPType* t = pp_type_from_type_node(sa, expr->null_literal.type_node);
         if (!t) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Failed to resolve nullptr type");
             goto error_cleanup;
         }
@@ -4374,14 +4342,14 @@ static int pp_semantic_analyzer_check_null_literal_expression(PP_SemanticAnalyze
         const PPType* interned = pp_global_type_table_intern(sa->gtt, ptr_type);
         if (!interned) {
             pp_type_free(ptr_type);
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Failed to intern nullptr pointer type");
             goto error_cleanup;
         }
         null_type = interned;
     } else {
         // Untyped nullptr – not allowed; require explicit type
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "nullptr requires explicit type, e.g. nullptr[T]");
         goto error_cleanup;
     }
@@ -4423,7 +4391,7 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
 
     const PPSymbol* identifier_symbol = pp_symbol_table_lookup(symbol_table, expr->identifier.identifier, true);
     if (!identifier_symbol) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "\"%s\" is not previously defined.", expr->identifier.identifier);
         goto error_cleanup;
     }
@@ -4433,18 +4401,18 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
         if (sym_type->kind == PP_TK_Lambda) {
             /* lambda names are immutable pure code – allowed */
         } else if (sym_type->kind == PP_TK_Function) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "\"%s\" is a regular function used inside lambda", expr->identifier.identifier);
             goto error_cleanup;
         } else {
             if (pp_type_is_reference(sym_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "\"%s\" is a reference to a symbol declared outside of lambda",
                                          expr->identifier.identifier);
                 goto error_cleanup;
             }
             if (!pp_type_is_const(sym_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "\"%s\" is a mutable symbol declared outside of lambda",
                                          expr->identifier.identifier);
                 goto error_cleanup;
@@ -4494,7 +4462,7 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
 
     // Check base expression
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->array_list_access.expr)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Base expression for array/list access is invalid.");
         goto error_cleanup;
     }
@@ -4505,14 +4473,14 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
 
     if (decayed_base_type->kind != PP_TK_Array && decayed_base_type->kind != PP_TK_List &&
         decayed_base_type->kind != PP_TK_String) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Array/list/string access requires an array, list, or string base type.");
         goto error_cleanup;
     }
 
     // Check index expression
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->array_list_access.index)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Index expression for array/list access is invalid.");
         goto error_cleanup;
     }
@@ -4523,7 +4491,7 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     NULL_POINTER_ERROR_HANDLE(decayed_index_type);
 
     if (decayed_index_type->kind != PP_TK_UInt32) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Array/list index must be unsigned 32-bit integer.");
         goto error_cleanup;
     }
@@ -4534,7 +4502,7 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
         if (pp_array_size_from_simple_expr(sa, expr->array_list_access.index, &idx_val)) {
             size_t arr_size = decayed_base_type->type.pp_type_array.size;
             if (idx_val >= arr_size) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Compile-time evaluation found out-of-bounds array access: index %zu >= size "
                                          "%zu",
                                          idx_val, arr_size);
@@ -4616,7 +4584,7 @@ static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyz
 
     // Check the base expression
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->member_access.object)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Base expression for member access is invalid.");
         goto error_cleanup;
     }
@@ -4626,7 +4594,7 @@ static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyz
     NULL_POINTER_ERROR_HANDLE(decayed_base_type);
 
     if (decayed_base_type->kind != PP_TK_Struct) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Member access is only allowed for structs.");
         goto error_cleanup;
     }
@@ -4644,7 +4612,7 @@ static int pp_semantic_analyzer_check_member_access_expression(PP_SemanticAnalyz
         }
     }
     if (!field_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Member access field \"%s\" is not found on the given struct type.", field_name);
         goto error_cleanup;
     }
@@ -4714,12 +4682,12 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
     assert(struct_name);
     const PPType* struct_type = pp_global_type_table_find_by_name(sa->gtt, struct_name);
     if (!struct_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Unknown type '%s'", struct_name);
+        pp_error_list_push_error(sa->error_list, expr->loc,  "Unknown type '%s'", struct_name);
         goto error_cleanup;
     }
     // Check if struct type.
     if (struct_type->kind != PP_TK_Struct) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Expected type '%s' to be a struct", struct_name);
         goto error_cleanup;
     }
@@ -4729,7 +4697,7 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
 
     // Initializer count check
     if (expr->struct_initializer.entry_count > struct_type->type.pp_type_struct.layout->field_count) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Too many entries in struct initializer for type '%s'", struct_name);
         goto error_cleanup;
     }
@@ -4747,7 +4715,7 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
                 }
             }
             if (!found) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "No initializer given for const or reference field \"%s\"", field->field_name);
                 goto error_cleanup;
             }
@@ -4761,7 +4729,7 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
         // Check for duplicate field names
         for (size_t j = 0; j < i; j++) {
             if (expr->struct_initializer.entries[j].member_identifier->identifier.identifier == field_name) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Duplicate field name \"%s\" in the initializer", field_name);
                 goto error_cleanup;
             }
@@ -4780,7 +4748,7 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
                 }
             }
             if (!found) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Field \"%s\" within initializer does not exist", field_name);
                 goto error_cleanup;
             }
@@ -4789,7 +4757,7 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
         // Check each initializer
         if (!pp_semantic_analyzer_check_expression(sa, symbol_table,
                                                    expr->struct_initializer.entries[i].member_value)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Initializer for field \"%s\" is invalid", field_name);
             goto error_cleanup;
         }
@@ -4801,7 +4769,7 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
         const PPType* decayed_field_type = pp_type_decay(sa->gtt, field_type);
         const PPType* decayed_field_initializer_type = pp_type_decay(sa->gtt, field_initializer_decor->resolved_type);
         if (!pp_type_equal(decayed_field_type, decayed_field_initializer_type)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Initializer for field \"%s\" does not match the field type.", field_name);
             goto error_cleanup;
         }
@@ -4809,14 +4777,14 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
         if (pp_type_is_reference(field_type)) {
             // L-value check
             if (field_initializer_decor->value_category != PP_VALUE_CATEGORY_LVALUE) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Field \"%s\" is a reference, but the initializer is not an l-value.",
                                          field_name);
                 goto error_cleanup;
             }
             // Non-const field cannot bind to const variable.
             if (!pp_type_is_const(field_type) && pp_type_is_const(field_initializer_decor->resolved_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+                pp_error_list_push_error(sa->error_list, expr->loc, 
                                          "Field \"%s\" is a mutable reference, but the initializer is immutable",
                                          field_name);
                 goto error_cleanup;
@@ -4875,7 +4843,7 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     assert(target_type);
 
     if (pp_type_is_top_level_const(target_type)) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Casting to const is not allowed.");
         goto error_cleanup;
     }
@@ -4924,7 +4892,7 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     }
 
     if (!cast_ok) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Casting is not supported from the given expression to the given target type.");
         goto error_cleanup;
     }
@@ -4981,13 +4949,13 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
     // Determine collection kind from resolved target type
     PP_AST_Node* type_expr = expr->collection_initializer.type_expr;
     if (!type_expr) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Collection initializer missing type");
         goto error_cleanup;
     }
     const PPType* elem_type = pp_type_from_type_node(sa, type_expr);
     if (!elem_type) {
-        pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+        pp_error_list_push_error(sa->error_list, expr->loc, 
                                  "Failed to resolve collection element type");
         goto error_cleanup;
     }
@@ -5001,17 +4969,17 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
     if (is_array) {
         size_t arr_size = 0;
         if (!pp_array_size_from_simple_expr(sa, expr->collection_initializer.size_expr, &arr_size)) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Invalid array size expression in collection initializer");
             goto error_cleanup;
         }
         if (arr_size == 0) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col, "Array size cannot be zero");
+            pp_error_list_push_error(sa->error_list, expr->loc,  "Array size cannot be zero");
             goto error_cleanup;
         }
         // Oversize initializer is an error; undersize is allowed for implicit zero-fill
         if (expr->collection_initializer.element_count > arr_size) {
-            pp_error_list_push_error(sa->error_list, sa->filename, expr->line, expr->col,
+            pp_error_list_push_error(sa->error_list, expr->loc, 
                                      "Collection initializer has too many elements");
             goto error_cleanup;
         }
@@ -5044,7 +5012,7 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
             const PPType* decayed_elem_type = pp_type_decay(sa->gtt, elem_dec->resolved_type);
             const PPType* decayed_coll_elem_type = pp_type_decay(sa->gtt, elem_type);
             if (!pp_type_can_assign(decayed_coll_elem_type, decayed_elem_type)) {
-                pp_error_list_push_error(sa->error_list, sa->filename, elem->line, elem->col,
+                pp_error_list_push_error(sa->error_list, elem->loc, 
                                          "Collection element type mismatch");
                 goto error_cleanup;
             }

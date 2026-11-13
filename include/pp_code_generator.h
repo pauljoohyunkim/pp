@@ -61,7 +61,6 @@ typedef struct {
 
     const PPType* current_function_type;
 
-    const char* filename;
     const char* code;
     size_t code_length;
 

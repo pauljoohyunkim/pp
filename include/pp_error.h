@@ -6,12 +6,11 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include "pp_source_loc.h"
 
 typedef struct {
     char* message;
-    const char* filename;
-    int line;
-    int column;
+    PP_SourceLoc loc;
 } PP_Error;
 
 typedef struct {
@@ -21,7 +20,7 @@ typedef struct {
 } PP_ErrorList;
 
 PP_ErrorList* pp_error_list_create(void);
-int pp_error_list_push_error(PP_ErrorList* error_list, const char* filename, int line, int column, const char* format,
+int pp_error_list_push_error(PP_ErrorList* error_list, PP_SourceLoc loc, const char* format,
                              ...);
 void pp_error_list_free(PP_ErrorList* error_list);
 

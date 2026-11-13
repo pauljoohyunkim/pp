@@ -134,7 +134,10 @@ static inline char peek_pp(PP_Lexer* lexer, unsigned int n) {
 static int pp_lexer_push_token_helper(PP_Lexer* lexer, PP_TokenType type, size_t length) {
     const char* lexeme = pp_string_pool_push(lexer->sp, lexer->code + lexer->idx, length);
     if (!lexeme) return 0;
-    PP_Token tok = {.token_type = type, .lexeme = lexeme, .line = lexer->row, .column = lexer->col};
+    PP_Token tok = {.token_type = type, .lexeme = lexeme};
+    tok.loc.filename = lexer->filename;
+    tok.loc.line = lexer->row;
+    tok.loc.column = lexer->col;
     return pp_lexer_push_token(lexer, tok);
 }
 
@@ -509,7 +512,7 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 } else {
                     // unknown
                     if (!pp_lexer_push_token_helper(lexer, PP_TT_UNKNOWN, 1)) return 0;
-                    pp_error_list_push_error(lexer->error_list, lexer->filename, lexer->row, lexer->col,
+                    pp_error_list_push_error(lexer->error_list, (PP_SourceLoc){.filename=lexer->filename, .line=lexer->row, .column=lexer->col}, 
                                              "Unknown token");
                     advance_pp(lexer, 1);
                 }
@@ -517,7 +520,10 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
         }
     }
     // Push EOF
-    PP_Token eof = {.token_type = PP_TT_EOF, .lexeme = NULL, .line = lexer->row, .column = lexer->col};
+    PP_Token eof = {.token_type = PP_TT_EOF, .lexeme = NULL};
+    eof.loc.filename = lexer->filename;
+    eof.loc.line = lexer->row;
+    eof.loc.column = lexer->col;
     if (!pp_lexer_push_token(lexer, eof)) return 0;
     return 1;
 }

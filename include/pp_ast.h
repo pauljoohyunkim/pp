@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdbool.h>
 
+#include "pp_source_loc.h"
 #include "pp_string_pool.h"
 #include "pp_symbol_table.h"
 #include "pp_tokens.h"
@@ -96,8 +97,7 @@ typedef enum {
 
 struct PP_AST_Node {
     PP_AST_NodeType node_type;
-    unsigned int line;
-    unsigned int col;
+    PP_SourceLoc loc;
 
     union {
         struct { /* Program */
@@ -302,7 +302,7 @@ void pp_ast_decoration_free(PP_AST_Decoration* decor);
 
 const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node* node);
 
-PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, unsigned int col);
+PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, PP_SourceLoc loc);
 void pp_ast_root_free(PP_AST_Node* node);
 void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth);
 
