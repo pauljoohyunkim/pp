@@ -33,10 +33,18 @@ Goal: Make `pplang` recognise `.ppi` interface files and prepend their tokens to
   - [ ] Option A: prepend tokens in memory before `pp_parser_create`
   - [ ] Option B: modify `pp_lexer` to accept multiple input buffers with source map
 - [ ] Ensure diagnostics reference correct file name for each token
+- [ ] **String pool ownership**
+  - [ ] Move `PP_StringPool` ownership to orchestrator `src/pplang.c`
+  - [ ] Pass shared pool to lexer for both `.ppi` and `.pp` files to avoid duplicate pools
+  - [ ] Ensure lexemes from both files live in same arena after prepending
 
 ## 5. Parser / AST handling
 - [ ] Parser should accept extern declarations from prepended tokens seamlessly
 - [ ] No change to grammar needed
+- [ ] **Merging strategy**
+  - [ ] Merge at parser level via token prepending, not AST merge in semantic analyzer
+  - [ ] Single parse pass over combined token stream → single AST
+  - [ ] Avoid duplicate string pools and AST merge complexity
 
 ## 6. Semantic merge rules
 - [x] Allow identical redeclaration of extern symbols from prelude + source → already implemented in `pp_semantic_analyzer_build_global_table_extern_function_decl` / `..._extern_lambda_decl`

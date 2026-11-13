@@ -12,10 +12,11 @@
 #include "pp_linker_offload.h"
 #include "pp_parser.h"
 #include "pp_semantic_analyzer.h"
+#include "pp_compiler_pipeline.h"
+#include "pp_string_pool.h"
 
 #define PPLANG_OPT_EMIT_LLVM 1000
 #define PPLANG_OPT_PPI 1001
-#define PPLANG_OPT_I 1002
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
@@ -38,16 +39,21 @@ typedef struct {
     LLVMTargetMachineRef target_machine;
 } PPLang_InputList;
 
+typedef struct {
+    char** paths;
+    unsigned int count;
+    unsigned int capacity;
+} PPLang_PPIList;
+
 /* Static function prototypes */
 static PPLang_InputList* pplang_input_list_create(void);
 static void pplang_input_list_free(PPLang_InputList* list);
 static int pplang_input_list_push(PPLang_InputList* list, PPLang_Input input);
+static PPLang_PPIList* pplang_ppi_list_create(void);
+static void pplang_ppi_list_free(PPLang_PPIList* list);
+static int pplang_ppi_list_push(PPLang_PPIList* list, const char* path);
 static PPLang_Filetype detect_filetype(const char* path);
-static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose, char optimization_mode,
-                             LLVMTargetMachineRef tm, bool to_assembly, bool emit_ir);
-static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose,
-                                       char optimization_mode, LLVMTargetMachineRef tm);
-static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGenerator** out_cg);
+static PPLang_Filetype detect_filetype(const char* path);
 static long get_file_size(const char* filename);
 static void print_help(void);
 
@@ -62,10 +68,12 @@ int main(int argc, char** argv) {
     bool output_specified = false;
     char output_filename[BUFSIZ] = {0};
     strcpy(output_filename, "a.out");
-    PPLang_InputList* input_list = NULL;
+    PPLang_InputList* input_list = pplang_input_list_create();
+    PPLang_PPIList* ppi_list = pplang_ppi_list_create();
+    PP_StringPool* string_pool = pp_string_pool_create();
     char optimization_mode = '\0';
     int opt;
-    static struct option long_opts[] = {{"emit-llvm", no_argument, 0, PPLANG_OPT_EMIT_LLVM}, {"ppi", required_argument, 0, PPLANG_OPT_PPI}, {"I", required_argument, 0, PPLANG_OPT_I}, {0, 0, 0, 0}};
+    static struct option long_opts[] = {{"emit-llvm", no_argument, 0, PPLANG_OPT_EMIT_LLVM}, {"ppi", required_argument, 0, PPLANG_OPT_PPI}, {0, 0, 0, 0}};
     while ((opt = getopt_long(argc, argv, "hcSvo:O:", long_opts, NULL)) != -1) {
         switch (opt) {
             case 'h':
@@ -81,10 +89,11 @@ int main(int argc, char** argv) {
                 emit_ir = true;
                 break;
             case PPLANG_OPT_PPI:
-                /* TODO: accumulate PPI files */
-                break;
-            case PPLANG_OPT_I:
-                /* TODO: accumulate include paths */
+                if (!ppi_list) { fprintf(stderr, "PPI list not initialized\n"); return 1; }
+                if (!pplang_ppi_list_push(ppi_list, optarg)) {
+                    fprintf(stderr, "Failed to push PPI file %s\n", optarg);
+                    return 1;
+                }
                 break;
             case 'v':
                 verbose = true;
@@ -125,13 +134,13 @@ int main(int argc, char** argv) {
         }
     }
 
+    // -S
     if (to_assembly && !output_specified) { strcpy(output_filename, "a.s"); }
+
+    // --emit-llvm
     if (emit_ir && !output_specified) { strcpy(output_filename, "a.ll"); }
-    input_list = pplang_input_list_create();
-    if (!input_list) {
-        fprintf(stderr, "Failed to create input list\n");
-        return 1;
-    }
+
+    // Translation unit -> Input list
     unsigned int source_count = 0;
     for (int i = optind; i < argc; i++) {
         PPLang_Input input;
@@ -159,17 +168,21 @@ int main(int argc, char** argv) {
         }
     }
 
+    // -c, -S, --emit-llvm can only take one source file.
     if ((to_object || to_assembly || emit_ir) && source_count != 1) {
         fprintf(stderr, "-c/-S requires exactly one source file, got %u\n", source_count);
         pplang_input_list_free(input_list);
         return 1;
     }
 
+    // -c -S is a conflict.
     if (to_object && to_assembly) {
         fprintf(stderr, "Cannot specify both -c and -S\n");
         pplang_input_list_free(input_list);
         return 1;
     }
+
+    // When optimization is required, it requires input_list->target_machine to be determined beforehand.
     if (optimization_mode != '\0') {
         LLVMContextRef tmp_ctx = LLVMContextCreate();
         LLVMModuleRef tmp_mod = LLVMModuleCreateWithNameInContext("tmp", tmp_ctx);
@@ -189,8 +202,8 @@ int main(int argc, char** argv) {
         if (inp->type == PP_SOURCE) {
             if (to_object || to_assembly || emit_ir) {
                 if (inp->obj_path) {
-                    if (!compile_pp_source(inp->src_path, inp->obj_path, verbose, optimization_mode,
-                                           input_list->target_machine, to_assembly, emit_ir)) {
+                    if (!pp_compiler_pipeline_compile_source(inp->src_path, inp->obj_path, verbose, optimization_mode,
+                                           input_list->target_machine, to_assembly, emit_ir, string_pool, (const char**)ppi_list->paths, ppi_list->count)) {
                         fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
                         pplang_input_list_free(input_list);
                         return 1;
@@ -198,8 +211,8 @@ int main(int argc, char** argv) {
                 }
             } else {
                 LLVMMemoryBufferRef buf = NULL;
-                if (!compile_pp_source_to_buffer(inp->src_path, &buf, verbose, optimization_mode,
-                                                 input_list->target_machine)) {
+                if (!pp_compiler_pipeline_compile_source_to_buffer(inp->src_path, &buf, verbose, optimization_mode,
+                                                 input_list->target_machine, string_pool, (const char**)ppi_list->paths, ppi_list->count)) {
                     fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
                     pplang_input_list_free(input_list);
                     return 1;
@@ -274,11 +287,15 @@ int main(int argc, char** argv) {
             free(obj_names);
         }
         pplang_input_list_free(input_list);
+        pplang_ppi_list_free(ppi_list);
+        pp_string_pool_free(string_pool);
         return exit_code;
     }
 
     if (to_object || to_assembly || emit_ir) {
         pplang_input_list_free(input_list);
+        pplang_ppi_list_free(ppi_list);
+        pp_string_pool_free(string_pool);
         return exit_code;
     }
 }
@@ -334,6 +351,41 @@ error_cleanup:
     return 0;
 }
 
+static PPLang_PPIList* pplang_ppi_list_create(void) {
+    PPLang_PPIList* list = (PPLang_PPIList*)calloc(1, sizeof(PPLang_PPIList));
+    if (!list) return NULL;
+    list->capacity = 4;
+    list->paths = (char**)calloc(list->capacity, sizeof(char*));
+    if (!list->paths) { free(list); return NULL; }
+    list->count = 0;
+    return list;
+}
+
+static void pplang_ppi_list_free(PPLang_PPIList* list) {
+    if (!list) return;
+    if (list->paths) {
+        for (unsigned int i = 0; i < list->count; i++) { if (list->paths[i]) free(list->paths[i]); }
+        free(list->paths);
+    }
+    free(list);
+}
+
+static int pplang_ppi_list_push(PPLang_PPIList* list, const char* path) {
+    NULL_POINTER_ERROR_HANDLE(list);
+    NULL_POINTER_ERROR_HANDLE(path);
+    if (list->count >= list->capacity) {
+        unsigned int new_cap = list->capacity * 2;
+        char** tmp = (char**)realloc(list->paths, new_cap * sizeof(char*));
+        NULL_POINTER_ERROR_HANDLE(tmp);
+        list->paths = tmp;
+        list->capacity = new_cap;
+    }
+    list->paths[list->count++] = strdup(path);
+    return 1;
+error_cleanup:
+    return 0;
+}
+
 static PPLang_Filetype detect_filetype(const char* path) {
     FILE* fp = NULL;
     unsigned char magic[4] = {0};
@@ -364,178 +416,6 @@ static PPLang_Filetype detect_filetype(const char* path) {
         if (magic[0] == 0x4d && magic[1] == 0x5a) { return PP_OBJECT; }
     }
     return PP_SOURCE;
-}
-
-static int compile_pp_source_core(const char* src_path, bool verbose, PP_CodeGenerator** out_cg) {
-    FILE* fp = NULL;
-    char* code = NULL;
-    PP_Lexer* lexer = NULL;
-    PP_Parser* parser = NULL;
-    PP_SemanticAnalyzer* sa = NULL;
-    PP_CodeGenerator* cg = NULL;
-    long filesize = 0;
-    size_t total_errors = 0;
-    bool generate_code = true;
-
-    NULL_POINTER_ERROR_HANDLE(src_path);
-    NULL_POINTER_ERROR_HANDLE(out_cg);
-    *out_cg = NULL;
-
-    filesize = get_file_size(src_path);
-    if (filesize < 0) {
-        fprintf(stderr, "Could not open %s\n", src_path);
-        goto error_cleanup;
-    }
-
-    fp = fopen(src_path, "r");
-    if (!fp) {
-        fprintf(stderr, "Could not open %s\n", src_path);
-        goto error_cleanup;
-    }
-    code = (char*)calloc(filesize + 1, sizeof(char));
-    if (!code) {
-        fprintf(stderr, "Could not allocate memory for code.\n");
-        goto error_cleanup;
-    }
-    fread(code, sizeof(char), filesize, fp);
-    fclose(fp);
-    fp = NULL;
-
-    lexer = pp_lexer_create(code, src_path);
-    free(code);
-    code = NULL;
-    NULL_POINTER_ERROR_HANDLE(lexer);
-    if (!pp_lexer_analyze(lexer)) {
-        fprintf(stderr, "Lexer analyze failure\n");
-        goto error_cleanup;
-    }
-    if (lexer->error_list && lexer->error_list->n_errors > 0) {
-        total_errors += lexer->error_list->n_errors;
-        generate_code = false;
-        for (size_t i = 0; i < lexer->error_list->n_errors; i++) {
-            PP_Error* e = &lexer->error_list->errors[i];
-            fprintf(stderr, "Lexer: %s line %d col %d: %s\n", e->loc.filename ? e->loc.filename : "<unknown>", e->loc.line,
-                    e->loc.column, e->message);
-        }
-    }
-
-    parser = pp_parser_create(lexer);
-    NULL_POINTER_ERROR_HANDLE(parser);
-    if (pp_parser_parse(parser) != 1) { fprintf(stderr, "Parser failed\n"); }
-    if (parser->error_list && parser->error_list->n_errors > 0) {
-        total_errors += parser->error_list->n_errors;
-        generate_code = false;
-        for (size_t i = 0; i < parser->error_list->n_errors; i++) {
-            PP_Error* e = &parser->error_list->errors[i];
-            fprintf(stderr, "Parser: %s line %d col %d: %s\n", e->loc.filename ? e->loc.filename : "<unknown>", e->loc.line,
-                    e->loc.column, e->message);
-        }
-    }
-    if (verbose && parser->error_list && parser->error_list->n_errors == 0) {
-        printf("Parse succeeded. AST:\n");
-        pp_ast_root_print(parser->program, 0);
-    }
-
-    sa = pp_semantic_analyzer_create(parser);
-    NULL_POINTER_ERROR_HANDLE(sa);
-    if (pp_semantic_analyzer_analyze(sa) != 1) { fprintf(stderr, "Semantic analysis failed\n"); }
-    if (sa->error_list && sa->error_list->n_errors > 0) {
-        total_errors += sa->error_list->n_errors;
-        generate_code = false;
-        for (size_t i = 0; i < sa->error_list->n_errors; i++) {
-            PP_Error* e = &sa->error_list->errors[i];
-            fprintf(stderr, "Semantic Analyzer: %s line %d col %d: %s\n", e->loc.filename ? e->loc.filename : "<unknown>",
-                    e->loc.line, e->loc.column, e->message);
-        }
-    }
-    if (verbose && sa->error_list && sa->error_list->n_errors == 0) { printf("Semantic analysis succeeded.\n"); }
-
-    if (!generate_code) {
-        fprintf(stderr, "Skipping code generation due to %zu errors\n", total_errors);
-        goto error_cleanup;
-    }
-
-    cg = pp_code_generator_create(sa);
-    NULL_POINTER_ERROR_HANDLE(cg);
-    if (verbose) { printf("Code generator created successfully.\n"); }
-    int gen_res = pp_code_generator_generate(cg);
-    if (verbose) {
-        char* ir_str = LLVMPrintModuleToString(cg->mod);
-        if (ir_str) {
-            printf("--- Generated LLVM IR ---\n%s--- End LLVM IR ---\n", ir_str);
-            LLVMDisposeMessage(ir_str);
-        }
-    }
-    if (!gen_res) {
-        fprintf(stderr, "Code generation failure\n");
-        goto error_cleanup;
-    }
-    if (verbose) { printf("Code generation succeeded.\n"); }
-
-    *out_cg = cg;
-    cg = NULL;
-    pp_semantic_analyzer_free(sa);
-    sa = NULL;
-    pp_parser_free(parser);
-    parser = NULL;
-    pp_lexer_free(lexer);
-    lexer = NULL;
-    return 1;
-
-error_cleanup:
-    pp_code_generator_free(cg);
-    pp_semantic_analyzer_free(sa);
-    pp_parser_free(parser);
-    pp_lexer_free(lexer);
-    if (code) free(code);
-    if (fp) fclose(fp);
-    *out_cg = NULL;
-    return 0;
-}
-
-static int compile_pp_source(const char* src_path, const char* obj_path, bool verbose, char optimization_mode,
-                             LLVMTargetMachineRef tm, bool to_assembly, bool emit_ir) {
-    PP_CodeGenerator* cg = NULL;
-    if (!compile_pp_source_core(src_path, verbose, &cg)) return 0;
-    int ok = 0;
-    if (optimization_mode != '\0' && tm != NULL) {
-        if (!pp_optimize_module(cg->mod, tm, optimization_mode)) {
-            fprintf(stderr, "Optimization failed\n");
-            pp_code_generator_free(cg);
-            return 0;
-        }
-    }
-    if (emit_ir) {
-        ok = pp_code_generator_emit_ir_file(cg->mod, obj_path);
-    } else if (to_assembly) {
-        ok = pp_code_generator_emit_assembly_file(cg->mod, obj_path);
-    } else {
-        ok = pp_code_generator_emit_object_file(cg->mod, obj_path);
-    }
-    pp_code_generator_free(cg);
-    return ok;
-}
-
-static int compile_pp_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose,
-                                       char optimization_mode, LLVMTargetMachineRef tm) {
-    if (!out_buf) return 0;
-    PP_CodeGenerator* cg = NULL;
-    if (!compile_pp_source_core(src_path, verbose, &cg)) return 0;
-    if (optimization_mode != '\0' && tm != NULL) {
-        if (!pp_optimize_module(cg->mod, tm, optimization_mode)) {
-            fprintf(stderr, "Optimization failed\n");
-            pp_code_generator_free(cg);
-            return 0;
-        }
-    }
-    LLVMMemoryBufferRef buf = NULL;
-    if (!pp_code_generator_emit_object_to_buffer(cg->mod, &buf)) {
-        pp_code_generator_free(cg);
-        return 0;
-    }
-    *out_buf = buf;
-    pp_code_generator_free(cg);
-    return 1;
 }
 
 static long get_file_size(const char* filename) {
