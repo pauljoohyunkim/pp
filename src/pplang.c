@@ -14,6 +14,8 @@
 #include "pp_semantic_analyzer.h"
 
 #define PPLANG_OPT_EMIT_LLVM 1000
+#define PPLANG_OPT_PPI 1001
+#define PPLANG_OPT_I 1002
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
@@ -63,7 +65,7 @@ int main(int argc, char** argv) {
     PPLang_InputList* input_list = NULL;
     char optimization_mode = '\0';
     int opt;
-    static struct option long_opts[] = {{"emit-llvm", no_argument, 0, PPLANG_OPT_EMIT_LLVM}, {0, 0, 0, 0}};
+    static struct option long_opts[] = {{"emit-llvm", no_argument, 0, PPLANG_OPT_EMIT_LLVM}, {"ppi", required_argument, 0, PPLANG_OPT_PPI}, {"I", required_argument, 0, PPLANG_OPT_I}, {0, 0, 0, 0}};
     while ((opt = getopt_long(argc, argv, "hcSvo:O:", long_opts, NULL)) != -1) {
         switch (opt) {
             case 'h':
@@ -77,6 +79,12 @@ int main(int argc, char** argv) {
                 break;
             case PPLANG_OPT_EMIT_LLVM:
                 emit_ir = true;
+                break;
+            case PPLANG_OPT_PPI:
+                /* TODO: accumulate PPI files */
+                break;
+            case PPLANG_OPT_I:
+                /* TODO: accumulate include paths */
                 break;
             case 'v':
                 verbose = true;
@@ -543,7 +551,7 @@ static long get_file_size(const char* filename) {
 }
 
 static void print_help(void) {
-    printf("Usage: pplang [-h] [-v] [-c] [-S] [-o filename] [-O 0123] src.pp\n");
+    printf("Usage: pplang [-h] [-v] [-c] [-S] [-o filename] [-O 0123] [--ppi file] [-I dir] src.pp\n");
     printf("-h\t\t\t\tShow this help menu\n");
     printf("-v\t\t\t\tShow verbose output\n");
     printf("-c\t\t\t\tCompile to object file.\n");
