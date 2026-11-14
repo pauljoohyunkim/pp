@@ -856,15 +856,81 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
                     PP_Token* right_paren = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
                     NULL_POINTER_ERROR_HANDLE(right_paren);
                 }
-                node = pp_ast_node_create(PP_AST_FunctionCallNode, op_tok->loc);
-                NULL_POINTER_ERROR_HANDLE(node);
-                node->function_call.callee = lhs;
-                node->function_call.arguments = arguments;
-                node->function_call.arg_count = arg_count;
-                node->function_call.arg_capacity = arg_capacity;
-                node->function_call.decoration = NULL;
-                lhs = node;
-                arguments = NULL;
+                /* Reserved builtin detection */
+                if (lhs && lhs->node_type == PP_AST_IdentifierNode) {
+                    const char* ident = lhs->identifier.identifier;
+                    if (ident && strcmp(ident, "list_push") == 0) {
+                        if (arg_count != 2) {
+                            pp_error_list_push_error(parser->error_list, op_tok->loc,
+                                                     "list_push requires exactly 2 arguments");
+                            goto error_cleanup;
+                        }
+                        node = pp_ast_node_create(PP_AST_ListPushNode, op_tok->loc);
+                        NULL_POINTER_ERROR_HANDLE(node);
+                        node->list_push.list = arguments[0];
+                        node->list_push.value = arguments[1];
+                        free(arguments);
+                        /* free callee identifier node */
+                        pp_ast_root_free(lhs);
+                        lhs = NULL;
+                        lhs = node;
+                        arguments = NULL;
+                        arg_count = 0;
+                        arg_capacity = 0;
+                    } else if (ident && strcmp(ident, "list_pop") == 0) {
+                        if (arg_count != 1) {
+                            pp_error_list_push_error(parser->error_list, op_tok->loc,
+                                                     "list_pop requires exactly 1 argument");
+                            goto error_cleanup;
+                        }
+                        node = pp_ast_node_create(PP_AST_ListPopNode, op_tok->loc);
+                        NULL_POINTER_ERROR_HANDLE(node);
+                        node->list_pop.list = arguments[0];
+                        free(arguments);
+                        pp_ast_root_free(lhs);
+                        lhs = NULL;
+                        lhs = node;
+                        arguments = NULL;
+                        arg_count = 0;
+                        arg_capacity = 0;
+                    } else if (ident && strcmp(ident, "list_clear") == 0) {
+                        if (arg_count != 1) {
+                            pp_error_list_push_error(parser->error_list, op_tok->loc,
+                                                     "list_clear requires exactly 1 argument");
+                            goto error_cleanup;
+                        }
+                        node = pp_ast_node_create(PP_AST_ListClearNode, op_tok->loc);
+                        NULL_POINTER_ERROR_HANDLE(node);
+                        node->list_clear.list = arguments[0];
+                        free(arguments);
+                        pp_ast_root_free(lhs);
+                        lhs = NULL;
+                        lhs = node;
+                        arguments = NULL;
+                        arg_count = 0;
+                        arg_capacity = 0;
+                    } else {
+                        node = pp_ast_node_create(PP_AST_FunctionCallNode, op_tok->loc);
+                        NULL_POINTER_ERROR_HANDLE(node);
+                        node->function_call.callee = lhs;
+                        node->function_call.arguments = arguments;
+                        node->function_call.arg_count = arg_count;
+                        node->function_call.arg_capacity = arg_capacity;
+                        node->function_call.decoration = NULL;
+                        lhs = node;
+                        arguments = NULL;
+                    }
+                } else {
+                    node = pp_ast_node_create(PP_AST_FunctionCallNode, op_tok->loc);
+                    NULL_POINTER_ERROR_HANDLE(node);
+                    node->function_call.callee = lhs;
+                    node->function_call.arguments = arguments;
+                    node->function_call.arg_count = arg_count;
+                    node->function_call.arg_capacity = arg_capacity;
+                    node->function_call.decoration = NULL;
+                    lhs = node;
+                    arguments = NULL;
+                }
             } else if (op_type == PP_TT_LEFT_SQUARE_BRACKET) {
                 index_expr = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
                 NULL_POINTER_ERROR_HANDLE(index_expr);

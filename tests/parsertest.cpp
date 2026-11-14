@@ -1301,4 +1301,56 @@ TEST(ParserTest, PointerTypeParse) {
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
 
+TEST(ParserTest, ListBuiltinPushParse) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32] = [int32; 1, 2];\n"
+        "    list_push(v, 3);\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, ListBuiltinPopParse) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32] = [int32; 1, 2];\n"
+        "    let x :: int32 = list_pop(v);\n"
+        "    return x;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, ListBuiltinClearParse) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32] = [int32; 1, 2];\n"
+        "    list_clear(v);\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, ListBuiltinPushArityError) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32] = [int32;];\n"
+        "    list_push(v);\n"
+        "    return 0;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(parser_errors, 0);
+}
+
 

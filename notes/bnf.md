@@ -125,10 +125,16 @@
                               | "!" <postfix> 
                               | <postfix>
 
-<postfix>                   ::= <postfix> "(" <argument_list> ")"       ;; Function call
+<postfix>                   ::= <postfix> "(" <argument_list> ")"       ;; Function call or reserved builtin call
                               | <postfix> "." <identifier>              ;; Struct Member Access
                               | <postfix> "[" <expression> "]"          ;; Array/List Access
                               | <primary>
+
+;; Reserved builtin calls
+;; list_push(list, value)  – push value onto list
+;; list_pop(list)          – pop and return element from list
+;; list_clear(list)        – clear list
+
 
 ;; --- Primary Values ---
 <primary>                   ::= <identifier>
