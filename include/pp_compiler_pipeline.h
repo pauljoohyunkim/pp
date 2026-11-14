@@ -5,20 +5,33 @@
 extern "C" {
 #endif
 
-#include <stdbool.h>
 #include <llvm-c/Target.h>
+#include <stdbool.h>
+
 #include "pp_code_generator.h"
 #include "pp_string_pool.h"
 
+/**
+ * Options controlling the compiler pipeline.
+ *
+ * @param string_pool Shared string pool for the session. Ownership remains with caller.
+ * @param ppi_paths Array of .ppi file paths to pre-lex.
+ * @param ppi_count Number of PPI files in ppi_paths.
+ * @param target_machine LLVM target machine for codegen/optimization.
+ * @param verbose Enable verbose diagnostics.
+ * @param optimization_mode Optimization level '0'..'3' or '\0' for none.
+ * @param to_assembly Emit assembly instead of object.
+ * @param emit_ir Emit LLVM IR instead of object.
+ */
 typedef struct {
-    PP_StringPool*       string_pool;
-    const char**         ppi_paths;
-    int                  ppi_count;
+    PP_StringPool* string_pool;
+    const char** ppi_paths;
+    unsigned int ppi_count;
     LLVMTargetMachineRef target_machine;
-    bool                 verbose;
-    char                 optimization_mode;
-    bool                 to_assembly;
-    bool                 emit_ir;
+    bool verbose;
+    char optimization_mode;
+    bool to_assembly;
+    bool emit_ir;
 } CompilerPipelineOptions;
 
 /**
@@ -35,8 +48,9 @@ typedef struct {
  * @param ppi_count Number of PPI files
  * @return 1 on success
  */
-int pp_compiler_pipeline_compile_source(const char* src_path, const char* obj_path, bool verbose, char optimization_mode,
-                                       LLVMTargetMachineRef tm, bool to_assembly, bool emit_ir, PP_StringPool* sp, const char** ppi_paths, int ppi_count);
+int pp_compiler_pipeline_compile_source(const char* src_path, const char* obj_path, bool verbose,
+                                        char optimization_mode, LLVMTargetMachineRef tm, bool to_assembly, bool emit_ir,
+                                        PP_StringPool* sp, const char** ppi_paths, int ppi_count);
 
 /**
  * Compile a source file to an in-memory object buffer using legacy parameter list.
@@ -51,7 +65,8 @@ int pp_compiler_pipeline_compile_source(const char* src_path, const char* obj_pa
  * @return 1 on success
  */
 int pp_compiler_pipeline_compile_source_to_buffer(const char* src_path, LLVMMemoryBufferRef* out_buf, bool verbose,
-                                                  char optimization_mode, LLVMTargetMachineRef tm, PP_StringPool* sp, const char** ppi_paths, int ppi_count);
+                                                  char optimization_mode, LLVMTargetMachineRef tm, PP_StringPool* sp,
+                                                  const char** ppi_paths, int ppi_count);
 
 /* New options-based API */
 
@@ -62,7 +77,8 @@ int pp_compiler_pipeline_compile_source_to_buffer(const char* src_path, LLVMMemo
  * @param obj_path Output path
  * @return 1 on success
  */
-int pp_compiler_pipeline_compile_source_opts(const CompilerPipelineOptions* opts, const char* src_path, const char* obj_path);
+int pp_compiler_pipeline_compile_source_opts(const CompilerPipelineOptions* opts, const char* src_path,
+                                             const char* obj_path);
 
 /**
  * Compile a source file to an in-memory object buffer using CompilerPipelineOptions.
@@ -71,7 +87,8 @@ int pp_compiler_pipeline_compile_source_opts(const CompilerPipelineOptions* opts
  * @param out_buf Output memory buffer, caller must dispose
  * @return 1 on success
  */
-int pp_compiler_pipeline_compile_source_to_buffer_opts(const CompilerPipelineOptions* opts, const char* src_path, LLVMMemoryBufferRef* out_buf);
+int pp_compiler_pipeline_compile_source_to_buffer_opts(const CompilerPipelineOptions* opts, const char* src_path,
+                                                       LLVMMemoryBufferRef* out_buf);
 
 #ifdef __cplusplus
 }

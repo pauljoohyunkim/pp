@@ -148,7 +148,8 @@ int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* outpu
  * @param tm Optional target machine, NULL for default.
  * @return 1 on success, 0 otherwise.
  */
-int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf, LLVMTargetMachineRef tm);
+int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf,
+                                            LLVMTargetMachineRef tm);
 
 /**
  * @brief Emit LLVM module to an assembly buffer.
@@ -157,7 +158,8 @@ int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBuff
  * @param tm Optional target machine, NULL for default.
  * @return 1 on success, 0 otherwise.
  */
-int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf, LLVMTargetMachineRef tm);
+int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf,
+                                              LLVMTargetMachineRef tm);
 
 /**
  * @brief Emit LLVM module IR to a file.

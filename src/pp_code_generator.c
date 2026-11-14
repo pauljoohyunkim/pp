@@ -1108,11 +1108,14 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
         char* verify_err = NULL;
         if (LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &verify_err)) {
             if (verify_err) {
-                pp_error_list_push_error(cg->error_list, (PP_SourceLoc){.filename="<internal>", .line=0, .column=0},  "LLVM verification failed: %s",
-                                         verify_err);
+                pp_error_list_push_error(cg->error_list,
+                                         (PP_SourceLoc){.filename = "<internal>", .line = 0, .column = 0},
+                                         "LLVM verification failed: %s", verify_err);
                 LLVMDisposeMessage(verify_err);
             } else {
-                pp_error_list_push_error(cg->error_list, (PP_SourceLoc){.filename="<internal>", .line=0, .column=0},  "LLVM verification failed");
+                pp_error_list_push_error(cg->error_list,
+                                         (PP_SourceLoc){.filename = "<internal>", .line = 0, .column = 0},
+                                         "LLVM verification failed");
             }
             goto error_cleanup;
         }
@@ -1139,7 +1142,6 @@ static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* out
     /* Ensure module target triple matches the machine */
     target_triple = LLVMGetTargetMachineTriple(target_machine);
     LLVMSetTarget(module, target_triple);
-
 
     LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(target_machine);
     LLVMSetModuleDataLayout(module, data_layout);
@@ -1183,11 +1185,13 @@ int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* outpu
     return pp_code_generator_emit_internal(module, output_filename, NULL, 1, tm);
 }
 
-int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf, LLVMTargetMachineRef tm) {
+int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf,
+                                            LLVMTargetMachineRef tm) {
     return pp_code_generator_emit_internal(module, NULL, out_buf, 0, tm);
 }
 
-int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf, LLVMTargetMachineRef tm) {
+int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf,
+                                              LLVMTargetMachineRef tm) {
     return pp_code_generator_emit_internal(module, NULL, out_buf, 1, tm);
 }
 
@@ -1936,7 +1940,11 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
     LLVMTypeRef llvm_var_type = pp_environment_backend_lookup_type(cg, var_type);
     assert(llvm_var_type);
     // Debug print types
-    printf("Global %s: PP type %d -> LLVM type %s\n", var_name, var_type->kind, LLVMPrintTypeToString(llvm_var_type));
+    {
+        char* type_str = LLVMPrintTypeToString(llvm_var_type);
+        printf("Global %s: PP type %d -> LLVM type %s\n", var_name, var_type->kind, type_str);
+        LLVMDisposeMessage(type_str);
+    }
 
     LLVMValueRef llvm_global_var = LLVMAddGlobal(cg->mod, llvm_var_type, var_name);
 
@@ -2100,17 +2108,16 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_MemberAccessNode:
             llvm_val = pp_code_generator_generate_lvalue_struct_member_access(cg, symbol_table, env_b, node);
             break;
-        case PP_AST_UnaryExpressionNode:
-            {
-                if (node->unary_expression.op == PP_TT_DOLLAR) {
-                    // Dereference lvalue: generate rvalue of pointer operand, result is address of pointee
-                    LLVMValueRef ptr_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->unary_expression.operand);
-                    llvm_val = ptr_val;
-                } else {
-                    assert(0 && "Cannot get l-value for unary");
-                }
+        case PP_AST_UnaryExpressionNode: {
+            if (node->unary_expression.op == PP_TT_DOLLAR) {
+                // Dereference lvalue: generate rvalue of pointer operand, result is address of pointee
+                LLVMValueRef ptr_val =
+                    pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->unary_expression.operand);
+                llvm_val = ptr_val;
+            } else {
+                assert(0 && "Cannot get l-value for unary");
             }
-            break;
+        } break;
         default:
             assert(0 && "Cannot get l-value");
     }

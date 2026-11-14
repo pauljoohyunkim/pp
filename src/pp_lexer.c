@@ -512,7 +512,10 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 } else {
                     // unknown
                     if (!pp_lexer_push_token_helper(lexer, PP_TT_UNKNOWN, 1)) return 0;
-                    pp_error_list_push_error(lexer->error_list, (PP_SourceLoc){.filename=lexer->filename, .line=lexer->row, .column=lexer->col}, 
+                    pp_error_list_push_error(lexer->error_list,
+                                             (PP_SourceLoc){.filename = lexer->filename,
+                                                            .line = lexer->row,
+                                                            .column = lexer->col},
                                              "Unknown token");
                     advance_pp(lexer, 1);
                 }

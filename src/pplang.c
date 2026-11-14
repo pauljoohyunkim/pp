@@ -8,11 +8,11 @@
 #include "pp_ast.h"
 #include "pp_code_generator.h"
 #include "pp_code_optimization.h"
+#include "pp_compiler_pipeline.h"
 #include "pp_lexer.h"
 #include "pp_linker_offload.h"
 #include "pp_parser.h"
 #include "pp_semantic_analyzer.h"
-#include "pp_compiler_pipeline.h"
 #include "pp_string_pool.h"
 
 #define PPLANG_OPT_EMIT_LLVM 1000
@@ -73,7 +73,9 @@ int main(int argc, char** argv) {
     PP_StringPool* string_pool = pp_string_pool_create();
     char optimization_mode = '\0';
     int opt;
-    static struct option long_opts[] = {{"emit-llvm", no_argument, 0, PPLANG_OPT_EMIT_LLVM}, {"ppi", required_argument, 0, PPLANG_OPT_PPI}, {0, 0, 0, 0}};
+    static struct option long_opts[] = {{"emit-llvm", no_argument, 0, PPLANG_OPT_EMIT_LLVM},
+                                        {"ppi", required_argument, 0, PPLANG_OPT_PPI},
+                                        {0, 0, 0, 0}};
     while ((opt = getopt_long(argc, argv, "hcSvo:O:", long_opts, NULL)) != -1) {
         switch (opt) {
             case 'h':
@@ -89,7 +91,10 @@ int main(int argc, char** argv) {
                 emit_ir = true;
                 break;
             case PPLANG_OPT_PPI:
-                if (!ppi_list) { fprintf(stderr, "PPI list not initialized\n"); return 1; }
+                if (!ppi_list) {
+                    fprintf(stderr, "PPI list not initialized\n");
+                    return 1;
+                }
                 if (!pplang_ppi_list_push(ppi_list, optarg)) {
                     fprintf(stderr, "Failed to push PPI file %s\n", optarg);
                     return 1;
@@ -200,7 +205,7 @@ int main(int argc, char** argv) {
     CompilerPipelineOptions opts = {
         .string_pool = string_pool,
         .ppi_paths = (const char**)ppi_list->paths,
-        .ppi_count = (int)ppi_list->count,
+        .ppi_count = ppi_list->count,
         .target_machine = input_list->target_machine,
         .verbose = verbose,
         .optimization_mode = optimization_mode,
@@ -375,7 +380,10 @@ static PPLang_PPIList* pplang_ppi_list_create(void) {
     if (!list) return NULL;
     list->capacity = 4;
     list->paths = (char**)calloc(list->capacity, sizeof(char*));
-    if (!list->paths) { free(list); return NULL; }
+    if (!list->paths) {
+        free(list);
+        return NULL;
+    }
     list->count = 0;
     return list;
 }
@@ -383,7 +391,9 @@ static PPLang_PPIList* pplang_ppi_list_create(void) {
 static void pplang_ppi_list_free(PPLang_PPIList* list) {
     if (!list) return;
     if (list->paths) {
-        for (unsigned int i = 0; i < list->count; i++) { if (list->paths[i]) free(list->paths[i]); }
+        for (unsigned int i = 0; i < list->count; i++) {
+            if (list->paths[i]) free(list->paths[i]);
+        }
         free(list->paths);
     }
     free(list);

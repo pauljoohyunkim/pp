@@ -120,11 +120,10 @@ void pp_parser_free(PP_Parser* parser) {
     free(parser);
 }
 
-
 static inline PP_SourceLoc pp_parser_current_loc(const PP_Parser* parser) {
     if (!parser || parser->idx >= parser->n_tokens) {
         const char* fn = parser ? parser->filename : "<unknown>";
-        return (PP_SourceLoc){ .filename = fn, .line = 0, .column = 0 };
+        return (PP_SourceLoc){.filename = fn, .line = 0, .column = 0};
     }
     return parser->tokens[parser->idx].loc;
 }
@@ -208,7 +207,8 @@ static int pp_parser_infix_binding_power(PP_TokenType token_type, unsigned char*
 static PP_Token* pp_parser_consume_token(PP_Parser* parser, PP_TokenType expected_type) {
     if (!parser) return NULL;
     if (parser->idx >= parser->n_tokens) {
-        pp_error_list_push_error(parser->error_list, (PP_SourceLoc){.filename=parser->filename, .line=0, .column=0},   "Out of tokens");
+        pp_error_list_push_error(parser->error_list,
+                                 (PP_SourceLoc){.filename = parser->filename, .line = 0, .column = 0}, "Out of tokens");
         return NULL;
     }
     PP_Token* t = &parser->tokens[parser->idx];
@@ -218,9 +218,8 @@ static PP_Token* pp_parser_consume_token(PP_Parser* parser, PP_TokenType expecte
     } else {
         const char* expected_name = pp_token_to_human_name(expected_type);
         const char* got_name = pp_token_to_human_name(t->token_type);
-        pp_error_list_push_error(parser->error_list, t->loc,
-                                 "Expected token %s but got %s", expected_name ? expected_name : "unknown",
-                                 got_name ? got_name : "unknown");
+        pp_error_list_push_error(parser->error_list, t->loc, "Expected token %s but got %s",
+                                 expected_name ? expected_name : "unknown", got_name ? got_name : "unknown");
         parser->idx++;
         return NULL;
     }
@@ -273,7 +272,7 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
 
     NULL_POINTER_ERROR_HANDLE(parser);
 
-    program = pp_ast_node_create(PP_AST_ProgramNode, (PP_SourceLoc){ .filename = NULL, .line = 0, .column = 0 });
+    program = pp_ast_node_create(PP_AST_ProgramNode, (PP_SourceLoc){.filename = NULL, .line = 0, .column = 0});
     NULL_POINTER_ERROR_HANDLE(program);
 
     capacity = AST_VECTOR_INIT_CAP;
@@ -299,7 +298,8 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                     pp_parser_consume_token(parser, PP_TT_EXTERN);
                     decl = pp_parser_create_extern_operator_declaration(parser);
                 } else {
-                    pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Expected 'func' or 'lambda' after 'extern'");
+                    pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),
+                                             "Expected 'func' or 'lambda' after 'extern'");
                     pp_parser_sync(parser);
                 }
                 break;
@@ -326,7 +326,8 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                 decl = pp_parser_create_global_variable_declaration(parser);
                 break;
             default:
-                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Unexpected token at global scope.");
+                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),
+                                         "Unexpected token at global scope.");
                 pp_parser_sync(parser);
                 continue;
         }
@@ -431,7 +432,8 @@ static PP_AST_Node* pp_parser_create_null_literal(PP_Parser* parser) {
         PP_AST_Node* type_node = pp_parser_create_type(parser);
         NULL_POINTER_ERROR_HANDLE(type_node);
         if (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_SQUARE_BRACKET) {
-            pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Expected ']' after nullptr type argument");
+            pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),
+                                     "Expected ']' after nullptr type argument");
             pp_ast_root_free(type_node);
             goto error_cleanup;
         }
@@ -550,7 +552,7 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
             NULL_POINTER_ERROR_HANDLE(base_tok);
         }
         if (pp_parser_peek_token_type(parser, 0) != PP_TT_LEFT_SQUARE_BRACKET) {
-            pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Expected '[' after ptr");
+            pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser), "Expected '[' after ptr");
             goto error_cleanup;
         }
         {
@@ -617,7 +619,7 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
                 kind = PP_AST_TYPE_KIND_IDENTIFIER;
                 break;
             default:
-                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Expected type name");
+                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser), "Expected type name");
                 goto error_cleanup;
         }
         {
@@ -661,7 +663,8 @@ static PP_AST_Node* pp_parser_create_type(PP_Parser* parser) {
         pp_parser_consume_token(parser, PP_TT_AMPERSAND);
         is_ref = true;
     }
-    wrapper = pp_ast_node_create(PP_AST_TypeExpressionNode, is_const ? const_tok->loc : parser->tokens[parser->idx].loc);
+    wrapper =
+        pp_ast_node_create(PP_AST_TypeExpressionNode, is_const ? const_tok->loc : parser->tokens[parser->idx].loc);
     NULL_POINTER_ERROR_HANDLE(wrapper);
     wrapper->type_expression.is_const = is_const;
     wrapper->type_expression.is_reference = is_ref;
@@ -725,7 +728,8 @@ static PP_AST_Node* pp_parser_create_statement(PP_Parser* parser) {
             expr = pp_parser_create_expression_or_assignment(parser);
             NULL_POINTER_ERROR_HANDLE(expr);
             if (!pp_parser_consume_token(parser, PP_TT_SEMICOLON)) {
-                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),   "Expected ';' after expression statement");
+                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),
+                                         "Expected ';' after expression statement");
                 pp_parser_sync(parser);
             }
             return expr;
@@ -1418,7 +1422,8 @@ static PP_AST_Node* pp_parser_create_operator_declaration(PP_Parser* parser) {
         operator_symbol_tok = pp_parser_consume_token(parser, peeked);
         NULL_POINTER_ERROR_HANDLE(operator_symbol_tok);
         if (!pp_parser_is_overloadable_operator_token(operator_symbol_tok->token_type)) {
-            pp_error_list_push_error(parser->error_list, operator_symbol_tok->loc,   "Unsupported operator token for custom operator.");
+            pp_error_list_push_error(parser->error_list, operator_symbol_tok->loc,
+                                     "Unsupported operator token for custom operator.");
             goto error_cleanup;
         }
     }
@@ -1563,7 +1568,8 @@ static PP_AST_Node* pp_parser_create_extern_operator_declaration(PP_Parser* pars
         operator_symbol_tok = pp_parser_consume_token(parser, peeked);
         NULL_POINTER_ERROR_HANDLE(operator_symbol_tok);
         if (!pp_parser_is_overloadable_operator_token(operator_symbol_tok->token_type)) {
-            pp_error_list_push_error(parser->error_list, operator_symbol_tok->loc,   "Unsupported operator token for custom operator.");
+            pp_error_list_push_error(parser->error_list, operator_symbol_tok->loc,
+                                     "Unsupported operator token for custom operator.");
             goto error_cleanup;
         }
     }

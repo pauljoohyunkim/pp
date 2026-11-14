@@ -18,8 +18,7 @@ PP_ErrorList* pp_error_list_create(void) {
     return error_list;
 }
 
-int pp_error_list_push_error(PP_ErrorList* error_list, PP_SourceLoc loc, const char* format,
-                             ...) {
+int pp_error_list_push_error(PP_ErrorList* error_list, PP_SourceLoc loc, const char* format, ...) {
     if (!error_list) return 0;
     if (error_list->n_errors > error_list->error_capacity) return 0;
 
