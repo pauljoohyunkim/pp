@@ -54,7 +54,6 @@ static void pplang_ppi_list_free(PPLang_PPIList* list);
 static int pplang_ppi_list_push(PPLang_PPIList* list, const char* path);
 static PPLang_Filetype detect_filetype(const char* path);
 static PPLang_Filetype detect_filetype(const char* path);
-static long get_file_size(const char* filename);
 static void print_help(void);
 
 /* Main */
@@ -445,18 +444,6 @@ static PPLang_Filetype detect_filetype(const char* path) {
         if (magic[0] == 0x4d && magic[1] == 0x5a) { return PP_OBJECT; }
     }
     return PP_SOURCE;
-}
-
-static long get_file_size(const char* filename) {
-    FILE* fp = fopen(filename, "rb");
-    if (!fp) return -1;
-    if (fseek(fp, 0L, SEEK_END) != 0) {
-        fclose(fp);
-        return -1;
-    }
-    long size = ftell(fp);
-    fclose(fp);
-    return size;
 }
 
 static void print_help(void) {
