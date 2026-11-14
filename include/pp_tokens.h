@@ -8,6 +8,8 @@ extern "C" {
 #include <stdbool.h>
 #include <sys/types.h>
 
+#include "pp_source_loc.h"
+
 typedef enum {
     // Single-letter
     PP_TT_LEFT_CURLY_BRACKET,
@@ -108,8 +110,7 @@ typedef enum {
 typedef struct {
     PP_TokenType token_type;
     const char* lexeme;
-    unsigned int line;
-    unsigned int column;
+    PP_SourceLoc loc;
 } PP_Token;
 
 const char* pp_token_to_human_name(PP_TokenType token_type);

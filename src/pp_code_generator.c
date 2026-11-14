@@ -782,7 +782,7 @@ error_cleanup:
     return NULL;
 }
 
-PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
+PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp) {
     PP_CodeGenerator* cg = NULL;
     LLVMContextRef ctx = NULL;
     LLVMModuleRef mod = NULL;
@@ -800,7 +800,7 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
     cg->ctx = ctx;
     ctx = NULL;
 
-    mod = LLVMModuleCreateWithNameInContext(sa->filename ? sa->filename : "input", cg->ctx);
+    mod = LLVMModuleCreateWithNameInContext("input", cg->ctx);
     if (mod == NULL) goto error_cleanup;
     cg->mod = mod;
     mod = NULL;
@@ -820,7 +820,7 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
     cg->error_list = error_list;
     error_list = NULL;
 
-    cg->filename = sa->filename;
+    // cg filename removed
     cg->code_length = sa->code_length;
 
     cg->program = sa->program;
@@ -835,8 +835,7 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa) {
     cg->code = sa->code;
     sa->code = NULL;
 
-    cg->sp = sa->sp;
-    sa->sp = NULL;
+    cg->sp = sp;
 
     assert(sa->current_function_type == NULL);
     cg->current_function_type = NULL;
@@ -882,7 +881,7 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         pp_error_list_free(cg->error_list);
         pp_global_type_table_free(cg->gtt);
         free((char*)cg->code);
-        pp_string_pool_free(cg->sp);
+        /* String pool is not owned by code generator; do not free */
         free(cg->drop_stack_addresses);
         free(cg->drop_stack_types);
         free(cg->type_cache);
@@ -1109,11 +1108,14 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
         char* verify_err = NULL;
         if (LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &verify_err)) {
             if (verify_err) {
-                pp_error_list_push_error(cg->error_list, cg->filename, 0, 0, "LLVM verification failed: %s",
-                                         verify_err);
+                pp_error_list_push_error(cg->error_list,
+                                         (PP_SourceLoc){.filename = "<internal>", .line = 0, .column = 0},
+                                         "LLVM verification failed: %s", verify_err);
                 LLVMDisposeMessage(verify_err);
             } else {
-                pp_error_list_push_error(cg->error_list, cg->filename, 0, 0, "LLVM verification failed");
+                pp_error_list_push_error(cg->error_list,
+                                         (PP_SourceLoc){.filename = "<internal>", .line = 0, .column = 0},
+                                         "LLVM verification failed");
             }
             goto error_cleanup;
         }
@@ -1126,25 +1128,20 @@ error_cleanup:
 }
 
 static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* output_filename,
-                                           LLVMMemoryBufferRef* out_buf, int to_assembly) {
+                                           LLVMMemoryBufferRef* out_buf, int to_assembly, LLVMTargetMachineRef tm_in) {
+    if (!module || !tm_in) {
+        fprintf(stderr, "pp_code_generator_emit_internal requires non-NULL module and target machine\n");
+        return 0;
+    }
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
 
-    char* target_triple = LLVMGetDefaultTargetTriple();
+    LLVMTargetMachineRef target_machine = tm_in;
+    char* target_triple = NULL;
+
+    /* Ensure module target triple matches the machine */
+    target_triple = LLVMGetTargetMachineTriple(target_machine);
     LLVMSetTarget(module, target_triple);
-
-    LLVMTargetRef target;
-    char* error = NULL;
-    if (LLVMGetTargetFromTriple(target_triple, &target, &error)) {
-        fprintf(stderr, "LLVM Target Error: %s\n", error);
-        LLVMDisposeMessage(error);
-        LLVMDisposeMessage(target_triple);
-        return 0;
-    }
-
-    LLVMTargetMachineRef target_machine =
-        LLVMCreateTargetMachine(target, target_triple, "generic", "", LLVMCodeGenLevelDefault, LLVMRelocPIC,
-                                LLVMCodeModelDefault);
 
     LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(target_machine);
     LLVMSetModuleDataLayout(module, data_layout);
@@ -1152,6 +1149,7 @@ static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* out
     int result = 1;
     LLVMCodeGenFileType codegen_file_type = to_assembly ? LLVMAssemblyFile : LLVMObjectFile;
     if (output_filename) {
+        char* error = NULL;
         if (LLVMTargetMachineEmitToFile(target_machine, module, (char*)output_filename, codegen_file_type, &error)) {
             fprintf(stderr, "Failed to emit object file: %s\n", error);
             LLVMDisposeMessage(error);
@@ -1159,6 +1157,7 @@ static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* out
         }
     } else if (out_buf) {
         LLVMMemoryBufferRef buf = NULL;
+        char* error = NULL;
         if (LLVMTargetMachineEmitToMemoryBuffer(target_machine, module, codegen_file_type, &error, &buf)) {
             fprintf(stderr, "Failed to emit object to buffer: %s\n", error);
             LLVMDisposeMessage(error);
@@ -1174,25 +1173,26 @@ static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* out
     }
 
     LLVMDisposeTargetData(data_layout);
-    LLVMDisposeTargetMachine(target_machine);
-    LLVMDisposeMessage(target_triple);
+    if (target_triple) LLVMDisposeMessage(target_triple);
     return result;
 }
 
-int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename) {
-    return pp_code_generator_emit_internal(module, output_filename, NULL, 0);
+int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename, LLVMTargetMachineRef tm) {
+    return pp_code_generator_emit_internal(module, output_filename, NULL, 0, tm);
 }
 
-int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* output_filename) {
-    return pp_code_generator_emit_internal(module, output_filename, NULL, 1);
+int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* output_filename, LLVMTargetMachineRef tm) {
+    return pp_code_generator_emit_internal(module, output_filename, NULL, 1, tm);
 }
 
-int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf) {
-    return pp_code_generator_emit_internal(module, NULL, out_buf, 0);
+int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf,
+                                            LLVMTargetMachineRef tm) {
+    return pp_code_generator_emit_internal(module, NULL, out_buf, 0, tm);
 }
 
-int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf) {
-    return pp_code_generator_emit_internal(module, NULL, out_buf, 1);
+int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf,
+                                              LLVMTargetMachineRef tm) {
+    return pp_code_generator_emit_internal(module, NULL, out_buf, 1, tm);
 }
 
 int pp_code_generator_emit_ir_file(LLVMModuleRef module, const char* output_filename) {
@@ -1940,7 +1940,11 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
     LLVMTypeRef llvm_var_type = pp_environment_backend_lookup_type(cg, var_type);
     assert(llvm_var_type);
     // Debug print types
-    printf("Global %s: PP type %d -> LLVM type %s\n", var_name, var_type->kind, LLVMPrintTypeToString(llvm_var_type));
+    {
+        char* type_str = LLVMPrintTypeToString(llvm_var_type);
+        printf("Global %s: PP type %d -> LLVM type %s\n", var_name, var_type->kind, type_str);
+        LLVMDisposeMessage(type_str);
+    }
 
     LLVMValueRef llvm_global_var = LLVMAddGlobal(cg->mod, llvm_var_type, var_name);
 
@@ -2104,17 +2108,16 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
         case PP_AST_MemberAccessNode:
             llvm_val = pp_code_generator_generate_lvalue_struct_member_access(cg, symbol_table, env_b, node);
             break;
-        case PP_AST_UnaryExpressionNode:
-            {
-                if (node->unary_expression.op == PP_TT_DOLLAR) {
-                    // Dereference lvalue: generate rvalue of pointer operand, result is address of pointee
-                    LLVMValueRef ptr_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->unary_expression.operand);
-                    llvm_val = ptr_val;
-                } else {
-                    assert(0 && "Cannot get l-value for unary");
-                }
+        case PP_AST_UnaryExpressionNode: {
+            if (node->unary_expression.op == PP_TT_DOLLAR) {
+                // Dereference lvalue: generate rvalue of pointer operand, result is address of pointee
+                LLVMValueRef ptr_val =
+                    pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->unary_expression.operand);
+                llvm_val = ptr_val;
+            } else {
+                assert(0 && "Cannot get l-value for unary");
             }
-            break;
+        } break;
         default:
             assert(0 && "Cannot get l-value");
     }

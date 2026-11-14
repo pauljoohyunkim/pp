@@ -40,7 +40,7 @@ static size_t pp_lexer_scan_until_quote(PP_Lexer* lexer, size_t start_offset) {
     return pos;
 }
 
-PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
+PP_Lexer* pp_lexer_create(const char* code, const char* filename, PP_StringPool* sp_in) {
     PP_Lexer* lexer = NULL;
     PP_Token* tokens = NULL;
     char* code_copy = NULL;
@@ -48,6 +48,8 @@ PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
     PP_ErrorList* error_list = NULL;
 
     if (code == NULL) return NULL;
+
+    NULL_POINTER_ERROR_HANDLE(sp_in);
 
     const size_t code_length = strlen(code);
 
@@ -63,8 +65,7 @@ PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
     NULL_POINTER_ERROR_HANDLE(code_copy);
     strncpy(code_copy, code, code_length);
 
-    sp = pp_string_pool_create();
-    NULL_POINTER_ERROR_HANDLE(sp);
+    sp = sp_in;
 
     error_list = pp_error_list_create();
     NULL_POINTER_ERROR_HANDLE(error_list);
@@ -84,7 +85,6 @@ PP_Lexer* pp_lexer_create(const char* code, const char* filename) {
 error_cleanup:
     free(tokens);
     free(code_copy);
-    pp_string_pool_free(sp);
     pp_error_list_free(error_list);
     if (lexer) free(lexer);
     return NULL;
@@ -94,7 +94,7 @@ void pp_lexer_free(PP_Lexer* lexer) {
     if (lexer != NULL) {
         free(lexer->tokens);
         free((char*)lexer->code);
-        pp_string_pool_free(lexer->sp);
+        /* String pool is owned by orchestrator, do not free here */
         pp_error_list_free(lexer->error_list);
         free(lexer);
     }
@@ -134,7 +134,10 @@ static inline char peek_pp(PP_Lexer* lexer, unsigned int n) {
 static int pp_lexer_push_token_helper(PP_Lexer* lexer, PP_TokenType type, size_t length) {
     const char* lexeme = pp_string_pool_push(lexer->sp, lexer->code + lexer->idx, length);
     if (!lexeme) return 0;
-    PP_Token tok = {.token_type = type, .lexeme = lexeme, .line = lexer->row, .column = lexer->col};
+    PP_Token tok = {.token_type = type, .lexeme = lexeme};
+    tok.loc.filename = lexer->filename;
+    tok.loc.line = lexer->row;
+    tok.loc.column = lexer->col;
     return pp_lexer_push_token(lexer, tok);
 }
 
@@ -509,7 +512,10 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 } else {
                     // unknown
                     if (!pp_lexer_push_token_helper(lexer, PP_TT_UNKNOWN, 1)) return 0;
-                    pp_error_list_push_error(lexer->error_list, lexer->filename, lexer->row, lexer->col,
+                    pp_error_list_push_error(lexer->error_list,
+                                             (PP_SourceLoc){.filename = lexer->filename,
+                                                            .line = lexer->row,
+                                                            .column = lexer->col},
                                              "Unknown token");
                     advance_pp(lexer, 1);
                 }
@@ -517,7 +523,10 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
         }
     }
     // Push EOF
-    PP_Token eof = {.token_type = PP_TT_EOF, .lexeme = NULL, .line = lexer->row, .column = lexer->col};
+    PP_Token eof = {.token_type = PP_TT_EOF, .lexeme = NULL};
+    eof.loc.filename = lexer->filename;
+    eof.loc.line = lexer->row;
+    eof.loc.column = lexer->col;
     if (!pp_lexer_push_token(lexer, eof)) return 0;
     return 1;
 }

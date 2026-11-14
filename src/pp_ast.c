@@ -23,12 +23,11 @@ PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueC
 
 void pp_ast_decoration_free(PP_AST_Decoration* decor) { free(decor); }
 
-PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, unsigned int col) {
+PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, PP_SourceLoc loc) {
     PP_AST_Node* node = (PP_AST_Node*)calloc(1, sizeof(PP_AST_Node));
     if (!node) return NULL;
     node->node_type = node_type;
-    node->line = line;
-    node->col = col;
+    node->loc = loc;
     return node;
 }
 

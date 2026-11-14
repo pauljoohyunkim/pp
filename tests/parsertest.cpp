@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include "pp_lexer.h"
+#include "pp_string_pool.h"
 #include "pp_parser.h"
+static PP_StringPool* test_sp = pp_string_pool_create();
 
 static void parse_source(const char* source, int& lexer_errors, int& parser_errors, int& parse_result) {
-    auto lexer_h = pp_lexer_create(source, nullptr);
+    auto lexer_h = pp_lexer_create(source, nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_NE(lexer.get(), nullptr);
     int analyze_res = pp_lexer_analyze(lexer.get());
@@ -14,7 +16,7 @@ static void parse_source(const char* source, int& lexer_errors, int& parser_erro
         parser_errors = 0;
         return;
     }
-    PP_Parser* parser_raw = pp_parser_create(lexer.get());
+    PP_Parser* parser_raw = pp_parser_create(lexer.get(), test_sp);
     std::unique_ptr<PP_Parser, decltype(&pp_parser_free)> parser(parser_raw, pp_parser_free);
     ASSERT_NE(parser.get(), nullptr);
     parse_result = pp_parser_parse(parser.get());

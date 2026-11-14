@@ -61,7 +61,6 @@ typedef struct {
 
     const PPType* current_function_type;
 
-    const char* filename;
     const char* code;
     size_t code_length;
 
@@ -106,9 +105,10 @@ void pp_environment_backend_print_value_map(PP_Environment_Backend* env_b);
 /**
  * @brief Create a PP_CodeGenerator from a semantic analyzer.
  * @param sa Semantic analyzer whose ownership of program/gtt/etc. is transferred.
+ * @param sp String pool to use (not transferred).
  * @return New code generator or NULL on failure.
  */
-PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa);
+PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp);
 
 /**
  * @brief Free a PP_CodeGenerator and all owned resources.
@@ -127,25 +127,39 @@ int pp_code_generator_generate(PP_CodeGenerator* cg);
  * @brief Emit LLVM module to an object file.
  * @param module LLVM module.
  * @param output_filename Output file name.
+ * @param tm Optional target machine, NULL for default.
  * @return 1 on success, 0 otherwise.
  */
-int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename);
+int pp_code_generator_emit_object_file(LLVMModuleRef module, const char* output_filename, LLVMTargetMachineRef tm);
 
 /**
  * @brief Emit LLVM module to an assembly file.
  * @param module LLVM module.
  * @param output_filename Output file name.
+ * @param tm Optional target machine, NULL for default.
  * @return 1 on success, 0 otherwise.
  */
-int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* output_filename);
+int pp_code_generator_emit_assembly_file(LLVMModuleRef module, const char* output_filename, LLVMTargetMachineRef tm);
 
 /**
  * @brief Emit LLVM module to an in-memory buffer.
  * @param module LLVM module.
  * @param out_buf Output memory buffer, caller must dispose with LLVMDisposeMemoryBuffer.
+ * @param tm Optional target machine, NULL for default.
  * @return 1 on success, 0 otherwise.
  */
-int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf);
+int pp_code_generator_emit_object_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf,
+                                            LLVMTargetMachineRef tm);
+
+/**
+ * @brief Emit LLVM module to an assembly buffer.
+ * @param module LLVM module.
+ * @param out_buf Output memory buffer, caller must dispose with LLVMDisposeMemoryBuffer.
+ * @param tm Optional target machine, NULL for default.
+ * @return 1 on success, 0 otherwise.
+ */
+int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBufferRef* out_buf,
+                                              LLVMTargetMachineRef tm);
 
 /**
  * @brief Emit LLVM module IR to a file.
