@@ -466,6 +466,7 @@ static void print_help(void) {
     printf("-c\t\t\t\tCompile to object file.\n");
     printf("-S\t\t\t\tCompile to assembly file.\n");
     printf("--emit-llvm\t\t\tEmit LLVM IR.\n");
+    printf("--ppi file\t\t\tPre-processor include file for external PPI declarations, can be repeated.\n");
     printf("-o filename\t\t\tOutput filename (default: a.out)\n");
     printf(
         "-O level\t\t\tOptimization level: 0=no opt, 1=less, 2=default, 3=aggressive. Size optimisation (-Os, -Oz) "
