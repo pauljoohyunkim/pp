@@ -473,8 +473,6 @@ static PP_AST_Node* pp_parser_create_unary(PP_Parser* parser) {
     PP_AST_Node* operand = NULL;
     PP_AST_Node* node = NULL;
     PP_Token* op_tok = NULL;
-    unsigned int line = 0;
-    unsigned int col = 0;
     PP_TokenType tt;
     NULL_POINTER_ERROR_HANDLE(parser);
 
@@ -483,8 +481,6 @@ static PP_AST_Node* pp_parser_create_unary(PP_Parser* parser) {
         {
             op_tok = pp_parser_consume_token(parser, tt);
             NULL_POINTER_ERROR_HANDLE(op_tok);
-            line = op_tok->loc.line;
-            col = op_tok->loc.column;
         }
         operand = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_UNARY);
         NULL_POINTER_ERROR_HANDLE(operand);
@@ -746,15 +742,11 @@ static PP_AST_Node* pp_parser_create_block(PP_Parser* parser) {
     PP_AST_Node* stmt = NULL;
     unsigned int capacity = 0;
     unsigned int count = 0;
-    unsigned int line = 0;
-    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
 
     // left curly brace
     PP_Token* lbrace_tok = pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET);
     NULL_POINTER_ERROR_HANDLE(lbrace_tok);
-    line = lbrace_tok->loc.line;
-    col = lbrace_tok->loc.column;
 
     block = pp_ast_node_create(PP_AST_StatementListNode, lbrace_tok->loc);
     NULL_POINTER_ERROR_HANDLE(block);
@@ -948,16 +940,12 @@ static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser) {
     PP_AST_Node* expr = NULL;
     PP_Token* return_tok = NULL;
     PP_Token* semicolon = NULL;
-    unsigned int line = 0;
-    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
 
     // return token
     {
         return_tok = pp_parser_consume_token(parser, PP_TT_RETURN);
         NULL_POINTER_ERROR_HANDLE(return_tok);
-        line = return_tok->loc.line;
-        col = return_tok->loc.column;
     }
 
     // expression (optional)
@@ -996,8 +984,6 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
     PP_Token* left_paren = NULL;
     PP_Token* right_paren = NULL;
     PP_Token* else_tok = NULL;
-    unsigned int line = 0;
-    unsigned int col = 0;
 
     NULL_POINTER_ERROR_HANDLE(parser);
 
@@ -1005,8 +991,6 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
     {
         if_tok = pp_parser_consume_token(parser, PP_TT_IF);
         NULL_POINTER_ERROR_HANDLE(if_tok);
-        line = if_tok->loc.line;
-        col = if_tok->loc.column;
     }
 
     // left parenthesis
@@ -1074,16 +1058,12 @@ static PP_AST_Node* pp_parser_create_while_statement(PP_Parser* parser) {
     PP_Token* while_tok = NULL;
     PP_Token* left_paren = NULL;
     PP_Token* right_paren = NULL;
-    unsigned int line = 0;
-    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
 
     // while token
     {
         while_tok = pp_parser_consume_token(parser, PP_TT_WHILE);
         NULL_POINTER_ERROR_HANDLE(while_tok);
-        line = while_tok->loc.line;
-        col = while_tok->loc.column;
     }
 
     // left parenthesis
@@ -1133,15 +1113,11 @@ static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser) {
     PP_Token* semicolon1 = NULL;
     PP_Token* semicolon2 = NULL;
     PP_Token* right_paren = NULL;
-    unsigned int line = 0;
-    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
 
     // for token
     for_tok = pp_parser_consume_token(parser, PP_TT_FOR);
     NULL_POINTER_ERROR_HANDLE(for_tok);
-    line = for_tok->loc.line;
-    col = for_tok->loc.column;
 
     // left parenthesis
     left_paren = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
@@ -1244,15 +1220,12 @@ static PP_AST_Node* pp_parser_create_variable_decl(PP_Parser* parser) {
     PP_AST_Node* var_decl = NULL;
     PP_AST_Node* initializer = NULL;
     PP_Token* decl_tok = NULL;
-    unsigned int line = 0, col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
     {
         PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
         if (tt != PP_TT_LET) return NULL;
         decl_tok = pp_parser_consume_token(parser, PP_TT_LET);
         NULL_POINTER_ERROR_HANDLE(decl_tok);
-        line = decl_tok->loc.line;
-        col = decl_tok->loc.column;
     }
     var_decl = pp_parser_create_param_decl(parser);
     NULL_POINTER_ERROR_HANDLE(var_decl);
@@ -1744,15 +1717,11 @@ static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser) {
     PP_Token* newtype_tok = NULL;
     PP_Token* name_tok = NULL;
     PP_Token* semicolon_tok = NULL;
-    unsigned int line = 0;
-    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
 
     {
         newtype_tok = pp_parser_consume_token(parser, PP_TT_NEWTYPE);
         NULL_POINTER_ERROR_HANDLE(newtype_tok);
-        line = newtype_tok->loc.line;
-        col = newtype_tok->loc.column;
     }
 
     base_type = pp_parser_create_type(parser);
@@ -1790,15 +1759,11 @@ static PP_AST_Node* pp_parser_create_struct_initializer(PP_Parser* parser) {
     PP_AST_Node* member_val = NULL;
     unsigned int capacity = 0;
     unsigned int count = 0;
-    unsigned int line = 0;
-    unsigned int col = 0;
     NULL_POINTER_ERROR_HANDLE(parser);
 
     {
         ident_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
         NULL_POINTER_ERROR_HANDLE(ident_tok);
-        line = ident_tok->loc.line;
-        col = ident_tok->loc.column;
     }
 
     {

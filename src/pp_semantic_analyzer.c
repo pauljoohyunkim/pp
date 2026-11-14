@@ -3760,33 +3760,33 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
             goto error_cleanup;
     }
     if (!binary_type) {
-        const char* _op = NULL;
+        const char* op_str = NULL;
         switch (expr->binary_expression.op) {
             case PP_TT_PLUS:
-                _op = "+";
+                op_str = "+";
                 break;
             case PP_TT_MINUS:
-                _op = "-";
+                op_str = "-";
                 break;
             case PP_TT_STAR:
-                _op = "*";
+                op_str = "*";
                 break;
             case PP_TT_SLASH:
-                _op = "/";
+                op_str = "/";
                 break;
             case PP_TT_PERCENT:
-                _op = "%";
+                op_str = "%";
                 break;
             default:
-                _op = NULL;
+                op_str = NULL;
                 break;
         }
-        const PPSymbol* _oc = pp_semantic_analyzer_operator_lookup(sa, _op, decayed_lhs_type, decayed_rhs_type);
-        if (_oc && _oc->type && _oc->type->kind == PP_TK_Operator) {
-            const PPType* _rt = _oc->type->type.pp_type_function.return_type;
-            const PPType* _irt = pp_global_type_table_intern(sa->gtt, _rt);
-            if (!_irt) goto error_cleanup;
-            binary_type = (PPType*)_irt;
+        const PPSymbol* op_sym = pp_semantic_analyzer_operator_lookup(sa, op_str, decayed_lhs_type, decayed_rhs_type);
+        if (op_sym && op_sym->type && op_sym->type->kind == PP_TK_Operator) {
+            const PPType* ret_type = op_sym->type->type.pp_type_function.return_type;
+            const PPType* interned_ret_type = pp_global_type_table_intern(sa->gtt, ret_type);
+            if (!interned_ret_type) goto error_cleanup;
+            binary_type = (PPType*)interned_ret_type;
         }
     }
     if (!binary_type) {
