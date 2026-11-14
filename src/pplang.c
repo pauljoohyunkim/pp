@@ -197,6 +197,17 @@ int main(int argc, char** argv) {
         LLVMContextDispose(tmp_ctx);
     }
 
+    CompilerPipelineOptions opts = {
+        .string_pool = string_pool,
+        .ppi_paths = (const char**)ppi_list->paths,
+        .ppi_count = (int)ppi_list->count,
+        .target_machine = input_list->target_machine,
+        .verbose = verbose,
+        .optimization_mode = optimization_mode,
+        .to_assembly = to_assembly,
+        .emit_ir = emit_ir,
+    };
+
     /*
     For each input,
         if source file
@@ -212,8 +223,7 @@ int main(int argc, char** argv) {
         if (inp->type == PP_SOURCE) {
             if (to_object || to_assembly || emit_ir) {
                 if (inp->obj_path) {
-                    if (!pp_compiler_pipeline_compile_source(inp->src_path, inp->obj_path, verbose, optimization_mode,
-                                           input_list->target_machine, to_assembly, emit_ir, string_pool, (const char**)ppi_list->paths, ppi_list->count)) {
+                    if (!pp_compiler_pipeline_compile_source_opts(&opts, inp->src_path, inp->obj_path)) {
                         fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
                         pplang_input_list_free(input_list);
                         return 1;
@@ -221,8 +231,7 @@ int main(int argc, char** argv) {
                 }
             } else {
                 LLVMMemoryBufferRef buf = NULL;
-                if (!pp_compiler_pipeline_compile_source_to_buffer(inp->src_path, &buf, verbose, optimization_mode,
-                                                 input_list->target_machine, string_pool, (const char**)ppi_list->paths, ppi_list->count)) {
+                if (!pp_compiler_pipeline_compile_source_to_buffer_opts(&opts, inp->src_path, &buf)) {
                     fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
                     pplang_input_list_free(input_list);
                     return 1;

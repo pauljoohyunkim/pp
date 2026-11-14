@@ -1,6 +1,3 @@
-extern func pp_std_print_float :: (val :: float) -> void;
-extern func pp_std_print_string :: (str :: string) -> void;
-
 func main :: () -> int32 {
     let sum :: float = 0.0;
 

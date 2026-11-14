@@ -1,6 +1,3 @@
-extern func pp_std_print_string :: (str :: string) -> void;
-extern func pp_std_print_uint64 :: (val :: uint64) -> void;
-
 func main :: () -> int32 {
     let arr :: [uint16 : 4u] = [uint16 : 4u; 1us, 2us, 3us, 4us];
 

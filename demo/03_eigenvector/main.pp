@@ -1,6 +1,3 @@
-extern func pp_std_print_string :: (str :: string) -> void;
-extern func pp_std_print_float :: (val :: float) -> void;
-
 struct Mat2 {
     r0 :: [float : 2u];
     r1 :: [float : 2u];
