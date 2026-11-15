@@ -90,6 +90,16 @@ Heap-allocated growable list type: `[T]`
 let v :: [int32] = [int32; 1, 2, 3];
 ```
 
+Lists are mutable heap buffers with an internal header `{data, len, cap, elem_size}`. Element types must not transitively contain references.
+
+Built-ins for lists are polymorphic over `T`:
+
+* `list_push(list, value)` – append a copy of `value` to `list`. Capacity grows 0 → 4 → `*2`.
+* `list_pop(list)` – remove and return the last element; aborts if the list is empty.
+* `list_clear(list)` – drop elements if needed, free the buffer and reset `len/cap` to zero.
+
+See [Built-ins](docs/reference/builtins.md) for full semantics.
+
 ## Type Matching
 
 Types are matched structurally for primitives and nominally for structs/typedefs/newtypes. Operator overloads are resolved on decayed operand types.

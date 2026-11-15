@@ -184,6 +184,11 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
                                                       PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_collection_initializer_expression(PP_SemanticAnalyzer* sa,
                                                                         PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_list_push(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
+                                                PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_list_pop(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table, PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_list_clear(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
+                                                 PP_AST_Node* expr);
 
 static bool pp_type_is_top_level_const(const PPType* type);
 static bool pp_type_can_assign(const PPType* target, const PPType* source);
@@ -722,7 +727,8 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
 
     // Resolve base type via new recursive AST or legacy fields
     const PP_AST_Node* inner = type_node->type_expression.type_node;
-    assert(inner != NULL && "TypeExpression must have type_node after migration");
+    assert(inner);
+    // TypeExpression must have type_node after migration
     PP_AST_TypeKind base_kind = PP_AST_TYPE_KIND_IDENTIFIER;
     const char* base_identifier = NULL;
 
@@ -3380,6 +3386,15 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
             if (!pp_semantic_analyzer_check_collection_initializer_expression(sa, symbol_table, expr))
                 goto error_cleanup;
             break;
+        case PP_AST_ListPushNode:
+            if (!pp_semantic_analyzer_check_list_push(sa, symbol_table, expr)) goto error_cleanup;
+            break;
+        case PP_AST_ListPopNode:
+            if (!pp_semantic_analyzer_check_list_pop(sa, symbol_table, expr)) goto error_cleanup;
+            break;
+        case PP_AST_ListClearNode:
+            if (!pp_semantic_analyzer_check_list_clear(sa, symbol_table, expr)) goto error_cleanup;
+            break;
         default:
             goto error_cleanup;
     }
@@ -4414,7 +4429,7 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     } else if (decayed_base_type->kind == PP_TK_String) {
         /* string indexing yields uint8 */
         const PPType* uint8_type = pp_global_type_table_find_alias(sa->gtt, "uint8");
-        assert(uint8_type && "uint8 type must exist");
+        assert(uint8_type);
         element_type = uint8_type;
     }
     NULL_POINTER_ERROR_HANDLE(element_type);
@@ -4583,8 +4598,8 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
         goto error_cleanup;
     }
 
-    assert(struct_type->type.pp_type_struct.layout != NULL &&
-           "Struct layout must be created before structural initialization");
+    assert(struct_type->type.pp_type_struct.layout);
+    // Struct layout must be created before structural initialization
 
     // Initializer count check
     if (expr->struct_initializer.entry_count > struct_type->type.pp_type_struct.layout->field_count) {
@@ -4958,6 +4973,8 @@ static bool pp_type_is_top_level_const(const PPType* type) { return type && type
 static bool pp_type_can_assign(const PPType* target, const PPType* source) {
     if (!target || !source) return false;
     if (target == source) return true;
+    // Strip const from source for assignability
+    if (source->kind == PP_TK_Const) { return pp_type_can_assign(target, source->type.pp_type_const.const_of); }
     if (target->kind != source->kind) {
         // Allow assigning to const-wrapped target from inner source
         if (target->kind == PP_TK_Const) { return pp_type_can_assign(target->type.pp_type_const.const_of, source); }
@@ -4976,4 +4993,153 @@ static bool pp_type_can_assign(const PPType* target, const PPType* source) {
         default:
             return pp_type_equal(target, source);
     }
+}
+
+static int pp_semantic_analyzer_check_list_push(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
+                                                PP_AST_Node* expr) {
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_ListPushNode);
+    const PP_AST_Decoration* list_dec = NULL;
+    const PP_AST_Decoration* val_dec = NULL;
+    const PPType* list_type = NULL;
+    const PPType* elem_type = NULL;
+    PP_AST_Decoration* dec = NULL;
+
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->list_push.list)) goto error_cleanup;
+    list_dec = pp_ast_get_decoration(expr->list_push.list);
+    if (!list_dec) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_push: list expression has no type");
+        goto error_cleanup;
+    }
+    assert(list_dec->resolved_type);
+    if (list_dec->value_category != PP_VALUE_CATEGORY_LVALUE) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_push: list must be an lvalue");
+        goto error_cleanup;
+    }
+    list_type = list_dec->resolved_type;
+    if (pp_type_is_const(list_type)) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_push: list must be mutable");
+        goto error_cleanup;
+    }
+    const PPType* list_type_decayed = pp_type_decay(sa->gtt, list_type);
+    if (!list_type_decayed || list_type_decayed->kind != PP_TK_List) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_push: first argument must be a list");
+        goto error_cleanup;
+    }
+    elem_type = list_type_decayed->type.pp_type_list.element_type;
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->list_push.value)) goto error_cleanup;
+    val_dec = pp_ast_get_decoration(expr->list_push.value);
+    if (!val_dec) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_push: value expression has no type");
+        goto error_cleanup;
+    }
+    if (!pp_type_can_assign(elem_type, val_dec->resolved_type)) {
+        pp_error_list_push_error(sa->error_list, expr->loc,
+                                 "list_push: value type not assignable to list element type");
+        goto error_cleanup;
+    }
+    dec = pp_ast_decoration_create(NULL, PP_VALUE_CATEGORY_RVALUE, false, false);
+    if (!dec) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "Failed to allocate decoration for list_push");
+        goto error_cleanup;
+    }
+    expr->list_push.decoration = dec;
+    dec = NULL;
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(dec);
+    return 0;
+}
+
+static int pp_semantic_analyzer_check_list_pop(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
+                                               PP_AST_Node* expr) {
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_ListPopNode);
+    const PP_AST_Decoration* list_dec = NULL;
+    const PPType* list_type = NULL;
+    const PPType* elem_type = NULL;
+    PP_AST_Decoration* dec = NULL;
+
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->list_pop.list)) goto error_cleanup;
+    list_dec = pp_ast_get_decoration(expr->list_pop.list);
+    if (!list_dec) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_pop: list expression has no type");
+        goto error_cleanup;
+    }
+    if (list_dec->value_category != PP_VALUE_CATEGORY_LVALUE) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_pop: list must be an lvalue");
+        goto error_cleanup;
+    }
+    list_type = list_dec->resolved_type;
+    if (pp_type_is_const(list_type)) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_pop: list must be mutable");
+        goto error_cleanup;
+    }
+    const PPType* list_type_decayed = pp_type_decay(sa->gtt, list_type);
+    if (!list_type_decayed || list_type_decayed->kind != PP_TK_List) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_pop: argument must be a list");
+        goto error_cleanup;
+    }
+    elem_type = list_type_decayed->type.pp_type_list.element_type;
+    dec = pp_ast_decoration_create(elem_type, PP_VALUE_CATEGORY_RVALUE, false, false);
+    if (!dec) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "Failed to allocate decoration for list_pop");
+        goto error_cleanup;
+    }
+    expr->list_pop.decoration = dec;
+    dec = NULL;
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(dec);
+    return 0;
+}
+
+static int pp_semantic_analyzer_check_list_clear(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
+                                                 PP_AST_Node* expr) {
+    assert(sa);
+    assert(symbol_table);
+    assert(expr);
+    assert(expr->node_type == PP_AST_ListClearNode);
+    const PP_AST_Decoration* list_dec = NULL;
+    const PPType* list_type = NULL;
+    PP_AST_Decoration* dec = NULL;
+
+    if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->list_clear.list)) goto error_cleanup;
+    list_dec = pp_ast_get_decoration(expr->list_clear.list);
+    if (!list_dec) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_clear: list expression has no type");
+        goto error_cleanup;
+    }
+    if (list_dec->value_category != PP_VALUE_CATEGORY_LVALUE) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_clear: list must be an lvalue");
+        goto error_cleanup;
+    }
+    list_type = list_dec->resolved_type;
+    if (pp_type_is_const(list_type)) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_clear: list must be mutable");
+        goto error_cleanup;
+    }
+    const PPType* list_type_decayed = pp_type_decay(sa->gtt, list_type);
+    if (!list_type_decayed || list_type_decayed->kind != PP_TK_List) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "list_clear: argument must be a list");
+        goto error_cleanup;
+    }
+    dec = pp_ast_decoration_create(NULL, PP_VALUE_CATEGORY_RVALUE, false, false);
+    if (!dec) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "Failed to allocate decoration for list_clear");
+        goto error_cleanup;
+    }
+    expr->list_clear.decoration = dec;
+    dec = NULL;
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(dec);
+    return 0;
 }

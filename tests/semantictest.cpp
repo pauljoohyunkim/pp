@@ -1295,3 +1295,135 @@ TEST(SemanticTest, CollectionElementConstSubtypingAllowed) {
     EXPECT_EQ(semantic_errors, 0);
 }
 
+TEST(SemanticTest, ListPushValid) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32];\n"
+        "    let x :: int32 = 3;\n"
+        "    list_push(v, x);\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ListPopValid) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32] = [int32; 1, 2];\n"
+        "    let x :: int32 = list_pop(v);\n"
+        "    return x;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ListClearValid) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32] = [int32; 1, 2];\n"
+        "    list_clear(v);\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ListPushWrongType) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32] = [int32; 1, 2];\n"
+        "    list_push(v, true);\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ListPushConstList) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: const [int32] = [int32; 1, 2];\n"
+        "    list_push(v, 3);\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ListPushRefList) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32];\n"
+        "    let r :: [int32]& = v;\n"
+        "    let x :: int32 = 4;\n"
+        "    list_push(r, x);\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ListPopRefList) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32];\n"
+        "    let r :: [int32]& = v;\n"
+        "    let x :: int32 = list_pop(r);\n"
+        "    return x;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ListClearRefList) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32];\n"
+        "    let r :: [int32]& = v;\n"
+        "    list_clear(r);\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ListPushConstRefList) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let v :: const [int32] = [int32; 1, 2];\n"
+        "    let r :: const [int32]& = v;\n"
+        "    list_push(r, 3);\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(analyze_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+

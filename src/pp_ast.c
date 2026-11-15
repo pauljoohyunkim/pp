@@ -56,6 +56,12 @@ const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node* node) {
             return node->struct_initializer.decoration;
         case PP_AST_CollectionInitializerNode:
             return node->collection_initializer.decoration;
+        case PP_AST_ListPushNode:
+            return node->list_push.decoration;
+        case PP_AST_ListPopNode:
+            return node->list_pop.decoration;
+        case PP_AST_ListClearNode:
+            return node->list_clear.decoration;
         default:
             return NULL;
     }
@@ -267,6 +273,22 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_decoration_free(node->collection_initializer.decoration);
             break;
         }
+        case PP_AST_ListPushNode: {
+            pp_ast_root_free_internal(node->list_push.list);
+            pp_ast_root_free_internal(node->list_push.value);
+            pp_ast_decoration_free(node->list_push.decoration);
+            break;
+        }
+        case PP_AST_ListPopNode: {
+            pp_ast_root_free_internal(node->list_pop.list);
+            pp_ast_decoration_free(node->list_pop.decoration);
+            break;
+        }
+        case PP_AST_ListClearNode: {
+            pp_ast_root_free_internal(node->list_clear.list);
+            pp_ast_decoration_free(node->list_clear.decoration);
+            break;
+        }
         default:
             break;
     }
@@ -442,6 +464,19 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
                 pp_ast_root_print(node->collection_initializer.size_expr, depth + 1);
             for (unsigned int i = 0; i < node->collection_initializer.element_count; i++)
                 pp_ast_root_print(node->collection_initializer.elements[i], depth + 1);
+            break;
+        case PP_AST_ListPushNode:
+            printf("ListPush\n");
+            pp_ast_root_print(node->list_push.list, depth + 1);
+            pp_ast_root_print(node->list_push.value, depth + 1);
+            break;
+        case PP_AST_ListPopNode:
+            printf("ListPop\n");
+            pp_ast_root_print(node->list_pop.list, depth + 1);
+            break;
+        case PP_AST_ListClearNode:
+            printf("ListClear\n");
+            pp_ast_root_print(node->list_clear.list, depth + 1);
             break;
         default:
             printf("NodeType %d\n", node->node_type);

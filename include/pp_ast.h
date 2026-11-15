@@ -74,7 +74,10 @@ typedef enum {
     PP_AST_ArrayListAccessNode,
     PP_AST_ParamDeclarationNode,
     PP_AST_StructInitializerNode,
-    PP_AST_CollectionInitializerNode
+    PP_AST_CollectionInitializerNode,
+    PP_AST_ListPushNode,
+    PP_AST_ListPopNode,
+    PP_AST_ListClearNode
 } PP_AST_NodeType;
 
 typedef enum {
@@ -293,6 +296,22 @@ struct PP_AST_Node {
             unsigned int element_capacity;
             PP_AST_Decoration* decoration;
         } collection_initializer;
+
+        struct { /* ListPush */
+            PP_AST_Node* list;
+            PP_AST_Node* value;
+            PP_AST_Decoration* decoration;
+        } list_push;
+
+        struct { /* ListPop */
+            PP_AST_Node* list;
+            PP_AST_Decoration* decoration;
+        } list_pop;
+
+        struct { /* ListClear */
+            PP_AST_Node* list;
+            PP_AST_Decoration* decoration;
+        } list_clear;
     };
 };
 
