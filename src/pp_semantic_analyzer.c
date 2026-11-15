@@ -4982,7 +4982,16 @@ static bool pp_type_can_assign(const PPType* target, const PPType* source) {
     }
     switch (target->kind) {
         case PP_TK_Pointer:
-            return pp_type_can_assign(target->type.pp_type_pointer.pointee, source->type.pp_type_pointer.pointee);
+            {
+                assert(source->kind == PP_TK_Pointer);
+                const PPType* src_pointee = source->type.pp_type_pointer.pointee;
+                const PPType* tgt_pointee = target->type.pp_type_pointer.pointee;
+                // Prevent const stripping on pointer pointee
+                if (pp_type_is_const(src_pointee) && !pp_type_is_const(tgt_pointee)) {
+                    return false;
+                }
+                return pp_type_can_assign(tgt_pointee, src_pointee);
+            }
         case PP_TK_Const:
             return pp_type_can_assign(target->type.pp_type_const.const_of, source->type.pp_type_const.const_of);
         case PP_TK_Array:

@@ -1946,12 +1946,6 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
 
     LLVMTypeRef llvm_var_type = pp_environment_backend_lookup_type(cg, var_type);
     assert(llvm_var_type);
-    // Debug print types
-    {
-        char* type_str = LLVMPrintTypeToString(llvm_var_type);
-        printf("Global %s: PP type %d -> LLVM type %s\n", var_name, var_type->kind, type_str);
-        LLVMDisposeMessage(type_str);
-    }
 
     LLVMValueRef llvm_global_var = LLVMAddGlobal(cg->mod, llvm_var_type, var_name);
 
@@ -1962,12 +1956,6 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
         LLVMValueRef llvm_initializer =
             pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->variable_declaration.initializer);
         assert(llvm_initializer);
-        // Debug print
-        char* init_str = LLVMPrintValueToString(llvm_initializer);
-        if (init_str) {
-            printf("Global %s initializer: %s\n", var_name, init_str);
-            LLVMDisposeMessage(init_str);
-        }
         LLVMSetInitializer(llvm_global_var, llvm_initializer);
     } else {
         LLVMSetInitializer(llvm_global_var, LLVMConstNull(llvm_var_type));
