@@ -2,7 +2,11 @@ ROOT := ../..
 PPLANG := $(ROOT)/bin/pplang
 PP_STD := $(ROOT)/lib/pp_std
 
-all: fibo_demo
+SRCS := $(wildcard *.pp)
+PPIS  := $(wildcard *.ppi)
+TARGET := fibo_demo
+
+all: $(TARGET)
 
 $(PPLANG):
 	$(MAKE) -C $(ROOT)
@@ -10,10 +14,13 @@ $(PPLANG):
 $(PP_STD)/bin/pp_std.a:
 	$(MAKE) -C $(PP_STD)
 
-fibo_demo: $(PPLANG) main.pp fibo.pp $(PP_STD)/bin/pp_std.a
-	$(PPLANG) --ppi $(PP_STD)/extern/pp_io.ppi main.pp fibo.pp $(PP_STD)/bin/pp_std.a -o $@
+BASE_PPI := --ppi $(PP_STD)/extern/pp_io.ppi
+PPI_FLAGS := $(foreach f,$(PPIS),--ppi $(f))
+
+$(TARGET): $(PPLANG) $(SRCS) $(PPIS) $(PP_STD)/bin/pp_std.a
+	$(PPLANG) $(BASE_PPI) $(PPI_FLAGS) $(SRCS) $(PP_STD)/bin/pp_std.a -o $@
 
 clean:
-	rm -f fibo_demo
+	rm -f $(TARGET)
 
 .PHONY: all clean
