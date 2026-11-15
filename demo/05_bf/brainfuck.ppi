@@ -1,0 +1,10 @@
+struct BFContext {
+    memory :: [uint8];
+    code :: [uint8];
+    mem_idx :: uint32;
+    code_idx :: uint32;
+    return_stack :: [uint32];
+}
+
+extern func readBFCode :: (ctx :: BFContext&) -> void;
+extern func runBFCode :: (ctx :: BFContext&) -> void;
