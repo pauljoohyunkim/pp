@@ -98,6 +98,8 @@ Built-ins for lists are polymorphic over `T`:
 * `list_pop(list)` – remove and return the last element; aborts if the list is empty.
 * `list_clear(list)` – drop elements if needed, free the buffer and reset `len/cap` to zero.
 
+Indexing `v[i]` is undefined behavior if `i` is out of bounds; no runtime bounds check is performed.
+
 See [Built-ins](docs/reference/builtins.md) for full semantics.
 
 ## Type Matching

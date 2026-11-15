@@ -2383,7 +2383,7 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnaly
     // or re-analysis of the same type. In valid code this path is never taken,
     // but on error paths we still walk the tree and must keep memory clean.
     if (struct_type->type.pp_type_struct.layout != NULL) {
-        pp_struct_layout_free(struct_type->type.pp_type_struct.layout);
+        pp_struct_layout_free((PP_StructLayout*)struct_type->type.pp_type_struct.layout);
     }
     struct_type->type.pp_type_struct.layout = struct_layout;
     struct_layout = NULL;

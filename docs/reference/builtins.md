@@ -69,6 +69,7 @@ list_clear(v);
 
 * List element types must not transitively contain a reference. The semantic analyzer rejects `list` declarations whose element type contains a reference, e.g. structs with reference fields.
 * Lists are by value / copy semantics for the element. `list_push` copies the value; the source is not moved.
+* Indexing into a list or array is **undefined behavior** if the index is out of bounds. No runtime bounds check is performed. `list_pop` is the only list operation that aborts on an empty container.
 
 ### Implementation notes
 
