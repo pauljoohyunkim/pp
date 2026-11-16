@@ -4555,37 +4555,13 @@ static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_Ty
     LLVMValueRef func = LLVMAddFunction(cg->mod, name_buf, func_type);
     // Register early to allow recursive references
     entry->copy_fn = func;
-    LLVMMetadataRef prev_scope = NULL;
-    if (cg->debug) {
-        LLVMMetadataRef subprogram = LLVMDIBuilderCreateFunction(
-            cg->di_builder,
-            cg->di_compile_unit,
-            name_buf, strlen(name_buf),
-            name_buf, strlen(name_buf),
-            cg->di_file,
-            0,
-            NULL,
-            0,
-            0,
-            0,
-            LLVMDIFlagArtificial,
-            0
-        );
-        if (subprogram) {
-            LLVMSetSubprogram(func, subprogram);
-            prev_scope = cg->di_current_scope;
-            cg->di_current_scope = subprogram;
-            LLVMSetCurrentDebugLocation2(cg->builder, NULL);
-        }
-    }
+    // Synthetic helpers are not emitted with debug info to avoid stepping into generated code
+    // and to avoid DI verification issues with artificial subprograms.
     LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "entry");
     LLVMBasicBlockRef saved = pp_code_generator_save_builder_insert_block(cg);
     LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
     pp_code_generator_gen_copy_body(cg, func, type);
     pp_code_generator_restore_builder_insert_block(cg, saved);
-    if (cg->debug) {
-        cg->di_current_scope = prev_scope;
-    }
     return func;
 }
 
@@ -4606,37 +4582,13 @@ static LLVMValueRef pp_code_generator_ensure_drop_fn(PP_CodeGenerator* cg, PP_Ty
     LLVMValueRef func = LLVMAddFunction(cg->mod, name_buf, func_type);
     // Register early to allow recursive references
     entry->drop_fn = func;
-    LLVMMetadataRef prev_scope = NULL;
-    if (cg->debug) {
-        LLVMMetadataRef subprogram = LLVMDIBuilderCreateFunction(
-            cg->di_builder,
-            cg->di_compile_unit,
-            name_buf, strlen(name_buf),
-            name_buf, strlen(name_buf),
-            cg->di_file,
-            0,
-            NULL,
-            0,
-            0,
-            0,
-            LLVMDIFlagArtificial,
-            0
-        );
-        if (subprogram) {
-            LLVMSetSubprogram(func, subprogram);
-            prev_scope = cg->di_current_scope;
-            cg->di_current_scope = subprogram;
-            LLVMSetCurrentDebugLocation2(cg->builder, NULL);
-        }
-    }
+    // Synthetic helpers are not emitted with debug info to avoid stepping into generated code
+    // and to avoid DI verification issues.
     LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "entry");
     LLVMBasicBlockRef saved = pp_code_generator_save_builder_insert_block(cg);
     LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
     pp_code_generator_gen_drop_body(cg, func, type);
     pp_code_generator_restore_builder_insert_block(cg, saved);
-    if (cg->debug) {
-        cg->di_current_scope = prev_scope;
-    }
     return func;
 }
 
