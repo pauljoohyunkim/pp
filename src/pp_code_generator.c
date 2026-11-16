@@ -1426,19 +1426,20 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
         }
     }
 
-    for (size_t i = 0; i < cg->program->program.decl_count; i++) {
-        const PP_AST_Node* stmt = cg->program->program.decls[i];
-        assert(stmt);
-
-        if (stmt->node_type != PP_AST_FunctionCallNode && stmt->node_type != PP_AST_LambdaDeclarationNode) continue;
-
-        const char* func_name = stmt->function_declaration.name;
-        assert(func_name);
-
-        if (!pp_code_generator_generate_function_body(cg, cg->gst, cg->global_env_b, stmt)) {
-            assert(0 && "Function body generation failure.");
-        }
-    }
+    // Second pass to generate bodies for top-level functions (legacy, disabled - bodies are generated in emit_function)
+    // for (size_t i = 0; i < cg->program->program.decl_count; i++) {
+    //     const PP_AST_Node* stmt = cg->program->program.decls[i];
+    //     assert(stmt);
+    //
+    //     if (stmt->node_type != PP_AST_FunctionCallNode && stmt->node_type != PP_AST_LambdaDeclarationNode) continue;
+    //
+    //     const char* func_name = stmt->function_declaration.name;
+    //     assert(func_name);
+    //
+    //     if (!pp_code_generator_generate_function_body(cg, cg->gst, cg->global_env_b, stmt)) {
+    //         assert(0 && "Function body generation failure.");
+    //     }
+    // }
 
     // Verify generated LLVM module
     {
@@ -1606,6 +1607,7 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
             LLVMMetadataRef di_type = pp_code_generator_get_di_type(cg, param_type);
             if (di_type) {
                 unsigned int line = stmt->function_declaration.params[i]->loc.line;
+                if (line == 0) line = 1;
                 LLVMMetadataRef di_var = LLVMDIBuilderCreateParameterVariable(
                     cg->di_builder,
                     cg->di_current_scope,
@@ -2524,6 +2526,9 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
     assert(symbol_table);
     assert(env_b);
     assert(node);
+    if (cg->debug) {
+        pp_code_generator_debug_set_location(cg, &node->loc);
+    }
     const PP_AST_Decoration* dec = pp_ast_get_decoration(node);
     if (dec) { assert(dec->value_category == PP_VALUE_CATEGORY_LVALUE); }
     LLVMValueRef llvm_val = NULL;
@@ -2796,6 +2801,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
     assert(symbol_table);
     assert(env_b);
     assert(node);
+    if (cg->debug) {
+        pp_code_generator_debug_set_location(cg, &node->loc);
+    }
     LLVMValueRef llvm_val = NULL;
 
     switch (node->node_type) {
@@ -4547,11 +4555,37 @@ static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_Ty
     LLVMValueRef func = LLVMAddFunction(cg->mod, name_buf, func_type);
     // Register early to allow recursive references
     entry->copy_fn = func;
+    LLVMMetadataRef prev_scope = NULL;
+    if (cg->debug) {
+        LLVMMetadataRef subprogram = LLVMDIBuilderCreateFunction(
+            cg->di_builder,
+            cg->di_compile_unit,
+            name_buf, strlen(name_buf),
+            name_buf, strlen(name_buf),
+            cg->di_file,
+            0,
+            NULL,
+            0,
+            0,
+            0,
+            LLVMDIFlagArtificial,
+            0
+        );
+        if (subprogram) {
+            LLVMSetSubprogram(func, subprogram);
+            prev_scope = cg->di_current_scope;
+            cg->di_current_scope = subprogram;
+            LLVMSetCurrentDebugLocation2(cg->builder, NULL);
+        }
+    }
     LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "entry");
     LLVMBasicBlockRef saved = pp_code_generator_save_builder_insert_block(cg);
     LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
     pp_code_generator_gen_copy_body(cg, func, type);
     pp_code_generator_restore_builder_insert_block(cg, saved);
+    if (cg->debug) {
+        cg->di_current_scope = prev_scope;
+    }
     return func;
 }
 
@@ -4572,11 +4606,37 @@ static LLVMValueRef pp_code_generator_ensure_drop_fn(PP_CodeGenerator* cg, PP_Ty
     LLVMValueRef func = LLVMAddFunction(cg->mod, name_buf, func_type);
     // Register early to allow recursive references
     entry->drop_fn = func;
+    LLVMMetadataRef prev_scope = NULL;
+    if (cg->debug) {
+        LLVMMetadataRef subprogram = LLVMDIBuilderCreateFunction(
+            cg->di_builder,
+            cg->di_compile_unit,
+            name_buf, strlen(name_buf),
+            name_buf, strlen(name_buf),
+            cg->di_file,
+            0,
+            NULL,
+            0,
+            0,
+            0,
+            LLVMDIFlagArtificial,
+            0
+        );
+        if (subprogram) {
+            LLVMSetSubprogram(func, subprogram);
+            prev_scope = cg->di_current_scope;
+            cg->di_current_scope = subprogram;
+            LLVMSetCurrentDebugLocation2(cg->builder, NULL);
+        }
+    }
     LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "entry");
     LLVMBasicBlockRef saved = pp_code_generator_save_builder_insert_block(cg);
     LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
     pp_code_generator_gen_drop_body(cg, func, type);
     pp_code_generator_restore_builder_insert_block(cg, saved);
+    if (cg->debug) {
+        cg->di_current_scope = prev_scope;
+    }
     return func;
 }
 

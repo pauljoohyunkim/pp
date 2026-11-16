@@ -37,8 +37,8 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 ## Source Locations
 - [x] Implement `pp_code_generator_debug_set_location(cg, loc)`
 - [x] Call at entry of statement generation
-- [ ] Call at entry of expression generation
-- [ ] Clear location for synthetic helpers: `pp.copy.T`, `pp.drop.T`, temporaries
+- [x] Call at entry of expression generation
+- [x] Clear location for synthetic helpers: `pp.copy.T`, `pp.drop.T`, temporaries
 - [ ] Ensure verifier: instruction scope == function's subprogram
 
 ## Variables & Parameters
@@ -69,7 +69,7 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [x] Verify no debug info emitted without `-g`
 
 ## Gotchas
-- [ ] Hide generated helpers or mark artificial to avoid stepping
+- [x] Hide generated helpers or mark artificial to avoid stepping
 - [ ] Handle early-return cleanup locations sensibly
 - [ ] Keep `LLVMVerifyModule` on during development
 - [ ] Per compilation unit filename handling for PPI files
@@ -80,7 +80,7 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [x] Milestone 2: Parameters and locals with primitive types
 - [x] Milestone 3: Structs, arrays, pointers, references, newtypes
 - [x] Milestone 4: Lexical blocks, lists/strings polish
-- [ ] Milestone 5: Expression-level locations, helper marking artificial
+- [x] Milestone 5: Expression-level locations, helper marking artificial
 
 ## Files Touched
 - `src/pplang.c`
