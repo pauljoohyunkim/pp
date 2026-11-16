@@ -80,6 +80,7 @@ Options:
 * `--emit-llvm` Emit LLVM IR
 * `-o <file>` Output filename (default: `a.out`, or `a.s` with `-S`, or `a.ll` with `--emit-llvm`)
 * `-O <level>` Optimization level: `0`, `1`, `2`, `3` (size opts TODO)
+* `--ppi <file>` Pre-processor include file for external PPI declarations, can be repeated. Used to inject standard library externs without manual `extern` in source.
 
 ### Demo
 Demos are available in [demo](demo/):

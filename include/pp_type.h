@@ -40,6 +40,7 @@ typedef enum {
     PP_TK_Struct,
     PP_TK_Array,
     PP_TK_List,
+    PP_TK_Pointer,
     PP_TK_Const,
     PP_TK_Reference,
     PP_TK_Newtype,
@@ -65,6 +66,10 @@ typedef struct PPType {
         struct {
             const struct PPType* element_type;
         } pp_type_list;
+
+        struct {
+            const struct PPType* pointee;
+        } pp_type_pointer;
 
         struct {
             const struct PPType* const_of;
@@ -132,6 +137,8 @@ int pp_type_push_param(PPType* type, const PPType* param_type);
 
 bool pp_type_is_const(const PPType* type);
 bool pp_type_is_reference(const PPType* type);
+bool pp_type_is_pointer(const PPType* type);
+bool pp_type_contains_pointer(const PPType* type);
 bool pp_type_is_numerical(const PPType* type);
 bool pp_type_is_unsigned_integer(const PPType* type);
 bool pp_type_needs_drop(const PPType* type);

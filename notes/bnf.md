@@ -65,7 +65,8 @@
 ;; --- Type ---
 <type>                      ::= <mutability> <collection_type> [ "&" ]
 <mutability>                ::= "const" | ""
-<collection_type>           ::= "[" <type> [ ":" <expression> ] "]" | <base_type>
+<collection_type>           ::= "[" <type> [ ":" <expression> ] "]" | <pointer_type> | <base_type>
+<pointer_type>              ::= "ptr" "[" <type> "]"
 <base_type>                 ::= "void"
                               | "int32"
                               | "uint32"
@@ -118,14 +119,22 @@
                               | <unary>
 
 <unary>                     ::= "#" <postfix> 
+                              | "@" <postfix> 
+                              | "$" <postfix> 
                               | "-" <postfix> 
                               | "!" <postfix> 
                               | <postfix>
 
-<postfix>                   ::= <postfix> "(" <argument_list> ")"       ;; Function call
+<postfix>                   ::= <postfix> "(" <argument_list> ")"       ;; Function call or reserved builtin call
                               | <postfix> "." <identifier>              ;; Struct Member Access
                               | <postfix> "[" <expression> "]"          ;; Array/List Access
                               | <primary>
+
+;; Reserved builtin calls
+;; list_push(list, value)  – push value onto list
+;; list_pop(list)          – pop and return element from list
+;; list_clear(list)        – clear list
+
 
 ;; --- Primary Values ---
 <primary>                   ::= <identifier>
@@ -133,6 +142,7 @@
                               | "STRING_LITERAL"        ;; Not yet implemented.
                               | "TRUE"
                               | "FALSE"
+                              | "nullptr" [ "[" <type> "]" ]
                               | "(" <expression> ")"
                               | <struct_init>
                               | <collection_init>
@@ -147,4 +157,4 @@
 ```
 
 ## Note
-* TODO: Pointer
+* Pointer support added: `ptr[T]`, `@` address-of, `$` deref, `nullptr` literal.

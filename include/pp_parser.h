@@ -28,11 +28,12 @@ typedef struct {
  * @brief Creates PP_Parser.
  *
  * @param lexer Pointer to PP_Lexer struct.
+ * @param sp Pointer to PP_StringPool struct.
  * @return PP_Parser* Pointer to PP_Parser struct upon success. NULL if failure.
  *
  * Ownership of code string and token array are moved to Parser.
  */
-PP_Parser* pp_parser_create(PP_Lexer* lexer);
+PP_Parser* pp_parser_create(PP_Lexer* lexer, PP_StringPool* sp);
 
 /**
  * @brief Parse tokens to AST.

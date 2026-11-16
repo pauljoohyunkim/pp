@@ -23,12 +23,11 @@ PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueC
 
 void pp_ast_decoration_free(PP_AST_Decoration* decor) { free(decor); }
 
-PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, unsigned int col) {
+PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, PP_SourceLoc loc) {
     PP_AST_Node* node = (PP_AST_Node*)calloc(1, sizeof(PP_AST_Node));
     if (!node) return NULL;
     node->node_type = node_type;
-    node->line = line;
-    node->col = col;
+    node->loc = loc;
     return node;
 }
 
@@ -43,6 +42,8 @@ const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node* node) {
             return node->cast_expression.decoration;
         case PP_AST_LiteralNode:
             return node->literal.decoration;
+        case PP_AST_NullLiteralNode:
+            return node->null_literal.decoration;
         case PP_AST_IdentifierNode:
             return node->identifier.decoration;
         case PP_AST_FunctionCallNode:
@@ -55,6 +56,12 @@ const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node* node) {
             return node->struct_initializer.decoration;
         case PP_AST_CollectionInitializerNode:
             return node->collection_initializer.decoration;
+        case PP_AST_ListPushNode:
+            return node->list_push.decoration;
+        case PP_AST_ListPopNode:
+            return node->list_pop.decoration;
+        case PP_AST_ListClearNode:
+            return node->list_clear.decoration;
         default:
             return NULL;
     }
@@ -164,6 +171,11 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_decoration_free(node->literal.decoration);
             break;
         }
+        case PP_AST_NullLiteralNode: {
+            pp_ast_root_free_internal(node->null_literal.type_node);
+            pp_ast_decoration_free(node->null_literal.decoration);
+            break;
+        }
         case PP_AST_IdentifierNode: {
             /* identifier.identifier is pool-owned const char* – do not free */
             pp_ast_decoration_free(node->identifier.decoration);
@@ -212,6 +224,10 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_root_free_internal(node->type_list.element_type);
             break;
         }
+        case PP_AST_TypePointerNode: {
+            pp_ast_root_free_internal(node->type_pointer.pointee_type);
+            break;
+        }
         case PP_AST_TypedefDeclarationNode: {
             /* typedef_declaration.identifier is pool-owned const char* – do not free */
             pp_ast_root_free_internal(node->typedef_declaration.base_type);
@@ -255,6 +271,22 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
                 free(node->collection_initializer.elements);
             }
             pp_ast_decoration_free(node->collection_initializer.decoration);
+            break;
+        }
+        case PP_AST_ListPushNode: {
+            pp_ast_root_free_internal(node->list_push.list);
+            pp_ast_root_free_internal(node->list_push.value);
+            pp_ast_decoration_free(node->list_push.decoration);
+            break;
+        }
+        case PP_AST_ListPopNode: {
+            pp_ast_root_free_internal(node->list_pop.list);
+            pp_ast_decoration_free(node->list_pop.decoration);
+            break;
+        }
+        case PP_AST_ListClearNode: {
+            pp_ast_root_free_internal(node->list_clear.list);
+            pp_ast_decoration_free(node->list_clear.decoration);
             break;
         }
         default:
@@ -370,6 +402,10 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
         case PP_AST_LiteralNode:
             printf("Literal %s\n", node->literal.lexeme ? node->literal.lexeme : "");
             break;
+        case PP_AST_NullLiteralNode:
+            printf("NullLiteral\n");
+            if (node->null_literal.type_node) pp_ast_root_print(node->null_literal.type_node, depth + 1);
+            break;
         case PP_AST_IdentifierNode:
             printf("Identifier %s\n", node->identifier.identifier ? node->identifier.identifier : "");
             break;
@@ -408,6 +444,10 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             printf("TypeList\n");
             pp_ast_root_print(node->type_list.element_type, depth + 1);
             break;
+        case PP_AST_TypePointerNode:
+            printf("TypePointer\n");
+            pp_ast_root_print(node->type_pointer.pointee_type, depth + 1);
+            break;
         case PP_AST_StructInitializerNode:
             printf("StructInitializer %s\n",
                    node->struct_initializer.identifier ? node->struct_initializer.identifier : "");
@@ -424,6 +464,19 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
                 pp_ast_root_print(node->collection_initializer.size_expr, depth + 1);
             for (unsigned int i = 0; i < node->collection_initializer.element_count; i++)
                 pp_ast_root_print(node->collection_initializer.elements[i], depth + 1);
+            break;
+        case PP_AST_ListPushNode:
+            printf("ListPush\n");
+            pp_ast_root_print(node->list_push.list, depth + 1);
+            pp_ast_root_print(node->list_push.value, depth + 1);
+            break;
+        case PP_AST_ListPopNode:
+            printf("ListPop\n");
+            pp_ast_root_print(node->list_pop.list, depth + 1);
+            break;
+        case PP_AST_ListClearNode:
+            printf("ListClear\n");
+            pp_ast_root_print(node->list_clear.list, depth + 1);
             break;
         default:
             printf("NodeType %d\n", node->node_type);

@@ -122,6 +122,8 @@ bool pp_type_is_const(const PPType* type) {
             return pp_type_is_const(type->type.pp_type_array.element_type);
         case PP_TK_List:
             return pp_type_is_const(type->type.pp_type_list.element_type);
+        case PP_TK_Pointer:
+            return pp_type_is_const(type->type.pp_type_pointer.pointee);
         case PP_TK_Newtype:
             return pp_type_is_const(type->type.pp_type_newtype.underlying);
         case PP_TK_Const:
@@ -135,6 +137,39 @@ bool pp_type_is_reference(const PPType* type) {
     if (type == NULL) return false;
 
     return type->kind == PP_TK_Reference;
+}
+
+bool pp_type_is_pointer(const PPType* type) {
+    if (type == NULL) return false;
+
+    return type->kind == PP_TK_Pointer;
+}
+
+bool pp_type_contains_pointer(const PPType* type) {
+    if (type == NULL) return false;
+    if (type->kind == PP_TK_Pointer) return true;
+    switch (type->kind) {
+        case PP_TK_Const:
+            return pp_type_contains_pointer(type->type.pp_type_const.const_of);
+        case PP_TK_Reference:
+            return pp_type_contains_pointer(type->type.pp_type_reference.reference_to);
+        case PP_TK_Array:
+            return pp_type_contains_pointer(type->type.pp_type_array.element_type);
+        case PP_TK_List:
+            return pp_type_contains_pointer(type->type.pp_type_list.element_type);
+        case PP_TK_Newtype:
+            return pp_type_contains_pointer(type->type.pp_type_newtype.underlying);
+        case PP_TK_Struct: {
+            const PP_StructLayout* layout = type->type.pp_type_struct.layout;
+            if (!layout) return false;
+            for (size_t i = 0; i < layout->field_count; i++) {
+                if (pp_type_contains_pointer(layout->fields[i].field_type)) return true;
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
 }
 
 bool pp_type_is_numerical(const PPType* type) {
@@ -198,6 +233,8 @@ static bool pp_type_needs_drop_impl(const PPType* type, const PPType** stack, in
             return true;
         case PP_TK_Const:
             return pp_type_needs_drop_impl(type->type.pp_type_const.const_of, stack, depth + 1);
+        case PP_TK_Pointer:
+            return false;
         case PP_TK_Array:
             return pp_type_needs_drop_impl(type->type.pp_type_array.element_type, stack, depth + 1);
         case PP_TK_Newtype:
@@ -255,6 +292,10 @@ static bool pp_type_is_copyable_impl(const PPType* type, const PPType** stack, i
             const PPType* elem = type->type.pp_type_list.element_type;
             return pp_type_is_copyable_impl(elem, stack, depth + 1);
         }
+        case PP_TK_Pointer: {
+            const PPType* pointee = type->type.pp_type_pointer.pointee;
+            return pp_type_is_copyable_impl(pointee, stack, depth + 1);
+        }
         case PP_TK_Struct: {
             const PP_StructLayout* layout = type->type.pp_type_struct.layout;
             if (!layout) return false;
@@ -303,6 +344,7 @@ static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType*
         case PP_TK_Float:
         case PP_TK_Bool:
         case PP_TK_Void:
+        case PP_TK_Pointer:
             return true;
         case PP_TK_Const:
             return pp_type_is_trivially_copyable_impl(type->type.pp_type_const.const_of, stack, depth + 1);

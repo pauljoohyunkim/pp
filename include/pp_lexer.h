@@ -25,7 +25,7 @@ typedef struct {
     PP_ErrorList* error_list;
 } PP_Lexer;
 
-PP_Lexer* pp_lexer_create(const char* code, const char* filename);
+PP_Lexer* pp_lexer_create(const char* code, const char* filename, PP_StringPool* sp);
 int pp_lexer_analyze(PP_Lexer* lexer);
 void pp_lexer_free(PP_Lexer* lexer);
 

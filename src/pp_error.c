@@ -18,8 +18,7 @@ PP_ErrorList* pp_error_list_create(void) {
     return error_list;
 }
 
-int pp_error_list_push_error(PP_ErrorList* error_list, const char* filename, int line, int column, const char* format,
-                             ...) {
+int pp_error_list_push_error(PP_ErrorList* error_list, PP_SourceLoc loc, const char* format, ...) {
     if (!error_list) return 0;
     if (error_list->n_errors > error_list->error_capacity) return 0;
 
@@ -50,7 +49,8 @@ int pp_error_list_push_error(PP_ErrorList* error_list, const char* filename, int
         error_list->error_capacity *= 2;
     }
 
-    PP_Error err = {.column = column, .line = line, .filename = filename, .message = msg};
+    PP_Error err = {.message = msg};
+    err.loc = loc;
     error_list->errors[error_list->n_errors] = err;
     error_list->n_errors++;
     return 1;

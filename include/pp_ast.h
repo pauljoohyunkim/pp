@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdbool.h>
 
+#include "pp_source_loc.h"
 #include "pp_string_pool.h"
 #include "pp_symbol_table.h"
 #include "pp_tokens.h"
@@ -52,6 +53,7 @@ typedef enum {
     PP_AST_TypeBaseNode,
     PP_AST_TypeArrayNode,
     PP_AST_TypeListNode,
+    PP_AST_TypePointerNode,
     PP_AST_TypedefDeclarationNode,
     PP_AST_NewtypeDeclarationNode,
     PP_AST_FunctionDeclarationNode,
@@ -65,13 +67,17 @@ typedef enum {
     PP_AST_UnaryExpressionNode,
     PP_AST_CastExpressionNode,
     PP_AST_LiteralNode,
+    PP_AST_NullLiteralNode,
     PP_AST_IdentifierNode,
     PP_AST_FunctionCallNode,
     PP_AST_MemberAccessNode,
     PP_AST_ArrayListAccessNode,
     PP_AST_ParamDeclarationNode,
     PP_AST_StructInitializerNode,
-    PP_AST_CollectionInitializerNode
+    PP_AST_CollectionInitializerNode,
+    PP_AST_ListPushNode,
+    PP_AST_ListPopNode,
+    PP_AST_ListClearNode
 } PP_AST_NodeType;
 
 typedef enum {
@@ -94,8 +100,7 @@ typedef enum {
 
 struct PP_AST_Node {
     PP_AST_NodeType node_type;
-    unsigned int line;
-    unsigned int col;
+    PP_SourceLoc loc;
 
     union {
         struct { /* Program */
@@ -167,6 +172,10 @@ struct PP_AST_Node {
             PP_AST_Node* element_type;
         } type_list;
 
+        struct { /* TypePointer */
+            PP_AST_Node* pointee_type;
+        } type_pointer;
+
         struct { /* TypedefDeclaration */
             PP_AST_Node* base_type;
             const char* identifier;
@@ -235,6 +244,11 @@ struct PP_AST_Node {
             PP_AST_Decoration* decoration;
         } literal;
 
+        struct {                    /* NullLiteral */
+            PP_AST_Node* type_node; /* optional explicit type for nullptr[T] */
+            PP_AST_Decoration* decoration;
+        } null_literal;
+
         struct { /* Identifier */
             const char* identifier;
             PP_AST_Decoration* decoration;
@@ -282,6 +296,22 @@ struct PP_AST_Node {
             unsigned int element_capacity;
             PP_AST_Decoration* decoration;
         } collection_initializer;
+
+        struct { /* ListPush */
+            PP_AST_Node* list;
+            PP_AST_Node* value;
+            PP_AST_Decoration* decoration;
+        } list_push;
+
+        struct { /* ListPop */
+            PP_AST_Node* list;
+            PP_AST_Decoration* decoration;
+        } list_pop;
+
+        struct { /* ListClear */
+            PP_AST_Node* list;
+            PP_AST_Decoration* decoration;
+        } list_clear;
     };
 };
 
@@ -291,7 +321,7 @@ void pp_ast_decoration_free(PP_AST_Decoration* decor);
 
 const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node* node);
 
-PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, unsigned int line, unsigned int col);
+PP_AST_Node* pp_ast_node_create(PP_AST_NodeType node_type, PP_SourceLoc loc);
 void pp_ast_root_free(PP_AST_Node* node);
 void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth);
 

@@ -8,6 +8,8 @@ extern "C" {
 #include <stdbool.h>
 #include <sys/types.h>
 
+#include "pp_source_loc.h"
+
 typedef enum {
     // Single-letter
     PP_TT_LEFT_CURLY_BRACKET,
@@ -33,6 +35,8 @@ typedef enum {
     PP_TT_EXCLAMATION,
     PP_TT_GREATER,
     PP_TT_LESS,
+    PP_TT_AT,
+    PP_TT_DOLLAR,
 
     // Double-letter
     PP_TT_PLUS_EQUAL,
@@ -87,6 +91,8 @@ typedef enum {
     PP_TT_STRUCT,
     PP_TT_TYPEDEF,
     PP_TT_NEWTYPE,
+    PP_TT_PTR,
+    PP_TT_NULLPTR,
     PP_TT_AS,
     PP_TT_TRUE,
     PP_TT_FALSE,
@@ -104,8 +110,7 @@ typedef enum {
 typedef struct {
     PP_TokenType token_type;
     const char* lexeme;
-    unsigned int line;
-    unsigned int column;
+    PP_SourceLoc loc;
 } PP_Token;
 
 const char* pp_token_to_human_name(PP_TokenType token_type);
