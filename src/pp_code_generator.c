@@ -926,6 +926,11 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
         di_compile_unit = NULL;
     }
 
+    /* Initialize DI type cache */
+    cg->di_type_cache = NULL;
+    cg->di_type_cache_count = 0;
+    cg->di_type_cache_capacity = 0;
+
     // Ensure runtime library declarations for list support
     {
         LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
@@ -975,6 +980,7 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         free(cg->drop_stack_addresses);
         free(cg->drop_stack_types);
         free(cg->type_cache);
+        free(cg->di_type_cache);
     }
     free(cg);
     LLVMShutdown();
@@ -1056,73 +1062,100 @@ static LLVMMetadataRef pp_code_generator_di_subroutine_type(PP_CodeGenerator* cg
 
 static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const PPType* t) {
     if (!cg->debug || !t) return NULL;
+    if (cg->di_type_cache != NULL) {
+        for (size_t i = 0; i < cg->di_type_cache_count; i++) {
+            if (cg->di_type_cache[i].type == t) {
+                return cg->di_type_cache[i].di;
+            }
+        }
+    }
+    LLVMMetadataRef result = NULL;
     switch (t->kind) {
         case PP_TK_Int8:
-            return pp_code_generator_di_basic_type(cg, "int8", 8, PP_DW_ATE_SIGNED);
+            result = pp_code_generator_di_basic_type(cg, "int8", 8, PP_DW_ATE_SIGNED);
+            break;
         case PP_TK_UInt8:
-            return pp_code_generator_di_basic_type(cg, "uint8", 8, PP_DW_ATE_UNSIGNED);
+            result = pp_code_generator_di_basic_type(cg, "uint8", 8, PP_DW_ATE_UNSIGNED);
+            break;
         case PP_TK_Int16:
-            return pp_code_generator_di_basic_type(cg, "int16", 16, PP_DW_ATE_SIGNED);
+            result = pp_code_generator_di_basic_type(cg, "int16", 16, PP_DW_ATE_SIGNED);
+            break;
         case PP_TK_UInt16:
-            return pp_code_generator_di_basic_type(cg, "uint16", 16, PP_DW_ATE_UNSIGNED);
+            result = pp_code_generator_di_basic_type(cg, "uint16", 16, PP_DW_ATE_UNSIGNED);
+            break;
         case PP_TK_Int32:
-            return pp_code_generator_di_basic_type(cg, "int32", 32, PP_DW_ATE_SIGNED);
+            result = pp_code_generator_di_basic_type(cg, "int32", 32, PP_DW_ATE_SIGNED);
+            break;
         case PP_TK_UInt32:
-            return pp_code_generator_di_basic_type(cg, "uint32", 32, PP_DW_ATE_UNSIGNED);
+            result = pp_code_generator_di_basic_type(cg, "uint32", 32, PP_DW_ATE_UNSIGNED);
+            break;
         case PP_TK_Int64:
-            return pp_code_generator_di_basic_type(cg, "int64", 64, PP_DW_ATE_SIGNED);
+            result = pp_code_generator_di_basic_type(cg, "int64", 64, PP_DW_ATE_SIGNED);
+            break;
         case PP_TK_UInt64:
-            return pp_code_generator_di_basic_type(cg, "uint64", 64, PP_DW_ATE_UNSIGNED);
+            result = pp_code_generator_di_basic_type(cg, "uint64", 64, PP_DW_ATE_UNSIGNED);
+            break;
         case PP_TK_Int128:
-            return pp_code_generator_di_basic_type(cg, "int128", 128, PP_DW_ATE_SIGNED);
+            result = pp_code_generator_di_basic_type(cg, "int128", 128, PP_DW_ATE_SIGNED);
+            break;
         case PP_TK_UInt128:
-            return pp_code_generator_di_basic_type(cg, "uint128", 128, PP_DW_ATE_UNSIGNED);
+            result = pp_code_generator_di_basic_type(cg, "uint128", 128, PP_DW_ATE_UNSIGNED);
+            break;
         case PP_TK_Float:
-            return pp_code_generator_di_basic_type(cg, "float", 64, PP_DW_ATE_FLOAT);
+            result = pp_code_generator_di_basic_type(cg, "float", 64, PP_DW_ATE_FLOAT);
+            break;
         case PP_TK_Bool:
-            return pp_code_generator_di_basic_type(cg, "bool", 8, PP_DW_ATE_BOOLEAN);
+            result = pp_code_generator_di_basic_type(cg, "bool", 8, PP_DW_ATE_BOOLEAN);
+            break;
         case PP_TK_Void:
-            return pp_code_generator_di_void_type(cg);
+            result = pp_code_generator_di_void_type(cg);
+            break;
+        case PP_TK_Const: {
+            const PPType* underlying = t->type.pp_type_const.const_of;
+            result = pp_code_generator_get_di_type(cg, underlying);
+            break;
+        }
         case PP_TK_Newtype: {
             const PPType* underlying = t->type.pp_type_newtype.underlying;
-            return pp_code_generator_get_di_type(cg, underlying);
+            result = pp_code_generator_get_di_type(cg, underlying);
+            break;
         }
         case PP_TK_Pointer: {
             const PPType* pointee = t->type.pp_type_pointer.pointee;
             LLVMMetadataRef pointee_di = pp_code_generator_get_di_type(cg, pointee);
-            if (!pointee_di) return NULL;
-            LLVMTypeRef llvm_ptr_type = NULL;
-            // Use generic pointer size
-            uint64_t size_bits = 64; // assume 64-bit target
-            uint32_t align_bits = 64;
-            return LLVMDIBuilderCreatePointerType(cg->di_builder, pointee_di, size_bits, align_bits, 0, NULL, 0);
+            if (pointee_di) {
+                uint64_t size_bits = 64;
+                uint32_t align_bits = 64;
+                result = LLVMDIBuilderCreatePointerType(cg->di_builder, pointee_di, size_bits, align_bits, 0, NULL, 0);
+            }
+            break;
         }
         case PP_TK_Reference: {
             const PPType* ref_to = t->type.pp_type_reference.reference_to;
             LLVMMetadataRef ref_di = pp_code_generator_get_di_type(cg, ref_to);
-            if (!ref_di) return NULL;
-            uint64_t size_bits = 64;
-            uint32_t align_bits = 64;
-            return LLVMDIBuilderCreatePointerType(cg->di_builder, ref_di, size_bits, align_bits, 0, NULL, 0);
+            if (ref_di) {
+                uint64_t size_bits = 64;
+                uint32_t align_bits = 64;
+                result = LLVMDIBuilderCreatePointerType(cg->di_builder, ref_di, size_bits, align_bits, 0, NULL, 0);
+            }
+            break;
         }
         case PP_TK_Array: {
             const PPType* elem = t->type.pp_type_array.element_type;
             LLVMMetadataRef elem_di = pp_code_generator_get_di_type(cg, elem);
-            if (!elem_di) return NULL;
-            // Compute size bits via LLVM type if possible
-            LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, t);
-            uint64_t size_bits = 0;
-            uint32_t align_bits = 0;
-            if (llvm_type) {
-                size_bits = pp_code_generator_type_store_size(cg, llvm_type) * 8;
-                // Align approx 8 bytes
-                align_bits = 64;
+            if (elem_di) {
+                LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, t);
+                uint64_t size_bits = 0;
+                uint32_t align_bits = 0;
+                if (llvm_type) {
+                    size_bits = pp_code_generator_type_store_size(cg, llvm_type) * 8;
+                    align_bits = 64;
+                }
+                LLVMMetadataRef subrange = LLVMDIBuilderGetOrCreateSubrange(cg->di_builder, 0, (int64_t)t->type.pp_type_array.size);
+                LLVMMetadataRef* subscripts = &subrange;
+                result = LLVMDIBuilderCreateArrayType(cg->di_builder, size_bits, align_bits, elem_di, subscripts, 1);
             }
-            // Create array type using subscripts
-            // For simplicity, create a simple array type with one subrange
-            LLVMMetadataRef subrange = LLVMDIBuilderGetOrCreateSubrange(cg->di_builder, 0, (int64_t)t->type.pp_type_array.size);
-            LLVMMetadataRef* subscripts = &subrange;
-            return LLVMDIBuilderCreateArrayType(cg->di_builder, size_bits, align_bits, elem_di, subscripts, 1);
+            break;
         }
         case PP_TK_Struct: {
             const char* name = t->type.pp_type_struct.name ? t->type.pp_type_struct.name : "<anonymous>";
@@ -1134,7 +1167,6 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
                 for (size_t i = 0; i < field_count; i++) {
                     members[i] = pp_code_generator_get_di_type(cg, layout->fields[i].field_type);
                     if (!members[i]) {
-                        // fallback to void
                         members[i] = pp_code_generator_di_void_type(cg);
                     }
                 }
@@ -1144,9 +1176,9 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             uint32_t align_bits = 0;
             if (llvm_type) {
                 size_bits = pp_code_generator_type_store_size(cg, llvm_type) * 8;
-                align_bits = 64; // approximation
+                align_bits = 64;
             }
-            LLVMMetadataRef struct_di = LLVMDIBuilderCreateStructType(
+            result = LLVMDIBuilderCreateStructType(
                 cg->di_builder,
                 cg->di_compile_unit,
                 name, strlen(name),
@@ -1164,16 +1196,15 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
                 0
             );
             free(members);
-            return struct_di;
+            break;
         }
         case PP_TK_String: {
-            // Represent as a struct with pointer and length for debug
             LLVMMetadataRef* elems = (LLVMMetadataRef*)calloc(2, sizeof(LLVMMetadataRef));
             LLVMMetadataRef ptr_di = LLVMDIBuilderCreatePointerType(cg->di_builder, pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64, 64, 0, NULL, 0);
             LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
             elems[0] = ptr_di;
             elems[1] = i64_di;
-            LLVMMetadataRef str_di = LLVMDIBuilderCreateStructType(
+            result = LLVMDIBuilderCreateStructType(
                 cg->di_builder,
                 cg->di_compile_unit,
                 "pp.string", 9,
@@ -1191,10 +1222,9 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
                 0
             );
             free(elems);
-            return str_di;
+            break;
         }
         case PP_TK_List: {
-            // Represent pp.list as a struct with data ptr, len, cap, reserved
             LLVMMetadataRef* elems = (LLVMMetadataRef*)calloc(4, sizeof(LLVMMetadataRef));
             LLVMMetadataRef ptr_di = LLVMDIBuilderCreatePointerType(cg->di_builder, pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64, 64, 0, NULL, 0);
             LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
@@ -1202,7 +1232,7 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             elems[1] = i64_di;
             elems[2] = i64_di;
             elems[3] = i64_di;
-            LLVMMetadataRef list_di = LLVMDIBuilderCreateStructType(
+            result = LLVMDIBuilderCreateStructType(
                 cg->di_builder,
                 cg->di_compile_unit,
                 "pp.list", 7,
@@ -1220,11 +1250,25 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
                 0
             );
             free(elems);
-            return list_di;
+            break;
         }
         default:
-            return NULL;
+            result = NULL;
+            break;
     }
+    if (result) {
+        if (cg->di_type_cache == NULL) {
+            cg->di_type_cache_capacity = 16;
+            cg->di_type_cache = (PP_DITypeCacheEntry*)calloc(cg->di_type_cache_capacity, sizeof(PP_DITypeCacheEntry));
+        } else if (cg->di_type_cache_count >= cg->di_type_cache_capacity) {
+            cg->di_type_cache_capacity *= 2;
+            cg->di_type_cache = (PP_DITypeCacheEntry*)realloc(cg->di_type_cache, cg->di_type_cache_capacity * sizeof(PP_DITypeCacheEntry));
+        }
+        cg->di_type_cache[cg->di_type_cache_count].type = t;
+        cg->di_type_cache[cg->di_type_cache_count].di = result;
+        cg->di_type_cache_count++;
+    }
+    return result;
 }
 
 static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenerator* cg) {

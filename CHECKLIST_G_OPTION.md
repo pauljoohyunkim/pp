@@ -48,10 +48,10 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [x] Map PP types to DI types for variables (primitives)
 
 ## Type Mapping
-- [ ] Add PPType → DIType cache
+- [x] Add PPType → DIType cache
 - [x] Primitives: `LLVMDIBuilderCreateBasicType` (with `DW_ATE` encodings)
 - [x] Real `DISubroutineType` from signature (return type + param types)
-- [ ] Const: `CreateQualifiedType(DW_TAG_const_type, ...)`
+- [x] Const: `CreateQualifiedType(DW_TAG_const_type, ...)`
 - [x] Reference / Pointer: `CreateReferenceType` / `CreatePointerType`
 - [x] Newtype: unwrapped to underlying in `pp_code_generator_get_di_type`
 - [x] Struct: `CreateStructType` with members derived recursively

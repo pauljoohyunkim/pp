@@ -49,6 +49,11 @@ typedef struct {
 } PP_TypeCacheEntry;
 
 typedef struct {
+    const PPType* type;
+    LLVMMetadataRef di;
+} PP_DITypeCacheEntry;
+
+typedef struct {
     LLVMContextRef ctx;
     LLVMModuleRef mod;
     LLVMBuilderRef builder;
@@ -77,6 +82,11 @@ typedef struct {
     PP_TypeCacheEntry* type_cache;
     size_t type_cache_count;
     size_t type_cache_capacity;
+
+    /* DI type cache */
+    PP_DITypeCacheEntry* di_type_cache;
+    size_t di_type_cache_count;
+    size_t di_type_cache_capacity;
 
     /* Debug info */
     bool debug;
