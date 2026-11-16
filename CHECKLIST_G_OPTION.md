@@ -28,9 +28,9 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [x] Finalize DIBuilder and cleanup in `pp_code_generator_free`
 
 ## Functions & Scopes
-- [ ] Emit DISubprogram in `pp_code_generator_emit_function`
-- [ ] Set subprogram on LLVM function via `LLVMSetSubprogram`
-- [ ] Track current DIScope per function
+- [x] Emit DISubprogram in `pp_code_generator_emit_function`
+- [x] Set subprogram on LLVM function via `LLVMSetSubprogram`
+- [x] Track current DIScope per function
 - [ ] Create lexical blocks on `pp_code_generator_generate_block_statement`
 - [ ] Restore scope on block exit
 

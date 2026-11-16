@@ -954,6 +954,16 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
     LLVMShutdown();
 }
 
+static void pp_code_generator_debug_set_location(PP_CodeGenerator* cg, const PP_SourceLoc* loc) {
+    if (!cg->debug || !cg->di_builder || !loc) return;
+    unsigned int line = loc->line;
+    unsigned int col  = loc->column;
+    LLVMMetadataRef dwarf_loc = LLVMDIBuilderCreateDebugLocation(cg->ctx, line, col, cg->di_current_scope, NULL);
+    if (dwarf_loc) {
+        LLVMSetCurrentDebugLocation2(cg->builder, dwarf_loc);
+    }
+}
+
 static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenerator* cg) {
     assert(cg);
     assert(cg->gtt);
@@ -1975,10 +1985,40 @@ static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* 
     LLVMValueRef llvm_func_val = LLVMAddFunction(cg->mod, func_name, llvm_func_type);
     NULL_POINTER_ERROR_HANDLE(llvm_func_val);
 
+    LLVMMetadataRef prev_scope = cg->di_current_scope;
+    if (cg->debug) {
+        unsigned int line = stmt->loc.line;
+        LLVMMetadataRef subprogram_type = NULL;
+        LLVMMetadataRef void_type = LLVMDIBuilderCreateBasicType(cg->di_builder, "void", strlen("void"), 0, 0, LLVMDIFlagZero);
+        LLVMMetadataRef types[1] = {void_type};
+        subprogram_type = LLVMDIBuilderCreateSubroutineType(cg->di_builder, cg->di_file, types, 1, LLVMDIFlagZero);
+        LLVMMetadataRef subprogram = LLVMDIBuilderCreateFunction(
+            cg->di_builder,
+            cg->di_current_scope,
+            func_name, strlen(func_name),
+            func_name, strlen(func_name),
+            cg->di_file,
+            line,
+            subprogram_type,
+            0,
+            1,
+            line,
+            LLVMDIFlagZero,
+            0
+        );
+        if (subprogram) {
+            LLVMSetSubprogram(llvm_func_val, subprogram);
+            cg->di_current_scope = subprogram;
+            pp_code_generator_debug_set_location(cg, &stmt->loc);
+        }
+    }
+
     if (!pp_environment_backend_push_val_map(env_b, func_symbol, llvm_func_val)) goto error_cleanup;
 
-    /* Generate function body (stubbed) */
+    /* Generate function body */
     if (!pp_code_generator_generate_function_body(cg, symbol_table, env_b, stmt)) { goto error_cleanup; }
+
+    cg->di_current_scope = prev_scope;
 
     return 1;
 
