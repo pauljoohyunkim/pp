@@ -826,6 +826,7 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
     LLVMMetadataRef di_compile_unit = NULL;
     LLVMMetadataRef di_file = NULL;
     LLVMMetadataRef di_current_scope = NULL;
+    PP_DITypeCacheEntry* di_type_cache = NULL;
 
     if (sa == NULL) goto error_cleanup;
 
@@ -911,12 +912,15 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
         if (di_compile_unit == NULL) goto error_cleanup;
         cg->di_compile_unit = di_compile_unit;
         di_compile_unit = NULL;
-    }
 
-    /* Initialize DI type cache */
-    cg->di_type_cache = NULL;
-    cg->di_type_cache_count = 0;
-    cg->di_type_cache_capacity = 0;
+        /* Initialize DI type cache */
+        cg->di_type_cache_capacity = 16;
+        di_type_cache = (PP_DITypeCacheEntry*)calloc(cg->di_type_cache_capacity, sizeof(PP_DITypeCacheEntry));
+        if (di_type_cache == NULL) goto error_cleanup;
+        cg->di_type_cache = di_type_cache;
+        di_type_cache = NULL;
+        cg->di_type_cache_count = 0;
+    }
 
     // Ensure runtime library declarations for list support
     {
@@ -945,6 +949,7 @@ error_cleanup:
     pp_environment_backend_free(env_b);
     pp_error_list_free(error_list);
     pp_code_generator_free(cg);
+    free(di_type_cache);
     return NULL;
 }
 
@@ -1202,10 +1207,7 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             break;
     }
     if (result) {
-        if (cg->di_type_cache == NULL) {
-            cg->di_type_cache_capacity = 16;
-            cg->di_type_cache = (PP_DITypeCacheEntry*)calloc(cg->di_type_cache_capacity, sizeof(PP_DITypeCacheEntry));
-        } else if (cg->di_type_cache_count >= cg->di_type_cache_capacity) {
+        if (cg->di_type_cache_count >= cg->di_type_cache_capacity) {
             cg->di_type_cache_capacity *= 2;
             cg->di_type_cache = (PP_DITypeCacheEntry*)realloc(cg->di_type_cache,
                                                               cg->di_type_cache_capacity * sizeof(PP_DITypeCacheEntry));
