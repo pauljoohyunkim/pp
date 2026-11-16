@@ -31,8 +31,8 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [x] Emit DISubprogram in `pp_code_generator_emit_function`
 - [x] Set subprogram on LLVM function via `LLVMSetSubprogram`
 - [x] Track current DIScope per function
-- [ ] Create lexical blocks on `pp_code_generator_generate_block_statement`
-- [ ] Restore scope on block exit
+- [x] Create lexical blocks on `pp_code_generator_generate_block_statement`
+- [x] Restore scope on block exit
 
 ## Source Locations
 - [x] Implement `pp_code_generator_debug_set_location(cg, loc)`
@@ -52,10 +52,10 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [x] Primitives: `LLVMDIBuilderCreateBasicType` (with `DW_ATE` encodings)
 - [x] Real `DISubroutineType` from signature (return type + param types)
 - [ ] Const: `CreateQualifiedType(DW_TAG_const_type, ...)`
-- [ ] Reference / Pointer: `CreateReferenceType` / `CreatePointerType`
-- [ ] Newtype: `CreateTypedef`
-- [ ] Struct: `CreateStructType` with forward decl for recursive structs
-- [ ] Array / List / String mapping
+- [x] Reference / Pointer: `CreateReferenceType` / `CreatePointerType`
+- [x] Newtype: unwrapped to underlying in `pp_code_generator_get_di_type`
+- [x] Struct: `CreateStructType` with members derived recursively
+- [x] Array / List / String mapping
 
 ## Optimization Interplay
 - [x] Ensure debug info is emitted only when `-g` is set
@@ -78,8 +78,9 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [x] Milestone 1: CU + module flags + DIFile + DICompileUnit scaffold
 - [x] Milestone 1 cont.: function subprograms + line locations
 - [x] Milestone 2: Parameters and locals with primitive types
-- [ ] Milestone 3: Structs, arrays, pointers, references, newtypes
-- [ ] Milestone 4: Lexical blocks, lists/strings polish, helper hiding
+- [x] Milestone 3: Structs, arrays, pointers, references, newtypes
+- [x] Milestone 4: Lexical blocks, lists/strings polish
+- [ ] Milestone 5: Expression-level locations, helper marking artificial
 
 ## Files Touched
 - `src/pplang.c`

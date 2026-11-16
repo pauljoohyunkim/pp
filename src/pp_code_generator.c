@@ -1193,6 +1193,35 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             free(elems);
             return str_di;
         }
+        case PP_TK_List: {
+            // Represent pp.list as a struct with data ptr, len, cap, reserved
+            LLVMMetadataRef* elems = (LLVMMetadataRef*)calloc(4, sizeof(LLVMMetadataRef));
+            LLVMMetadataRef ptr_di = LLVMDIBuilderCreatePointerType(cg->di_builder, pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64, 64, 0, NULL, 0);
+            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
+            elems[0] = ptr_di;
+            elems[1] = i64_di;
+            elems[2] = i64_di;
+            elems[3] = i64_di;
+            LLVMMetadataRef list_di = LLVMDIBuilderCreateStructType(
+                cg->di_builder,
+                cg->di_compile_unit,
+                "pp.list", 7,
+                cg->di_file,
+                0,
+                32,
+                64,
+                LLVMDIFlagZero,
+                NULL,
+                elems,
+                4,
+                0,
+                NULL,
+                NULL,
+                0
+            );
+            free(elems);
+            return list_di;
+        }
         default:
             return NULL;
     }
