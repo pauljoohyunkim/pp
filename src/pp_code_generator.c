@@ -796,6 +796,10 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
     LLVMBuilderRef builder = NULL;
     PP_Environment_Backend* env_b = NULL;
     PP_ErrorList* error_list = NULL;
+    LLVMDIBuilderRef di_builder = NULL;
+    LLVMMetadataRef di_compile_unit = NULL;
+    LLVMMetadataRef di_file = NULL;
+    LLVMMetadataRef di_current_scope = NULL;
 
     if (sa == NULL) goto error_cleanup;
 
@@ -844,8 +848,57 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
 
     cg->sp = sp;
 
+    cg->debug = debug;
+
+    assert(cg->program && "program node must be present");
+
     assert(sa->current_function_type == NULL);
     cg->current_function_type = NULL;
+
+    if (debug) {
+        // Create DIBuilder
+        di_builder = LLVMCreateDIBuilder(cg->mod);
+        if (di_builder == NULL) goto error_cleanup;
+        cg->di_builder = di_builder;
+        di_builder = NULL;
+
+        // Module flags for DWARF
+        LLVMValueRef dwarf_version = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 5, 0);
+        LLVMValueRef dbg_version = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), LLVMDebugMetadataVersion(), 0);
+        LLVMAddModuleFlag(cg->mod, LLVMModuleFlagBehaviorWarning, "Dwarf Version", strlen("Dwarf Version"), LLVMValueAsMetadata(dwarf_version));
+        LLVMAddModuleFlag(cg->mod, LLVMModuleFlagBehaviorWarning, "Debug Info Version", strlen("Debug Info Version"), LLVMValueAsMetadata(dbg_version));
+
+        // DIFile and DICompileUnit
+        const char* filename = "input";
+        if (cg->program && cg->program->loc.filename) {
+            filename = cg->program->loc.filename;
+        }
+        const char* dirname = "";
+        di_file = LLVMDIBuilderCreateFile(cg->di_builder, filename, strlen(filename), dirname, strlen(dirname));
+        if (di_file == NULL) goto error_cleanup;
+        cg->di_file = di_file;
+        di_file = NULL;
+        
+        di_compile_unit = LLVMDIBuilderCreateCompileUnit(
+            cg->di_builder,
+            LLVMDWARFSourceLanguageC99,
+            cg->di_file,
+            "pplang", strlen("pplang"),
+            0,
+            "", 0,
+            0,
+            "", 0,
+            LLVMDWARFEmissionFull,
+            0,
+            0,
+            0,
+            "", 0,
+            "", 0
+        );
+        if (di_compile_unit == NULL) goto error_cleanup;
+        cg->di_compile_unit = di_compile_unit;
+        di_compile_unit = NULL;
+    }
 
     // Ensure runtime library declarations for list support
     {
@@ -868,9 +921,9 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
     return cg;
 
 error_cleanup:
-    LLVMContextDispose(ctx);
-    LLVMDisposeModule(mod);
-    LLVMDisposeBuilder(builder);
+    if (ctx) LLVMContextDispose(ctx);
+    if (mod) LLVMDisposeModule(mod);
+    if (builder) LLVMDisposeBuilder(builder);
     pp_environment_backend_free(env_b);
     pp_error_list_free(error_list);
     pp_code_generator_free(cg);
@@ -879,9 +932,13 @@ error_cleanup:
 
 void pp_code_generator_free(PP_CodeGenerator* cg) {
     if (cg != NULL) {
-        LLVMDisposeBuilder(cg->builder);
-        LLVMDisposeModule(cg->mod);
-        LLVMContextDispose(cg->ctx);
+        if (cg->debug && cg->di_builder) {
+            LLVMDIBuilderFinalize(cg->di_builder);
+            LLVMDisposeDIBuilder(cg->di_builder);
+        }
+        if (cg->builder) LLVMDisposeBuilder(cg->builder);
+        if (cg->mod) LLVMDisposeModule(cg->mod);
+        if (cg->ctx) LLVMContextDispose(cg->ctx);
         pp_ast_root_free(cg->program);
         pp_environment_backend_free(cg->global_env_b);
         pp_symbol_table_free(cg->gst);

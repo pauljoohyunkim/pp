@@ -272,7 +272,7 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
 
     NULL_POINTER_ERROR_HANDLE(parser);
 
-    program = pp_ast_node_create(PP_AST_ProgramNode, (PP_SourceLoc){.filename = NULL, .line = 0, .column = 0});
+    program = pp_ast_node_create(PP_AST_ProgramNode, (PP_SourceLoc){.filename = parser->filename, .line = 0, .column = 0});
     NULL_POINTER_ERROR_HANDLE(program);
 
     capacity = AST_VECTOR_INIT_CAP;

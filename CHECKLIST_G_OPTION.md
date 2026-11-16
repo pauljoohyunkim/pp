@@ -21,11 +21,11 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [x] Update all call sites: `pp_compiler_pipeline_compile_source_core_opts` and legacy core
 
 ## DIBuilder Lifecycle
-- [ ] Create DIBuilder in `pp_code_generator_create` when `debug`
-- [ ] Set module flags: Dwarf Version 4, Debug Info Version 3
-- [ ] Create DIFile from source filename
-- [ ] Create DICompileUnit
-- [ ] Finalize DIBuilder and cleanup in `pp_code_generator_free`
+- [x] Create DIBuilder in `pp_code_generator_create` when `debug`
+- [x] Set module flags: Dwarf Version 5, Debug Info Version LLVMDebugMetadataVersion()
+- [x] Create DIFile from source filename (fallback "input")
+- [x] Create DICompileUnit
+- [x] Finalize DIBuilder and cleanup in `pp_code_generator_free`
 
 ## Functions & Scopes
 - [ ] Emit DISubprogram in `pp_code_generator_emit_function`
@@ -72,7 +72,8 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [ ] Per compilation unit filename handling for PPI files
 
 ## Milestones
-- [ ] Milestone 1: CU + function subprograms + line locations only
+- [x] Milestone 1: CU + module flags + DIFile + DICompileUnit scaffold
+- [ ] Milestone 1 cont.: function subprograms + line locations
 - [ ] Milestone 2: Parameters and locals with primitive types
 - [ ] Milestone 3: Structs, arrays, pointers, references, newtypes
 - [ ] Milestone 4: Lexical blocks, lists/strings polish, helper hiding
