@@ -35,19 +35,22 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [ ] Restore scope on block exit
 
 ## Source Locations
-- [ ] Implement `pp_code_generator_set_location(cg, node)`
-- [ ] Call at entry of statement/expression generation
+- [x] Implement `pp_code_generator_debug_set_location(cg, loc)`
+- [x] Call at entry of statement generation
+- [ ] Call at entry of expression generation
 - [ ] Clear location for synthetic helpers: `pp.copy.T`, `pp.drop.T`, temporaries
 - [ ] Ensure verifier: instruction scope == function's subprogram
 
 ## Variables & Parameters
-- [ ] Extend `pp_code_generator_entry_alloca` to emit `DILocalVariable` / `DIParameterVariable`
-- [ ] Emit `LLVMDIBuilderInsertDeclareAtEnd` for all allocas when `debug`
-- [ ] Map PP types to DI types for variables
+- [x] Emit `DIParameterVariable` for params in `pp_code_generator_generate_function_body`
+- [x] Emit `DIAutoVariable` for `let` declarations in `pp_code_generator_generate_variable_declaration_statement`
+- [x] Emit `LLVMDIBuilderInsertDeclareRecordAtEnd` for those allocas when `debug`
+- [x] Map PP types to DI types for variables (primitives)
 
 ## Type Mapping
 - [ ] Add PPType → DIType cache
-- [ ] Primitives: `LLVMDIBuilderCreateBasicType`
+- [x] Primitives: `LLVMDIBuilderCreateBasicType` (with `DW_ATE` encodings)
+- [x] Real `DISubroutineType` from signature (return type + param types)
 - [ ] Const: `CreateQualifiedType(DW_TAG_const_type, ...)`
 - [ ] Reference / Pointer: `CreateReferenceType` / `CreatePointerType`
 - [ ] Newtype: `CreateTypedef`
@@ -55,15 +58,15 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 - [ ] Array / List / String mapping
 
 ## Optimization Interplay
-- [ ] Ensure debug info is emitted only when `-g` is set
+- [x] Ensure debug info is emitted only when `-g` is set
 - [ ] Test with `-g -O0` and `-g -O1+`
 
 ## Testing
-- [ ] Compile small program with `-g -c`
-- [ ] Verify DWARF sections: `readelf --debug-dump=info a.o`
-- [ ] `gdb ./a.out` → `break main`, `next`, `info locals`, `ptype`
-- [ ] Verify breakpoints by line work
-- [ ] Verify no debug info emitted without `-g`
+- [x] Compile small program with `-g -c`
+- [x] Verify DWARF sections: `readelf --debug-dump=info a.o`
+- [x] `gdb ./a.out` → `break main`, `next`, `info locals`, `ptype`
+- [x] Verify breakpoints by line work
+- [x] Verify no debug info emitted without `-g`
 
 ## Gotchas
 - [ ] Hide generated helpers or mark artificial to avoid stepping
@@ -73,8 +76,8 @@ Track implementation of `-g` DWARF debug info emission for `pplang` via LLVM DIB
 
 ## Milestones
 - [x] Milestone 1: CU + module flags + DIFile + DICompileUnit scaffold
-- [ ] Milestone 1 cont.: function subprograms + line locations
-- [ ] Milestone 2: Parameters and locals with primitive types
+- [x] Milestone 1 cont.: function subprograms + line locations
+- [x] Milestone 2: Parameters and locals with primitive types
 - [ ] Milestone 3: Structs, arrays, pointers, references, newtypes
 - [ ] Milestone 4: Lexical blocks, lists/strings polish, helper hiding
 
