@@ -789,7 +789,7 @@ error_cleanup:
     return NULL;
 }
 
-PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp) {
+PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp, bool debug) {
     PP_CodeGenerator* cg = NULL;
     LLVMContextRef ctx = NULL;
     LLVMModuleRef mod = NULL;

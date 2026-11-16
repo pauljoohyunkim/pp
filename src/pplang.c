@@ -64,6 +64,7 @@ int main(int argc, char** argv) {
     bool to_assembly = false;
     bool emit_ir = false;
     bool verbose = false;
+    bool debug = false;
     bool output_specified = false;
     char output_filename[BUFSIZ] = {0};
     strcpy(output_filename, "a.out");
@@ -75,7 +76,7 @@ int main(int argc, char** argv) {
     static struct option long_opts[] = {{"emit-llvm", no_argument, 0, PPLANG_OPT_EMIT_LLVM},
                                         {"ppi", required_argument, 0, PPLANG_OPT_PPI},
                                         {0, 0, 0, 0}};
-    while ((opt = getopt_long(argc, argv, "hcSvo:O:", long_opts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "hcSvo:O:g", long_opts, NULL)) != -1) {
         switch (opt) {
             case 'h':
                 print_help();
@@ -101,6 +102,9 @@ int main(int argc, char** argv) {
                 break;
             case 'v':
                 verbose = true;
+                break;
+            case 'g':
+                debug = true;
                 break;
             case 'o':
                 output_specified = true;
@@ -210,6 +214,7 @@ int main(int argc, char** argv) {
         .optimization_mode = optimization_mode,
         .to_assembly = to_assembly,
         .emit_ir = emit_ir,
+        .debug = debug,
     };
 
     /*
@@ -450,6 +455,7 @@ static void print_help(void) {
     printf("Usage: pplang [-h] [-v] [-c] [-S] [-o filename] [-O 0123] [--ppi file] [-I dir] src.pp\n");
     printf("-h\t\t\t\tShow this help menu\n");
     printf("-v\t\t\t\tShow verbose output\n");
+    printf("-g\t\t\t\tEmit DWARF debug information\n");
     printf("-c\t\t\t\tCompile to object file.\n");
     printf("-S\t\t\t\tCompile to assembly file.\n");
     printf("--emit-llvm\t\t\tEmit LLVM IR.\n");

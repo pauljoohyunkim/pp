@@ -8,6 +8,7 @@ extern "C" {
 #include <llvm-c/Core.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
+#include <llvm-c/DebugInfo.h>
 #include <stdbool.h>
 
 #include "pp_ast.h"
@@ -76,6 +77,13 @@ typedef struct {
     PP_TypeCacheEntry* type_cache;
     size_t type_cache_count;
     size_t type_cache_capacity;
+
+    /* Debug info */
+    bool debug;
+    LLVMDIBuilderRef di_builder;
+    LLVMMetadataRef di_compile_unit;
+    LLVMMetadataRef di_file;
+    LLVMMetadataRef di_current_scope;
 } PP_CodeGenerator;
 
 /**
@@ -106,9 +114,10 @@ void pp_environment_backend_print_value_map(PP_Environment_Backend* env_b);
  * @brief Create a PP_CodeGenerator from a semantic analyzer.
  * @param sa Semantic analyzer whose ownership of program/gtt/etc. is transferred.
  * @param sp String pool to use (not transferred).
+ * @param debug Enable DWARF debug info emission.
  * @return New code generator or NULL on failure.
  */
-PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp);
+PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp, bool debug);
 
 /**
  * @brief Free a PP_CodeGenerator and all owned resources.
