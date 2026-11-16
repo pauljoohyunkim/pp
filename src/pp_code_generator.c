@@ -12,7 +12,33 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* DWARF base type encodings (DW_ATE_*) are not exported by the LLVM C API. */
+typedef enum {
+    PP_DW_ATE_ADDR = 0x01,
+    PP_DW_ATE_BOOLEAN = 0x02,
+    PP_DW_ATE_COMPLEX_FLOAT = 0x03,
+    PP_DW_ATE_FLOAT = 0x04,
+    PP_DW_ATE_SIGNED = 0x05,
+    PP_DW_ATE_SIGNED_CHAR = 0x06,
+    PP_DW_ATE_UNSIGNED = 0x07,
+    PP_DW_ATE_UNSIGNED_CHAR = 0x08,
+    PP_DW_ATE_IMAGINARY_FLOAT = 0x09,
+    PP_DW_ATE_PACKED_DECIMAL = 0x0a,
+    PP_DW_ATE_NUMERIC_STRING = 0x0b,
+    PP_DW_ATE_EDITED = 0x0c,
+    PP_DW_ATE_SIGNED_FIXED = 0x0d,
+    PP_DW_ATE_UNSIGNED_FIXED = 0x0e,
+    PP_DW_ATE_DECIMAL_FLOAT = 0x0f,
+    PP_DW_ATE_UTF = 0x10,
+    PP_DW_ATE_UCS = 0x11,
+    PP_DW_ATE_ASCII = 0x12,
+    PP_DW_ATE_LO_USER = 0x80,
+    PP_DW_ATE_HI_USER = 0xff,
+} PP_DWARF_BaseTypeEncoding;
+
 static LLVMValueRef pp_code_generator_entry_alloca(PP_CodeGenerator* cg, LLVMTypeRef type, const char* name);
+static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const PPType* t);
+static void pp_code_generator_debug_set_location(PP_CodeGenerator* cg, const PP_SourceLoc* loc);
 static PP_Environment_Backend* pp_environment_backend_enter_scope(const PP_Environment_Backend* current_env_b);
 static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
@@ -789,13 +815,18 @@ error_cleanup:
     return NULL;
 }
 
-PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp) {
+PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp, bool debug) {
     PP_CodeGenerator* cg = NULL;
     LLVMContextRef ctx = NULL;
     LLVMModuleRef mod = NULL;
     LLVMBuilderRef builder = NULL;
     PP_Environment_Backend* env_b = NULL;
     PP_ErrorList* error_list = NULL;
+    LLVMDIBuilderRef di_builder = NULL;
+    LLVMMetadataRef di_compile_unit = NULL;
+    LLVMMetadataRef di_file = NULL;
+    LLVMMetadataRef di_current_scope = NULL;
+    PP_DITypeCacheEntry* di_type_cache = NULL;
 
     if (sa == NULL) goto error_cleanup;
 
@@ -844,8 +875,52 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
 
     cg->sp = sp;
 
+    cg->debug = debug;
+
+    assert(cg->program && "program node must be present");
+
     assert(sa->current_function_type == NULL);
     cg->current_function_type = NULL;
+
+    if (debug) {
+        // Create DIBuilder
+        di_builder = LLVMCreateDIBuilder(cg->mod);
+        if (di_builder == NULL) goto error_cleanup;
+        cg->di_builder = di_builder;
+        di_builder = NULL;
+
+        // Module flags for DWARF
+        LLVMValueRef dwarf_version = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), 5, 0);
+        LLVMValueRef dbg_version = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), LLVMDebugMetadataVersion(), 0);
+        LLVMAddModuleFlag(cg->mod, LLVMModuleFlagBehaviorWarning, "Dwarf Version", strlen("Dwarf Version"),
+                          LLVMValueAsMetadata(dwarf_version));
+        LLVMAddModuleFlag(cg->mod, LLVMModuleFlagBehaviorWarning, "Debug Info Version", strlen("Debug Info Version"),
+                          LLVMValueAsMetadata(dbg_version));
+
+        // DIFile and DICompileUnit
+        const char* filename = "input";
+        if (cg->program && cg->program->loc.filename) { filename = cg->program->loc.filename; }
+        const char* dirname = "";
+        di_file = LLVMDIBuilderCreateFile(cg->di_builder, filename, strlen(filename), dirname, strlen(dirname));
+        if (di_file == NULL) goto error_cleanup;
+        cg->di_file = di_file;
+        di_file = NULL;
+
+        di_compile_unit = LLVMDIBuilderCreateCompileUnit(cg->di_builder, LLVMDWARFSourceLanguageC99, cg->di_file,
+                                                         "pplang", strlen("pplang"), 0, "", 0, 0, "", 0,
+                                                         LLVMDWARFEmissionFull, 0, 0, 0, "", 0, "", 0);
+        if (di_compile_unit == NULL) goto error_cleanup;
+        cg->di_compile_unit = di_compile_unit;
+        di_compile_unit = NULL;
+
+        /* Initialize DI type cache */
+        cg->di_type_cache_capacity = 16;
+        di_type_cache = (PP_DITypeCacheEntry*)calloc(cg->di_type_cache_capacity, sizeof(PP_DITypeCacheEntry));
+        if (di_type_cache == NULL) goto error_cleanup;
+        cg->di_type_cache = di_type_cache;
+        di_type_cache = NULL;
+        cg->di_type_cache_count = 0;
+    }
 
     // Ensure runtime library declarations for list support
     {
@@ -868,20 +943,25 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
     return cg;
 
 error_cleanup:
-    LLVMContextDispose(ctx);
-    LLVMDisposeModule(mod);
-    LLVMDisposeBuilder(builder);
+    if (ctx) LLVMContextDispose(ctx);
+    if (mod) LLVMDisposeModule(mod);
+    if (builder) LLVMDisposeBuilder(builder);
     pp_environment_backend_free(env_b);
     pp_error_list_free(error_list);
     pp_code_generator_free(cg);
+    free(di_type_cache);
     return NULL;
 }
 
 void pp_code_generator_free(PP_CodeGenerator* cg) {
     if (cg != NULL) {
-        LLVMDisposeBuilder(cg->builder);
-        LLVMDisposeModule(cg->mod);
-        LLVMContextDispose(cg->ctx);
+        if (cg->debug && cg->di_builder) {
+            LLVMDIBuilderFinalize(cg->di_builder);
+            LLVMDisposeDIBuilder(cg->di_builder);
+        }
+        if (cg->builder) LLVMDisposeBuilder(cg->builder);
+        if (cg->mod) LLVMDisposeModule(cg->mod);
+        if (cg->ctx) LLVMContextDispose(cg->ctx);
         pp_ast_root_free(cg->program);
         pp_environment_backend_free(cg->global_env_b);
         pp_symbol_table_free(cg->gst);
@@ -892,9 +972,251 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         free(cg->drop_stack_addresses);
         free(cg->drop_stack_types);
         free(cg->type_cache);
+        free(cg->di_type_cache);
     }
     free(cg);
     LLVMShutdown();
+}
+
+static void pp_code_generator_debug_set_location(PP_CodeGenerator* cg, const PP_SourceLoc* loc) {
+    if (!cg->debug || !cg->di_builder || !loc) return;
+    unsigned int line = loc->line;
+    unsigned int col = loc->column;
+    LLVMMetadataRef dwarf_loc = LLVMDIBuilderCreateDebugLocation(cg->ctx, line, col, cg->di_current_scope, NULL);
+    if (dwarf_loc) { LLVMSetCurrentDebugLocation2(cg->builder, dwarf_loc); }
+}
+
+static LLVMMetadataRef pp_code_generator_di_basic_type(PP_CodeGenerator* cg, const char* name, uint64_t size_in_bits,
+                                                       LLVMDWARFTypeEncoding encoding) {
+    return LLVMDIBuilderCreateBasicType(cg->di_builder, name, strlen(name), size_in_bits, encoding, LLVMDIFlagZero);
+}
+
+static LLVMMetadataRef pp_code_generator_di_void_type(PP_CodeGenerator* cg) {
+    return pp_code_generator_di_basic_type(cg, "void", 0, 0);
+}
+
+/* Returns the return type and parameter types for function-like types. */
+static void pp_code_generator_di_function_signature(const PPType* func_type, const PPType** out_return_type,
+                                                    const PPType*** out_param_types, size_t* out_param_count) {
+    *out_return_type = NULL;
+    *out_param_types = NULL;
+    *out_param_count = 0;
+    assert(func_type);
+    switch (func_type->kind) {
+        case PP_TK_Function:
+            *out_return_type = func_type->type.pp_type_function.return_type;
+            *out_param_types = func_type->type.pp_type_function.param_types;
+            *out_param_count = func_type->type.pp_type_function.param_count;
+            break;
+        case PP_TK_Lambda:
+            *out_return_type = func_type->type.pp_type_lambda.return_type;
+            *out_param_types = func_type->type.pp_type_lambda.param_types;
+            *out_param_count = func_type->type.pp_type_lambda.param_count;
+            break;
+        case PP_TK_Operator:
+            *out_return_type = func_type->type.pp_type_operator.return_type;
+            *out_param_types = func_type->type.pp_type_operator.param_types;
+            *out_param_count = func_type->type.pp_type_operator.param_count;
+            break;
+        default:
+            assert(0 && "expected function-like type");
+    }
+}
+
+static LLVMMetadataRef pp_code_generator_di_subroutine_type(PP_CodeGenerator* cg, const PPType* func_type) {
+    assert(cg);
+    const PPType* return_type = NULL;
+    const PPType** param_types = NULL;
+    size_t param_count = 0;
+    pp_code_generator_di_function_signature(func_type, &return_type, &param_types, &param_count);
+
+    LLVMMetadataRef* types = (LLVMMetadataRef*)calloc(param_count + 1, sizeof(LLVMMetadataRef));
+    if (types == NULL) return NULL;
+
+    LLVMMetadataRef return_di = NULL;
+    if (return_type) return_di = pp_code_generator_get_di_type(cg, return_type);
+    if (return_di == NULL) return_di = pp_code_generator_di_void_type(cg);
+    types[0] = return_di;
+
+    for (size_t i = 0; i < param_count; i++) {
+        LLVMMetadataRef param_di = pp_code_generator_get_di_type(cg, param_types[i]);
+        if (param_di == NULL) param_di = pp_code_generator_di_void_type(cg);
+        types[i + 1] = param_di;
+    }
+
+    LLVMMetadataRef subroutine_type =
+        LLVMDIBuilderCreateSubroutineType(cg->di_builder, cg->di_file, types, (unsigned int)(param_count + 1),
+                                          LLVMDIFlagZero);
+    free(types);
+    return subroutine_type;
+}
+
+static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const PPType* t) {
+    if (!cg->debug || !t) return NULL;
+    if (cg->di_type_cache != NULL) {
+        for (size_t i = 0; i < cg->di_type_cache_count; i++) {
+            if (cg->di_type_cache[i].type == t) { return cg->di_type_cache[i].di; }
+        }
+    }
+    LLVMMetadataRef result = NULL;
+    switch (t->kind) {
+        case PP_TK_Int8:
+            result = pp_code_generator_di_basic_type(cg, "int8", 8, PP_DW_ATE_SIGNED);
+            break;
+        case PP_TK_UInt8:
+            result = pp_code_generator_di_basic_type(cg, "uint8", 8, PP_DW_ATE_UNSIGNED);
+            break;
+        case PP_TK_Int16:
+            result = pp_code_generator_di_basic_type(cg, "int16", 16, PP_DW_ATE_SIGNED);
+            break;
+        case PP_TK_UInt16:
+            result = pp_code_generator_di_basic_type(cg, "uint16", 16, PP_DW_ATE_UNSIGNED);
+            break;
+        case PP_TK_Int32:
+            result = pp_code_generator_di_basic_type(cg, "int32", 32, PP_DW_ATE_SIGNED);
+            break;
+        case PP_TK_UInt32:
+            result = pp_code_generator_di_basic_type(cg, "uint32", 32, PP_DW_ATE_UNSIGNED);
+            break;
+        case PP_TK_Int64:
+            result = pp_code_generator_di_basic_type(cg, "int64", 64, PP_DW_ATE_SIGNED);
+            break;
+        case PP_TK_UInt64:
+            result = pp_code_generator_di_basic_type(cg, "uint64", 64, PP_DW_ATE_UNSIGNED);
+            break;
+        case PP_TK_Int128:
+            result = pp_code_generator_di_basic_type(cg, "int128", 128, PP_DW_ATE_SIGNED);
+            break;
+        case PP_TK_UInt128:
+            result = pp_code_generator_di_basic_type(cg, "uint128", 128, PP_DW_ATE_UNSIGNED);
+            break;
+        case PP_TK_Float:
+            result = pp_code_generator_di_basic_type(cg, "float", 64, PP_DW_ATE_FLOAT);
+            break;
+        case PP_TK_Bool:
+            result = pp_code_generator_di_basic_type(cg, "bool", 8, PP_DW_ATE_BOOLEAN);
+            break;
+        case PP_TK_Void:
+            result = pp_code_generator_di_void_type(cg);
+            break;
+        case PP_TK_Const: {
+            const PPType* underlying = t->type.pp_type_const.const_of;
+            result = pp_code_generator_get_di_type(cg, underlying);
+            break;
+        }
+        case PP_TK_Newtype: {
+            const PPType* underlying = t->type.pp_type_newtype.underlying;
+            result = pp_code_generator_get_di_type(cg, underlying);
+            break;
+        }
+        case PP_TK_Pointer: {
+            const PPType* pointee = t->type.pp_type_pointer.pointee;
+            LLVMMetadataRef pointee_di = pp_code_generator_get_di_type(cg, pointee);
+            if (pointee_di) {
+                uint64_t size_bits = 64;
+                uint32_t align_bits = 64;
+                result = LLVMDIBuilderCreatePointerType(cg->di_builder, pointee_di, size_bits, align_bits, 0, NULL, 0);
+            }
+            break;
+        }
+        case PP_TK_Reference: {
+            const PPType* ref_to = t->type.pp_type_reference.reference_to;
+            LLVMMetadataRef ref_di = pp_code_generator_get_di_type(cg, ref_to);
+            if (ref_di) {
+                uint64_t size_bits = 64;
+                uint32_t align_bits = 64;
+                result = LLVMDIBuilderCreatePointerType(cg->di_builder, ref_di, size_bits, align_bits, 0, NULL, 0);
+            }
+            break;
+        }
+        case PP_TK_Array: {
+            const PPType* elem = t->type.pp_type_array.element_type;
+            LLVMMetadataRef elem_di = pp_code_generator_get_di_type(cg, elem);
+            if (elem_di) {
+                LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, t);
+                uint64_t size_bits = 0;
+                uint32_t align_bits = 0;
+                if (llvm_type) {
+                    size_bits = pp_code_generator_type_store_size(cg, llvm_type) * 8;
+                    align_bits = 64;
+                }
+                LLVMMetadataRef subrange =
+                    LLVMDIBuilderGetOrCreateSubrange(cg->di_builder, 0, (int64_t)t->type.pp_type_array.size);
+                LLVMMetadataRef* subscripts = &subrange;
+                result = LLVMDIBuilderCreateArrayType(cg->di_builder, size_bits, align_bits, elem_di, subscripts, 1);
+            }
+            break;
+        }
+        case PP_TK_Struct: {
+            const char* name = t->type.pp_type_struct.name ? t->type.pp_type_struct.name : "<anonymous>";
+            const PP_StructLayout* layout = t->type.pp_type_struct.layout;
+            size_t field_count = layout ? layout->field_count : 0;
+            LLVMMetadataRef* members = NULL;
+            if (field_count > 0) {
+                members = (LLVMMetadataRef*)calloc(field_count, sizeof(LLVMMetadataRef));
+                for (size_t i = 0; i < field_count; i++) {
+                    members[i] = pp_code_generator_get_di_type(cg, layout->fields[i].field_type);
+                    if (!members[i]) { members[i] = pp_code_generator_di_void_type(cg); }
+                }
+            }
+            LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, t);
+            uint64_t size_bits = 0;
+            uint32_t align_bits = 0;
+            if (llvm_type) {
+                size_bits = pp_code_generator_type_store_size(cg, llvm_type) * 8;
+                align_bits = 64;
+            }
+            result = LLVMDIBuilderCreateStructType(cg->di_builder, cg->di_compile_unit, name, strlen(name), cg->di_file,
+                                                   0, size_bits, align_bits, LLVMDIFlagZero, NULL, members,
+                                                   (unsigned)field_count, 0, NULL, NULL, 0);
+            free(members);
+            break;
+        }
+        case PP_TK_String: {
+            LLVMMetadataRef* elems = (LLVMMetadataRef*)calloc(2, sizeof(LLVMMetadataRef));
+            LLVMMetadataRef ptr_di =
+                LLVMDIBuilderCreatePointerType(cg->di_builder,
+                                               pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64,
+                                               64, 0, NULL, 0);
+            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
+            elems[0] = ptr_di;
+            elems[1] = i64_di;
+            result = LLVMDIBuilderCreateStructType(cg->di_builder, cg->di_compile_unit, "pp.string", 9, cg->di_file, 0,
+                                                   16, 64, LLVMDIFlagZero, NULL, elems, 2, 0, NULL, NULL, 0);
+            free(elems);
+            break;
+        }
+        case PP_TK_List: {
+            LLVMMetadataRef* elems = (LLVMMetadataRef*)calloc(4, sizeof(LLVMMetadataRef));
+            LLVMMetadataRef ptr_di =
+                LLVMDIBuilderCreatePointerType(cg->di_builder,
+                                               pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64,
+                                               64, 0, NULL, 0);
+            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
+            elems[0] = ptr_di;
+            elems[1] = i64_di;
+            elems[2] = i64_di;
+            elems[3] = i64_di;
+            result = LLVMDIBuilderCreateStructType(cg->di_builder, cg->di_compile_unit, "pp.list", 7, cg->di_file, 0,
+                                                   32, 64, LLVMDIFlagZero, NULL, elems, 4, 0, NULL, NULL, 0);
+            free(elems);
+            break;
+        }
+        default:
+            result = NULL;
+            break;
+    }
+    if (result) {
+        if (cg->di_type_cache_count >= cg->di_type_cache_capacity) {
+            cg->di_type_cache_capacity *= 2;
+            cg->di_type_cache = (PP_DITypeCacheEntry*)realloc(cg->di_type_cache,
+                                                              cg->di_type_cache_capacity * sizeof(PP_DITypeCacheEntry));
+        }
+        cg->di_type_cache[cg->di_type_cache_count].type = t;
+        cg->di_type_cache[cg->di_type_cache_count].di = result;
+        cg->di_type_cache_count++;
+    }
+    return result;
 }
 
 static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenerator* cg) {
@@ -1096,19 +1418,20 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
         }
     }
 
-    for (size_t i = 0; i < cg->program->program.decl_count; i++) {
-        const PP_AST_Node* stmt = cg->program->program.decls[i];
-        assert(stmt);
-
-        if (stmt->node_type != PP_AST_FunctionCallNode && stmt->node_type != PP_AST_LambdaDeclarationNode) continue;
-
-        const char* func_name = stmt->function_declaration.name;
-        assert(func_name);
-
-        if (!pp_code_generator_generate_function_body(cg, cg->gst, cg->global_env_b, stmt)) {
-            assert(0 && "Function body generation failure.");
-        }
-    }
+    // Second pass to generate bodies for top-level functions (legacy, disabled - bodies are generated in emit_function)
+    // for (size_t i = 0; i < cg->program->program.decl_count; i++) {
+    //     const PP_AST_Node* stmt = cg->program->program.decls[i];
+    //     assert(stmt);
+    //
+    //     if (stmt->node_type != PP_AST_FunctionCallNode && stmt->node_type != PP_AST_LambdaDeclarationNode) continue;
+    //
+    //     const char* func_name = stmt->function_declaration.name;
+    //     assert(func_name);
+    //
+    //     if (!pp_code_generator_generate_function_body(cg, cg->gst, cg->global_env_b, stmt)) {
+    //         assert(0 && "Function body generation failure.");
+    //     }
+    // }
 
     // Verify generated LLVM module
     {
@@ -1272,6 +1595,25 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
         LLVMValueRef llvm_alloca_slot = pp_code_generator_entry_alloca(cg, llvm_param_type, param_name);
         LLVMBuildStore(cg->builder, llvm_param_val, llvm_alloca_slot);
 
+        if (cg->debug) {
+            LLVMMetadataRef di_type = pp_code_generator_get_di_type(cg, param_type);
+            if (di_type) {
+                unsigned int line = stmt->function_declaration.params[i]->loc.line;
+                if (line == 0) line = 1;
+                LLVMMetadataRef di_var =
+                    LLVMDIBuilderCreateParameterVariable(cg->di_builder, cg->di_current_scope, param_name,
+                                                         strlen(param_name), i + 1, cg->di_file, line, di_type, 0,
+                                                         LLVMDIFlagZero);
+                if (di_var) {
+                    LLVMMetadataRef expr = LLVMDIBuilderCreateExpression(cg->di_builder, NULL, 0);
+                    LLVMDIBuilderInsertDeclareRecordAtEnd(cg->di_builder, llvm_alloca_slot, di_var, expr,
+                                                          LLVMDIBuilderCreateDebugLocation(cg->ctx, line, 0,
+                                                                                           cg->di_current_scope, NULL),
+                                                          LLVMGetInsertBlock(cg->builder));
+                }
+            }
+        }
+
         if (!pp_environment_backend_push_val_map(body_env_b, param_symbol, llvm_alloca_slot)) { goto error_cleanup; }
 
         if (!pp_type_is_reference(param_type) && pp_type_needs_drop(param_type)) {
@@ -1324,6 +1666,8 @@ static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTa
     assert(symbol_table);
     assert(env_b);
     assert(node);
+
+    pp_code_generator_debug_set_location(cg, &node->loc);
 
     switch (node->node_type) {
         case PP_AST_VariableDeclarationNode:
@@ -1387,6 +1731,23 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
     LLVMValueRef llvm_var_alloca = pp_code_generator_entry_alloca(cg, llvm_var_type, var_name);
     assert(llvm_var_alloca);
     LLVMPositionBuilderAtEnd(cg->builder, cur_bb);
+
+    if (cg->debug) {
+        LLVMMetadataRef di_type = pp_code_generator_get_di_type(cg, var_type);
+        if (di_type) {
+            unsigned int line = stmt->loc.line;
+            unsigned int col = stmt->loc.column;
+            LLVMMetadataRef di_var =
+                LLVMDIBuilderCreateAutoVariable(cg->di_builder, cg->di_current_scope, var_name, strlen(var_name),
+                                                cg->di_file, line, di_type, 0, LLVMDIFlagZero, 0);
+            if (di_var) {
+                LLVMMetadataRef expr = LLVMDIBuilderCreateExpression(cg->di_builder, NULL, 0);
+                LLVMMetadataRef dbg_loc =
+                    LLVMDIBuilderCreateDebugLocation(cg->ctx, line, col, cg->di_current_scope, NULL);
+                LLVMDIBuilderInsertDeclareRecordAtEnd(cg->di_builder, llvm_var_alloca, di_var, expr, dbg_loc, cur_bb);
+            }
+        }
+    }
 
     const PP_AST_Node* initializer_node = stmt->variable_declaration.initializer;
     if (pp_type_is_reference(var_type)) {
@@ -1854,11 +2215,24 @@ static int pp_code_generator_generate_while_statement(PP_CodeGenerator* cg, PPSy
 static int pp_code_generator_generate_block_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
     PP_Environment_Backend* inner_env_b = NULL;
+    LLVMMetadataRef prev_scope = NULL;
+    LLVMMetadataRef lexical_block = NULL;
     assert(cg);
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
     assert(stmt->node_type == PP_AST_StatementListNode);
+
+    if (cg->debug) {
+        prev_scope = cg->di_current_scope;
+        unsigned int line = stmt->loc.line;
+        unsigned int col = stmt->loc.column;
+        lexical_block = LLVMDIBuilderCreateLexicalBlock(cg->di_builder, cg->di_current_scope, cg->di_file, line, col);
+        if (lexical_block) {
+            cg->di_current_scope = lexical_block;
+            pp_code_generator_debug_set_location(cg, &stmt->loc);
+        }
+    }
 
     inner_env_b = pp_environment_backend_enter_scope(env_b);
     assert(inner_env_b);
@@ -1887,9 +2261,11 @@ static int pp_code_generator_generate_block_statement(PP_CodeGenerator* cg, PPSy
     }
     cg->drop_stack_count = drop_stack_mark;
     pp_environment_backend_free(inner_env_b);
+    if (cg->debug && prev_scope) { cg->di_current_scope = prev_scope; }
     return 1;
 
 error_cleanup:
+    if (cg->debug && prev_scope) { cg->di_current_scope = prev_scope; }
     pp_environment_backend_free(inner_env_b);
     return 0;
 }
@@ -1915,13 +2291,32 @@ static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* 
     LLVMTypeRef llvm_func_type = pp_environment_backend_lookup_type(cg, func_type);
     assert(llvm_func_type);
 
-    LLVMValueRef llvm_func_val = LLVMAddFunction(cg->mod, func_name, llvm_func_type);
+    // In the case of external function declaration has been done for the function defined in the module, use that.
+    LLVMValueRef llvm_func_val = LLVMGetNamedFunction(cg->mod, func_name);
+    if (!llvm_func_val) { llvm_func_val = LLVMAddFunction(cg->mod, func_name, llvm_func_type); }
     NULL_POINTER_ERROR_HANDLE(llvm_func_val);
+
+    LLVMMetadataRef prev_scope = cg->di_current_scope;
+    if (cg->debug) {
+        unsigned int line = stmt->loc.line;
+        LLVMMetadataRef subprogram_type = pp_code_generator_di_subroutine_type(cg, func_type);
+        LLVMMetadataRef subprogram =
+            LLVMDIBuilderCreateFunction(cg->di_builder, cg->di_current_scope, func_name, strlen(func_name), func_name,
+                                        strlen(func_name), cg->di_file, line, subprogram_type, 0, 1, line,
+                                        LLVMDIFlagZero, 0);
+        if (subprogram) {
+            LLVMSetSubprogram(llvm_func_val, subprogram);
+            cg->di_current_scope = subprogram;
+            pp_code_generator_debug_set_location(cg, &stmt->loc);
+        }
+    }
 
     if (!pp_environment_backend_push_val_map(env_b, func_symbol, llvm_func_val)) goto error_cleanup;
 
-    /* Generate function body (stubbed) */
+    /* Generate function body */
     if (!pp_code_generator_generate_function_body(cg, symbol_table, env_b, stmt)) { goto error_cleanup; }
+
+    cg->di_current_scope = prev_scope;
 
     return 1;
 
@@ -2086,6 +2481,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
     assert(symbol_table);
     assert(env_b);
     assert(node);
+    if (cg->debug) { pp_code_generator_debug_set_location(cg, &node->loc); }
     const PP_AST_Decoration* dec = pp_ast_get_decoration(node);
     if (dec) { assert(dec->value_category == PP_VALUE_CATEGORY_LVALUE); }
     LLVMValueRef llvm_val = NULL;
@@ -2358,6 +2754,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
     assert(symbol_table);
     assert(env_b);
     assert(node);
+    if (cg->debug) { pp_code_generator_debug_set_location(cg, &node->loc); }
     LLVMValueRef llvm_val = NULL;
 
     switch (node->node_type) {
@@ -4109,6 +4506,8 @@ static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_Ty
     LLVMValueRef func = LLVMAddFunction(cg->mod, name_buf, func_type);
     // Register early to allow recursive references
     entry->copy_fn = func;
+    // Synthetic helpers are not emitted with debug info to avoid stepping into generated code
+    // and to avoid DI verification issues with artificial subprograms.
     LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "entry");
     LLVMBasicBlockRef saved = pp_code_generator_save_builder_insert_block(cg);
     LLVMPositionBuilderAtEnd(cg->builder, entry_bb);
@@ -4134,6 +4533,8 @@ static LLVMValueRef pp_code_generator_ensure_drop_fn(PP_CodeGenerator* cg, PP_Ty
     LLVMValueRef func = LLVMAddFunction(cg->mod, name_buf, func_type);
     // Register early to allow recursive references
     entry->drop_fn = func;
+    // Synthetic helpers are not emitted with debug info to avoid stepping into generated code
+    // and to avoid DI verification issues.
     LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "entry");
     LLVMBasicBlockRef saved = pp_code_generator_save_builder_insert_block(cg);
     LLVMPositionBuilderAtEnd(cg->builder, entry_bb);

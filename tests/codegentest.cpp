@@ -45,7 +45,7 @@ static PP_CodeGenerator* run_codegen(const char* source, int& lexer_errors, int&
         return nullptr;
     }
 
-    PP_CodeGenerator* cg_raw = pp_code_generator_create(sa.release(), test_sp);
+    PP_CodeGenerator* cg_raw = pp_code_generator_create(sa.release(), test_sp, false);
     if (!cg_raw) {
         codegen_result = 0;
         return nullptr;
