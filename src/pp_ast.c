@@ -79,31 +79,27 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             }
             break;
         }
-        case PP_AST_FunctionDeclarationNode:
-        case PP_AST_LambdaDeclarationNode:
-        case PP_AST_OperatorDeclarationNode: {
-            if (node->function_declaration.params) {
-                for (unsigned int i = 0; i < node->function_declaration.param_count; i++) {
-                    pp_ast_root_free_internal(node->function_declaration.params[i]);
+        case PP_AST_CallableDeclarationNode: {
+            if (node->callable_declaration.params) {
+                for (unsigned int i = 0; i < node->callable_declaration.param_count; i++) {
+                    pp_ast_root_free_internal(node->callable_declaration.params[i]);
                 }
-                free(node->function_declaration.params);
+                free(node->callable_declaration.params);
             }
             /* function_declaration.name is pool-owned const char* – do not free */
-            pp_ast_root_free_internal(node->function_declaration.return_type);
-            pp_ast_root_free_internal(node->function_declaration.body);
-            pp_symbol_table_free(node->function_declaration.param_symbol_table);
+            pp_ast_root_free_internal(node->callable_declaration.return_type);
+            pp_ast_root_free_internal(node->callable_declaration.body);
+            pp_symbol_table_free(node->callable_declaration.param_symbol_table);
             break;
         }
-        case PP_AST_ExternFunctionDeclarationNode:
-        case PP_AST_ExternLambdaDeclarationNode:
-        case PP_AST_ExternOperatorDeclarationNode: {
-            if (node->extern_function_declaration.params) {
-                for (unsigned int i = 0; i < node->extern_function_declaration.param_count; i++) {
-                    pp_ast_root_free_internal(node->extern_function_declaration.params[i]);
+        case PP_AST_ExternCallableDeclarationNode: {
+            if (node->extern_callable_declaration.params) {
+                for (unsigned int i = 0; i < node->extern_callable_declaration.param_count; i++) {
+                    pp_ast_root_free_internal(node->extern_callable_declaration.params[i]);
                 }
-                free(node->extern_function_declaration.params);
+                free(node->extern_callable_declaration.params);
             }
-            pp_ast_root_free_internal(node->extern_function_declaration.return_type);
+            pp_ast_root_free_internal(node->extern_callable_declaration.return_type);
             break;
         }
         case PP_AST_StatementListNode: {
@@ -353,27 +349,23 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             if (node->for_statement.update) pp_ast_root_print(node->for_statement.update, depth + 1);
             pp_ast_root_print(node->for_statement.body, depth + 1);
             break;
-        case PP_AST_FunctionDeclarationNode:
-        case PP_AST_LambdaDeclarationNode:
-        case PP_AST_OperatorDeclarationNode:
-            printf("Function %s\n", node->function_declaration.name ? node->function_declaration.name : "");
-            for (unsigned int i = 0; i < node->function_declaration.param_count; i++)
-                pp_ast_root_print(node->function_declaration.params[i], depth + 1);
-            if (node->function_declaration.return_type)
-                pp_ast_root_print(node->function_declaration.return_type, depth + 1);
-            if (node->function_declaration.body) pp_ast_root_print(node->function_declaration.body, depth + 1);
-            if (node->function_declaration.param_symbol_table)
-                pp_symbol_table_free(node->function_declaration.param_symbol_table);
+        case PP_AST_CallableDeclarationNode:
+            printf("Function %s\n", node->callable_declaration.name ? node->callable_declaration.name : "");
+            for (unsigned int i = 0; i < node->callable_declaration.param_count; i++)
+                pp_ast_root_print(node->callable_declaration.params[i], depth + 1);
+            if (node->callable_declaration.return_type)
+                pp_ast_root_print(node->callable_declaration.return_type, depth + 1);
+            if (node->callable_declaration.body) pp_ast_root_print(node->callable_declaration.body, depth + 1);
+            if (node->callable_declaration.param_symbol_table)
+                pp_symbol_table_free(node->callable_declaration.param_symbol_table);
             break;
-        case PP_AST_ExternFunctionDeclarationNode:
-        case PP_AST_ExternLambdaDeclarationNode:
-        case PP_AST_ExternOperatorDeclarationNode:
+        case PP_AST_ExternCallableDeclarationNode:
             printf("Extern Function %s\n",
-                   node->extern_function_declaration.name ? node->extern_function_declaration.name : "");
-            for (unsigned int i = 0; i < node->extern_function_declaration.param_count; i++)
-                pp_ast_root_print(node->extern_function_declaration.params[i], depth + 1);
-            if (node->extern_function_declaration.return_type)
-                pp_ast_root_print(node->extern_function_declaration.return_type, depth + 1);
+                   node->extern_callable_declaration.name ? node->extern_callable_declaration.name : "");
+            for (unsigned int i = 0; i < node->extern_callable_declaration.param_count; i++)
+                pp_ast_root_print(node->extern_callable_declaration.params[i], depth + 1);
+            if (node->extern_callable_declaration.return_type)
+                pp_ast_root_print(node->extern_callable_declaration.return_type, depth + 1);
             break;
         case PP_AST_StatementListNode:
             printf("StatementList\n");

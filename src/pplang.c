@@ -80,7 +80,8 @@ int main(int argc, char** argv) {
         switch (opt) {
             case 'h':
                 print_help();
-                return 1;
+                exit_code = 1;
+                goto error_cleanup;
             case 'c':
                 to_object = true;
                 break;
@@ -93,11 +94,13 @@ int main(int argc, char** argv) {
             case PPLANG_OPT_PPI:
                 if (!ppi_list) {
                     fprintf(stderr, "PPI list not initialized\n");
-                    return 1;
+                    exit_code = 1;
+                    goto error_cleanup;
                 }
                 if (!pplang_ppi_list_push(ppi_list, optarg)) {
                     fprintf(stderr, "Failed to push PPI file %s\n", optarg);
-                    return 1;
+                    exit_code = 1;
+                    goto error_cleanup;
                 }
                 break;
             case 'v':
@@ -115,13 +118,15 @@ int main(int argc, char** argv) {
                 optimization_mode = optarg[0];
                 break;
             default:
-                return 1;
+                exit_code = 1;
+                goto error_cleanup;
         }
     }
 
     if (optind >= argc) {
         fprintf(stderr, "No source file given.\n");
-        return 1;
+        exit_code = 1;
+        goto error_cleanup;
     }
 
     if (optimization_mode != '\0') {
@@ -138,7 +143,8 @@ int main(int argc, char** argv) {
                 break;
             default:
                 fprintf(stderr, "Invalid optimization mode. Allowed modes are -O0, -O1, -O2, -O3, -Os, and -Oz\n");
-                return 1;
+                exit_code = 1;
+                goto error_cleanup;
         }
     }
 
@@ -171,23 +177,23 @@ int main(int argc, char** argv) {
         }
         if (!pplang_input_list_push(input_list, input)) {
             fprintf(stderr, "Failed to push input\n");
-            pplang_input_list_free(input_list);
-            return 1;
+            exit_code = 1;
+            goto error_cleanup;
         }
     }
 
     // -c, -S, --emit-llvm can only take one source file.
     if ((to_object || to_assembly || emit_ir) && source_count != 1) {
         fprintf(stderr, "-c/-S requires exactly one source file, got %u\n", source_count);
-        pplang_input_list_free(input_list);
-        return 1;
+        exit_code = 1;
+        goto error_cleanup;
     }
 
     // -c -S is a conflict.
     if (to_object && to_assembly) {
         fprintf(stderr, "Cannot specify both -c and -S\n");
-        pplang_input_list_free(input_list);
-        return 1;
+        exit_code = 1;
+        goto error_cleanup;
     }
 
     // Create a single target machine for optimization and emission
@@ -198,8 +204,8 @@ int main(int argc, char** argv) {
             fprintf(stderr, "Failed to create target machine\n");
             LLVMDisposeModule(tmp_mod);
             LLVMContextDispose(tmp_ctx);
-            pplang_input_list_free(input_list);
-            return 1;
+            exit_code = 1;
+            goto error_cleanup;
         }
         LLVMDisposeModule(tmp_mod);
         LLVMContextDispose(tmp_ctx);
@@ -234,16 +240,16 @@ int main(int argc, char** argv) {
                 if (inp->obj_path) {
                     if (!pp_compiler_pipeline_compile_source_opts(&opts, inp->src_path, inp->obj_path)) {
                         fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
-                        pplang_input_list_free(input_list);
-                        return 1;
+                        exit_code = 1;
+                        goto error_cleanup;
                     }
                 }
             } else {
                 LLVMMemoryBufferRef buf = NULL;
                 if (!pp_compiler_pipeline_compile_source_to_buffer_opts(&opts, inp->src_path, &buf)) {
                     fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
-                    pplang_input_list_free(input_list);
-                    return 1;
+                    exit_code = 1;
+                    goto error_cleanup;
                 }
                 inp->obj_buf = buf;
             }
@@ -273,8 +279,8 @@ int main(int argc, char** argv) {
                     if (fd < 0) {
                         fprintf(stderr, "Failed to create temp object file\n");
                         free(obj_names);
-                        pplang_input_list_free(input_list);
-                        return 1;
+                        exit_code = 1;
+                        goto error_cleanup;
                     }
                     size_t sz = LLVMGetBufferSize(inp->obj_buf);
                     const char* data = LLVMGetBufferStart(inp->obj_buf);
@@ -286,8 +292,8 @@ int main(int argc, char** argv) {
                             close(fd);
                             unlink(tmpl);
                             free(obj_names);
-                            pplang_input_list_free(input_list);
-                            return 1;
+                            exit_code = 1;
+                            goto error_cleanup;
                         }
                         written += w;
                         to_write -= w;
@@ -301,8 +307,8 @@ int main(int argc, char** argv) {
                         unlink(tmpl);
                         fprintf(stderr, "Failed to rename temp object file\n");
                         free(obj_names);
-                        pplang_input_list_free(input_list);
-                        return 1;
+                        exit_code = 1;
+                        goto error_cleanup;
                     }
                     inp->obj_path = strdup(obj_path_buf);
                     obj_names[idx++] = inp->obj_path;
@@ -314,18 +320,24 @@ int main(int argc, char** argv) {
             pp_linker_offload_multi(obj_names, obj_count, output_filename, optimization_mode);
             free(obj_names);
         }
-        pplang_input_list_free(input_list);
-        pplang_ppi_list_free(ppi_list);
-        pp_string_pool_free(string_pool);
-        return exit_code;
+        goto exit_success;
     }
 
     if (to_object || to_assembly || emit_ir) {
-        pplang_input_list_free(input_list);
-        pplang_ppi_list_free(ppi_list);
-        pp_string_pool_free(string_pool);
-        return exit_code;
+        goto exit_success;
     }
+
+exit_success:
+    pplang_input_list_free(input_list);
+    pplang_ppi_list_free(ppi_list);
+    pp_string_pool_free(string_pool);
+    return exit_code;
+
+error_cleanup:
+    pplang_input_list_free(input_list);
+    pplang_ppi_list_free(ppi_list);
+    pp_string_pool_free(string_pool);
+    return exit_code;
 }
 
 /* Static function definitions */

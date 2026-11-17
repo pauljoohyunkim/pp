@@ -11,7 +11,7 @@ This note describes who owns what memory in the PP compiler so that double-free 
 
 ### String Pool — `pp_string_pool.c`
 * Owns: all interned `char*` strings.
-* Lifetime: for the duration of a compilation unit, owned by the driver / semantic analyzer.
+* Lifetime: for the duration of a compilation unit, owned by the orchestrator for each PPI + source code (in C terms, preprocessed translation unit)
 * Callers receive non-owning `const char*` references.
 
 ### Tokens
