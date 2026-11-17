@@ -70,8 +70,9 @@ Related recent work: unified exit path e571808, code gen hardening 30f1867, sema
 - [ ] Integration test with demo programs.
 
 ## 7. Documentation
-- [ ] Update `docs/` or `dev-docs/` with language reference for break/continue.
-- [ ] Note in `CALLABLE_REFACTOR_CHECKLIST.md` that break/continue is complete.
+- [x] Update `docs/language/05-control-flow.md` with break/continue documentation.
+- [x] Update `docs/reference/grammar.md` with break/continue grammar.
+- [x] Note in `CALLABLE_REFACTOR_CHECKLIST.md` that break/continue is complete.
 
 ## Progress Tracking
 - Started: 
@@ -81,6 +82,7 @@ Related recent work: unified exit path e571808, code gen hardening 30f1867, sema
 - Semantic: [x]
 - Codegen: [x]
 - Tests: [x]
+- Docs: [x]
 - Tests: [ ]
 - Docs: [ ]
 
