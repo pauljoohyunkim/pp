@@ -41,24 +41,24 @@ Related recent work: unified exit path e571808, code gen hardening 30f1867, sema
 - [x] Ensure semantic analyzer migration for unified callable does not interfere.
 
 ## 5. Code Generation
-- [ ] `src/pp_code_generator.c`: Add loop context struct with `continue_bb` and `exit_bb`.
-- [ ] `pp_code_generator_generate_statement` switch: add cases for `PP_AST_BreakStatementNode` and `PP_AST_ContinueStatementNode`.
-- [ ] Implement `pp_code_generator_generate_break`:
+- [x] `src/pp_code_generator.c`: Add loop context struct with `continue_bb` and `exit_bb`.
+- [x] `pp_code_generator_generate_statement` switch: add cases for `PP_AST_BreakStatementNode` and `PP_AST_ContinueStatementNode`.
+- [x] Implement `pp_code_generator_generate_break`:
   - fetch current loop context
   - emit `LLVMBuildBr` to `exit_bb`
   - set debug location if `cg->debug`
-- [ ] Implement `pp_code_generator_generate_continue`:
+- [x] Implement `pp_code_generator_generate_continue`:
   - fetch current loop context
   - emit `LLVMBuildBr` to `continue_bb`
   - set debug location if `cg->debug`
-- [ ] `pp_code_generator_generate_while_statement`:
+- [x] `pp_code_generator_generate_while_statement`:
   - push loop context {continue = cond_bb, exit = end_bb} before body generation
   - pop after body
-- [ ] `pp_code_generator_generate_for_statement`:
+- [x] `pp_code_generator_generate_for_statement`:
   - push loop context with correct continue target (update/cond) and exit target
   - pop after body
-- [ ] Verify unified exit path `e571808` still works with new branches.
-- [ ] Verify debug info emission for break/continue with `-g` builds.
+- [x] Verify unified exit path `e571808` still works with new branches.
+- [x] Verify debug info emission for break/continue with `-g` builds.
 
 ## 6. Testing
 - [ ] `tests/`: Add parser tests for `while`, `for` with break/continue.
@@ -79,8 +79,8 @@ Related recent work: unified exit path e571808, code gen hardening 30f1867, sema
 - AST: [x]
 - Parser: [x]
 - Semantic: [x]
+- Codegen: [x]
 - Tests: [x]
-- Codegen: [ ]
 - Tests: [ ]
 - Docs: [ ]
 

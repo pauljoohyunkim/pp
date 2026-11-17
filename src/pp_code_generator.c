@@ -36,80 +36,43 @@ typedef enum {
     PP_DW_ATE_HI_USER = 0xff,
 } PP_DWARF_BaseTypeEncoding;
 
-static LLVMValueRef pp_code_generator_entry_alloca(PP_CodeGenerator* cg, LLVMTypeRef type, const char* name);
-static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const PPType* t);
-static void pp_code_generator_debug_set_location(PP_CodeGenerator* cg, const PP_SourceLoc* loc);
 static PP_Environment_Backend* pp_environment_backend_enter_scope(const PP_Environment_Backend* current_env_b);
-static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                      PP_Environment_Backend* env_b, const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                 PP_Environment_Backend* env_b,
-                                                                 const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_lvalue_struct_member_access(PP_CodeGenerator* cg,
-                                                                           PPSymbolTable* symbol_table,
-                                                                           PP_Environment_Backend* env_b,
-                                                                           const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type, LLVMValueRef lvalue);
-static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                    PP_Environment_Backend* env_b,
-                                                                    const PP_AST_Node* node);
-
-static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeGenerator* cg,
-                                                                        PPSymbolTable* symbol_table,
-                                                                        PP_Environment_Backend* env_b,
-                                                                        const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                      PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static void pp_code_generator_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block);
-
-static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                             PP_Environment_Backend* env_b, const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                            PP_Environment_Backend* env_b, const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                           PP_Environment_Backend* env_b, const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_null_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                   PP_Environment_Backend* env_b,
-                                                                   const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                  PP_Environment_Backend* env_b,
-                                                                  const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                      PP_Environment_Backend* env_b,
-                                                                      const PP_AST_Node* node);
-
-static PP_TypeCacheEntry* pp_code_generator_find_cache_entry(PP_CodeGenerator* cg, const PPType* type);
-static PP_TypeCacheEntry* pp_code_generator_get_or_create_cache_entry(PP_CodeGenerator* cg, const PPType* type);
-static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_TypeCacheEntry* entry);
-static LLVMValueRef pp_code_generator_ensure_drop_fn(PP_CodeGenerator* cg, PP_TypeCacheEntry* entry);
+static void pp_code_generator_emit_memcpy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, LLVMValueRef size,
+                                          const char* name);
+static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type);
+static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, const PPType* type);
+static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg);
+static void pp_code_generator_push_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type);
+static int pp_environment_backend_push_val_map(PP_Environment_Backend* env_b, const PPSymbol* symbol,
+                                               LLVMValueRef llvmval);
+static int pp_environment_backend_push_type_map(PP_Environment_Backend* env_b, const PPType* type,
+                                                LLVMTypeRef llvmtype);
+static const LLVMValueRef pp_environment_backend_lookup_val(const PP_Environment_Backend* env_b, const PPSymbol* symbol,
+                                                            bool cascade);
+static const LLVMTypeRef pp_environment_backend_lookup_type(const PP_CodeGenerator* cg, const PPType* type);
+static void pp_debug_print_type_inner(const PPType* t);
+static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* type);
+static void pp_code_generator_debug_set_location(PP_CodeGenerator* cg, const PP_SourceLoc* loc);
+static int pp_code_generator_push_loop_context(PP_CodeGenerator* cg, LLVMBasicBlockRef continue_bb,
+                                               LLVMBasicBlockRef exit_bb);
+static void pp_code_generator_pop_loop_context(PP_CodeGenerator* cg);
+static PP_LoopContext* pp_code_generator_get_current_loop_context(PP_CodeGenerator* cg);
+static int pp_code_generator_generate_break(PP_CodeGenerator* cg, const PP_AST_Node* node);
+static int pp_code_generator_generate_continue(PP_CodeGenerator* cg, const PP_AST_Node* node);
+static LLVMMetadataRef pp_code_generator_di_basic_type(PP_CodeGenerator* cg, const char* name, uint64_t size_in_bits,
+                                                       LLVMDWARFTypeEncoding encoding);
+static LLVMMetadataRef pp_code_generator_di_void_type(PP_CodeGenerator* cg);
+static void pp_code_generator_di_function_signature(const PPType* func_type, const PPType** out_return_type,
+                                                    const PPType*** out_param_types, size_t* out_param_count);
+static LLVMMetadataRef pp_code_generator_di_subroutine_type(PP_CodeGenerator* cg, const PPType* func_type);
+static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const PPType* t);
+static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenerator* cg);
+static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg);
 static uint64_t pp_code_generator_type_store_size(PP_CodeGenerator* cg, LLVMTypeRef type);
-static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type);
-static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type);
-static LLVMBasicBlockRef pp_code_generator_save_builder_insert_block(PP_CodeGenerator* cg);
-static void pp_code_generator_restore_builder_insert_block(PP_CodeGenerator* cg, LLVMBasicBlockRef block);
-static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_CodeGenerator* cg,
-                                                                           PPSymbolTable* symbol_table,
-                                                                           PP_Environment_Backend* env_b,
-                                                                           const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                    PP_Environment_Backend* env_b,
-                                                                    const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                 PP_Environment_Backend* env_b,
-                                                                 const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeGenerator* cg,
-                                                                        PPSymbolTable* symbol_table,
-                                                                        PP_Environment_Backend* env_b,
-                                                                        const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_list_push(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                PP_Environment_Backend* env_b, const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_list_pop(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                               PP_Environment_Backend* env_b, const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_list_clear(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
-                                                                 PP_Environment_Backend* env_b,
-                                                                 const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_entry_alloca(PP_CodeGenerator* cg, LLVMTypeRef type, const char* name);
+static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* output_filename,
+                                           LLVMMemoryBufferRef* out_buf, int to_assembly, LLVMTargetMachineRef tm_in);
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -133,8 +96,74 @@ static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* 
                                            PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                   PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
-
-static const LLVMTypeRef pp_environment_backend_lookup_type(const PP_CodeGenerator* cg, const PPType* type);
+static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeGenerator* cg,
+                                                                        PPSymbolTable* symbol_table,
+                                                                        PP_Environment_Backend* env_b,
+                                                                        const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeGenerator* cg,
+                                                                        PPSymbolTable* symbol_table,
+                                                                        PP_Environment_Backend* env_b,
+                                                                        const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                      PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type, LLVMValueRef lvalue);
+static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                 PP_Environment_Backend* env_b,
+                                                                 const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_lvalue_struct_member_access(PP_CodeGenerator* cg,
+                                                                           PPSymbolTable* symbol_table,
+                                                                           PP_Environment_Backend* env_b,
+                                                                           const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                    PP_Environment_Backend* env_b,
+                                                                    const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                      PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                             PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                            PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                           PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static ssize_t pp_codegen_unescape_lexeme_to_buf(const char* lexeme, unsigned char* buf, size_t bufsize);
+static LLVMValueRef pp_codegen_static_string_literal_to_llvm_constant(LLVMContextRef ctx, const char* lexeme);
+static LLVMValueRef pp_codegen_string_literal_to_llvm_value(PP_CodeGenerator* cg, const char* lexeme);
+static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_null_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                   PP_Environment_Backend* env_b,
+                                                                   const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                  PP_Environment_Backend* env_b,
+                                                                  const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                      PP_Environment_Backend* env_b,
+                                                                      const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_CodeGenerator* cg,
+                                                                           PPSymbolTable* symbol_table,
+                                                                           PP_Environment_Backend* env_b,
+                                                                           const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                    PP_Environment_Backend* env_b,
+                                                                    const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                 PP_Environment_Backend* env_b,
+                                                                 const PP_AST_Node* node);
+static PP_TypeCacheEntry* pp_code_generator_find_cache_entry(PP_CodeGenerator* cg, const PPType* type);
+static PP_TypeCacheEntry* pp_code_generator_get_or_create_cache_entry(PP_CodeGenerator* cg, const PPType* type);
+static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type);
+static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type);
+static LLVMBasicBlockRef pp_code_generator_save_builder_insert_block(PP_CodeGenerator* cg);
+static void pp_code_generator_restore_builder_insert_block(PP_CodeGenerator* cg, LLVMBasicBlockRef block);
+static LLVMValueRef pp_code_generator_ensure_copy_fn(PP_CodeGenerator* cg, PP_TypeCacheEntry* entry);
+static LLVMValueRef pp_code_generator_ensure_drop_fn(PP_CodeGenerator* cg, PP_TypeCacheEntry* entry);
+static LLVMValueRef pp_code_generator_generate_rvalue_list_push(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_list_pop(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                               PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_list_clear(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
+                                                                 PP_Environment_Backend* env_b,
+                                                                 const PP_AST_Node* node);
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
@@ -973,6 +1002,7 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         free(cg->drop_stack_types);
         free(cg->type_cache);
         free(cg->di_type_cache);
+        free(cg->loop_context_stack);
     }
     free(cg);
     LLVMShutdown();
@@ -984,6 +1014,72 @@ static void pp_code_generator_debug_set_location(PP_CodeGenerator* cg, const PP_
     unsigned int col = loc->column;
     LLVMMetadataRef dwarf_loc = LLVMDIBuilderCreateDebugLocation(cg->ctx, line, col, cg->di_current_scope, NULL);
     if (dwarf_loc) { LLVMSetCurrentDebugLocation2(cg->builder, dwarf_loc); }
+}
+
+/* Loop context stack helpers for break/continue */
+static int pp_code_generator_push_loop_context(PP_CodeGenerator* cg, LLVMBasicBlockRef continue_bb,
+                                               LLVMBasicBlockRef exit_bb) {
+    PP_LoopContext* new_stack = NULL;
+    size_t new_capacity = 0;
+    NULL_POINTER_ERROR_HANDLE(cg);
+
+    if (cg->loop_context_count >= cg->loop_context_capacity) {
+        new_capacity = cg->loop_context_capacity ? cg->loop_context_capacity * 2 : 4;
+        new_stack = (PP_LoopContext*)realloc(cg->loop_context_stack, new_capacity * sizeof(PP_LoopContext));
+        NULL_POINTER_ERROR_HANDLE(new_stack);
+        cg->loop_context_stack = new_stack;
+        cg->loop_context_capacity = new_capacity;
+        /* Ownership moved into cg; clear so error_cleanup cannot free it. */
+        new_stack = NULL;
+    }
+
+    cg->loop_context_stack[cg->loop_context_count].continue_bb = continue_bb;
+    cg->loop_context_stack[cg->loop_context_count].exit_bb = exit_bb;
+    cg->loop_context_count++;
+
+    return 1;
+
+error_cleanup:
+    /* On realloc failure the original buffer stays owned by cg. */
+    free(new_stack);
+    return 0;
+}
+
+static void pp_code_generator_pop_loop_context(PP_CodeGenerator* cg) {
+    if (cg->loop_context_count > 0) { cg->loop_context_count--; }
+}
+
+static PP_LoopContext* pp_code_generator_get_current_loop_context(PP_CodeGenerator* cg) {
+    if (cg->loop_context_count == 0) return NULL;
+    return &cg->loop_context_stack[cg->loop_context_count - 1];
+}
+
+static int pp_code_generator_generate_break(PP_CodeGenerator* cg, const PP_AST_Node* node) {
+    PP_LoopContext* loop_ctx = NULL;
+    assert(cg);
+    assert(node);
+    assert(node->node_type == PP_AST_BreakStatementNode);
+
+    loop_ctx = pp_code_generator_get_current_loop_context(cg);
+    if (!loop_ctx) return 0; /* Should have been caught in semantic analysis */
+
+    if (cg->debug) pp_code_generator_debug_set_location(cg, &node->loc);
+    LLVMBuildBr(cg->builder, loop_ctx->exit_bb);
+    return 1;
+}
+
+static int pp_code_generator_generate_continue(PP_CodeGenerator* cg, const PP_AST_Node* node) {
+    PP_LoopContext* loop_ctx = NULL;
+    assert(cg);
+    assert(node);
+    assert(node->node_type == PP_AST_ContinueStatementNode);
+
+    loop_ctx = pp_code_generator_get_current_loop_context(cg);
+    if (!loop_ctx) return 0; /* Should have been caught in semantic analysis */
+
+    if (cg->debug) pp_code_generator_debug_set_location(cg, &node->loc);
+    LLVMBuildBr(cg->builder, loop_ctx->continue_bb);
+    return 1;
 }
 
 static LLVMMetadataRef pp_code_generator_di_basic_type(PP_CodeGenerator* cg, const char* name, uint64_t size_in_bits,
@@ -1295,26 +1391,23 @@ static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg) {
             case PP_TK_Operator: {
                 bool is_lambda = type->kind == PP_TK_Lambda;
                 bool is_operator = type->kind == PP_TK_Operator;
-                const PPType* return_type =
-                    is_lambda ? type->type.pp_type_lambda.return_type :
-                    is_operator ? type->type.pp_type_operator.return_type :
-                                  type->type.pp_type_function.return_type;
+                const PPType* return_type = is_lambda     ? type->type.pp_type_lambda.return_type
+                                            : is_operator ? type->type.pp_type_operator.return_type
+                                                          : type->type.pp_type_function.return_type;
                 assert(return_type);
                 LLVMTypeRef llvm_return_type = pp_environment_backend_lookup_type(cg, return_type);
 
-                size_t param_count =
-                    is_lambda ? type->type.pp_type_lambda.param_count :
-                    is_operator ? type->type.pp_type_operator.param_count :
-                                  type->type.pp_type_function.param_count;
+                size_t param_count = is_lambda     ? type->type.pp_type_lambda.param_count
+                                     : is_operator ? type->type.pp_type_operator.param_count
+                                                   : type->type.pp_type_function.param_count;
                 if (param_count > 0) {
                     llvm_types = (LLVMTypeRef*)calloc(param_count, sizeof(LLVMTypeRef));
                     NULL_POINTER_ERROR_HANDLE(llvm_types);
 
                     for (size_t j = 0; j < param_count; j++) {
-                        const PPType* param_type =
-                            is_lambda ? type->type.pp_type_lambda.param_types[j] :
-                            is_operator ? type->type.pp_type_operator.param_types[j] :
-                                          type->type.pp_type_function.param_types[j];
+                        const PPType* param_type = is_lambda     ? type->type.pp_type_lambda.param_types[j]
+                                                   : is_operator ? type->type.pp_type_operator.param_types[j]
+                                                                 : type->type.pp_type_function.param_types[j];
                         assert(param_type);
 
                         LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
@@ -1436,7 +1529,8 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
     //     const PP_AST_Node* stmt = cg->program->program.decls[i];
     //     assert(stmt);
     //
-    //     if (stmt->node_type != PP_AST_FunctionCallNode && stmt->node_type != PP_AST_CallableDeclarationNode) continue;
+    //     if (stmt->node_type != PP_AST_FunctionCallNode && stmt->node_type != PP_AST_CallableDeclarationNode)
+    //     continue;
     //
     //     const char* func_name = stmt->callable_declaration.name;
     //     assert(func_name);
@@ -1590,9 +1684,9 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
     NULL_POINTER_ERROR_HANDLE(body_env_b);
 
     // Fill environment with parameters by getting parameter's value ref and registering to backend.
-    size_t param_count = is_lambda ? func_symbol->type->type.pp_type_lambda.param_count :
-                         is_operator ? func_symbol->type->type.pp_type_operator.param_count :
-                                       func_symbol->type->type.pp_type_function.param_count;
+    size_t param_count = is_lambda     ? func_symbol->type->type.pp_type_lambda.param_count
+                         : is_operator ? func_symbol->type->type.pp_type_operator.param_count
+                                       : func_symbol->type->type.pp_type_function.param_count;
     for (size_t i = 0; i < param_count; i++) {
         LLVMValueRef llvm_param_val = LLVMGetParam(llvm_func, i);
         assert(llvm_param_val);
@@ -1695,6 +1789,12 @@ static int pp_code_generator_generate_statement(PP_CodeGenerator* cg, PPSymbolTa
             break;
         case PP_AST_IfStatementNode:
             if (!pp_code_generator_generate_if_statement(cg, symbol_table, env_b, node)) return 0;
+            break;
+        case PP_AST_BreakStatementNode:
+            if (!pp_code_generator_generate_break(cg, node)) return 0;
+            break;
+        case PP_AST_ContinueStatementNode:
+            if (!pp_code_generator_generate_continue(cg, node)) return 0;
             break;
         case PP_AST_ForStatementNode:
             if (!pp_code_generator_generate_for_statement(cg, symbol_table, env_b, node)) return 0;
@@ -1994,11 +2094,10 @@ static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPS
 
     bool is_lambda = cg->current_function_type->kind == PP_TK_Lambda;
     bool is_operator = cg->current_function_type->kind == PP_TK_Operator;
-    const PPType* current_function_return_type = is_lambda
-                                                     ? cg->current_function_type->type.pp_type_lambda.return_type
-                                                     : is_operator
-                                                       ? cg->current_function_type->type.pp_type_operator.return_type
-                                                       : cg->current_function_type->type.pp_type_function.return_type;
+    const PPType* current_function_return_type = is_lambda ? cg->current_function_type->type.pp_type_lambda.return_type
+                                                 : is_operator
+                                                     ? cg->current_function_type->type.pp_type_operator.return_type
+                                                     : cg->current_function_type->type.pp_type_function.return_type;
     assert(current_function_return_type);
 
     if (current_function_return_type->kind == PP_TK_Void) {
@@ -2113,11 +2212,14 @@ static int pp_code_generator_generate_if_statement(PP_CodeGenerator* cg, PPSymbo
 static int pp_code_generator_generate_for_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                     PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
     PP_Environment_Backend* inner_env_b = NULL;
+    size_t loop_context_mark = 0;
     assert(cg);
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
     assert(stmt->node_type == PP_AST_ForStatementNode);
+
+    loop_context_mark = cg->loop_context_count;
 
     LLVMValueRef llvm_cur_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder));
     assert(llvm_cur_func);
@@ -2160,16 +2262,22 @@ static int pp_code_generator_generate_for_statement(PP_CodeGenerator* cg, PPSymb
     // Branching: if (cond) (llvm_body_block) else (llvm_end_block)
     LLVMBuildCondBr(cg->builder, llvm_cond_val, llvm_body_block, llvm_end_block);
 
+    // Push loop context: continue -> step_block (or cond_block if no step), break -> end_block
+    LLVMBasicBlockRef continue_target = stmt->for_statement.update ? llvm_step_block : llvm_cond_block;
+    if (!pp_code_generator_push_loop_context(cg, continue_target, llvm_end_block)) { goto error_cleanup; }
+
     // Body
     LLVMPositionBuilderAtEnd(cg->builder, llvm_body_block);
     if (pp_code_generator_generate_statement(cg, stmt->for_statement.for_init_symbol_table, inner_env_b,
                                              stmt->for_statement.body) != 1) {
-        abort();
+        goto error_cleanup;
     }
     // Check return in body
     if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cg->builder)) == NULL) {
         LLVMBuildBr(cg->builder, llvm_step_block);
     }
+
+    pp_code_generator_pop_loop_context(cg);
 
     // Step
     LLVMPositionBuilderAtEnd(cg->builder, llvm_step_block);
@@ -2187,15 +2295,23 @@ static int pp_code_generator_generate_for_statement(PP_CodeGenerator* cg, PPSymb
 
     pp_environment_backend_free(inner_env_b);
     return 1;
+
+error_cleanup:
+    cg->loop_context_count = loop_context_mark;
+    pp_environment_backend_free(inner_env_b);
+    return 0;
 }
 
 static int pp_code_generator_generate_while_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* stmt) {
+    size_t loop_context_mark = 0;
     assert(cg);
     assert(symbol_table);
     assert(env_b);
     assert(stmt);
     assert(stmt->node_type == PP_AST_WhileStatementNode);
+
+    loop_context_mark = cg->loop_context_count;
 
     LLVMValueRef llvm_cur_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(cg->builder));
 
@@ -2215,9 +2331,16 @@ static int pp_code_generator_generate_while_statement(PP_CodeGenerator* cg, PPSy
     // If condition is true, go to body again.
     LLVMBuildCondBr(cg->builder, llvm_cond_val, llvm_body_block, llvm_end_block);
 
+    // Push loop context: continue -> cond_block, break -> end_block
+    if (!pp_code_generator_push_loop_context(cg, llvm_cond_block, llvm_end_block)) { goto error_cleanup; }
+
     // Go to body and write instructions
     LLVMPositionBuilderAtEnd(cg->builder, llvm_body_block);
-    if (pp_code_generator_generate_statement(cg, symbol_table, env_b, stmt->while_statement.body) != 1) { return 0; }
+    if (pp_code_generator_generate_statement(cg, symbol_table, env_b, stmt->while_statement.body) != 1) {
+        goto error_cleanup;
+    }
+
+    pp_code_generator_pop_loop_context(cg);
 
     // If there was no return, go back to condition block.
     if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(cg->builder)) == NULL) {
@@ -2227,6 +2350,10 @@ static int pp_code_generator_generate_while_statement(PP_CodeGenerator* cg, PPSy
     LLVMPositionBuilderAtEnd(cg->builder, llvm_end_block);
 
     return 1;
+
+error_cleanup:
+    cg->loop_context_count = loop_context_mark;
+    return 0;
 }
 
 static int pp_code_generator_generate_block_statement(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -2654,9 +2781,9 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
     LLVMTypeRef llvm_callee_func_type = pp_environment_backend_lookup_type(cg, callee_decoration->resolved_type);
     assert(llvm_callee_func_type);
 
-    size_t param_count = is_lambda ? callee_decoration->resolved_type->type.pp_type_lambda.param_count :
-                         is_operator ? callee_decoration->resolved_type->type.pp_type_operator.param_count :
-                                       callee_decoration->resolved_type->type.pp_type_function.param_count;
+    size_t param_count = is_lambda     ? callee_decoration->resolved_type->type.pp_type_lambda.param_count
+                         : is_operator ? callee_decoration->resolved_type->type.pp_type_operator.param_count
+                                       : callee_decoration->resolved_type->type.pp_type_function.param_count;
     LLVMValueRef* ref_temp_addrs = NULL;
     const PPType** ref_temp_types = NULL;
     LLVMValueRef* owning_temp_addrs = NULL;
@@ -2675,11 +2802,10 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
         NULL_POINTER_ERROR_HANDLE(owning_temp_types);
 
         for (unsigned int i = 0; i < param_count; i++) {
-            const PPType* param_type = is_lambda
-                                           ? callee_decoration->resolved_type->type.pp_type_lambda.param_types[i]
-                                           : is_operator
-                                             ? callee_decoration->resolved_type->type.pp_type_operator.param_types[i]
-                                             : callee_decoration->resolved_type->type.pp_type_function.param_types[i];
+            const PPType* param_type = is_lambda ? callee_decoration->resolved_type->type.pp_type_lambda.param_types[i]
+                                       : is_operator
+                                           ? callee_decoration->resolved_type->type.pp_type_operator.param_types[i]
+                                           : callee_decoration->resolved_type->type.pp_type_function.param_types[i];
             assert(param_type);
 
             if (pp_type_is_reference(param_type)) {
