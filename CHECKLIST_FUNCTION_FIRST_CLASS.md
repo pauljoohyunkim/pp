@@ -117,22 +117,19 @@ No captures, no closures: a function value is a code pointer only. No null funct
 
 ---
 
-## Phase 1 — AST
+## Phase 1 — AST  — DONE
 
-- [ ] Add `PP_AST_TypeCallableNode` to `PP_AST_NodeType` in `include/pp_ast.h`.
-- [ ] Add union payload:
-      ```c
-      struct {
-          PP_AST_CallableKind kind;   /* PP_CK_Function or PP_CK_Lambda */
-          PP_AST_Node** param_types;
-          unsigned int param_count;
-          unsigned int param_capacity;
-          PP_AST_Node* return_type;
-      } type_callable;
-      ```
-- [ ] Add free logic in `pp_ast_root_free_internal` (`src/pp_ast.c`): free each param type and the return type.
-- [ ] Add print logic in `pp_ast_root_print` (`src/pp_ast.c`).
-- [ ] Check `pp_ast_get_decoration` and any node-type switches that must ignore this node type.
+- [x] Add `PP_AST_TypeCallableNode` to `PP_AST_NodeType` in `include/pp_ast.h` (inserted after
+      `PP_AST_TypePointerNode`).
+- [x] Add union payload `type_callable` (`kind`, `param_types`, `param_count`, `param_capacity`, `return_type`).
+      Reused the existing `PP_AST_CallableKind` enum (`PP_CK_Function` / `PP_CK_Lambda`); no new enum needed.
+- [x] Add free logic in `pp_ast_root_free_internal` (`src/pp_ast.c`): frees each param type node, the param array,
+      and the return type.
+- [x] Add print logic in `pp_ast_root_print` (`src/pp_ast.c`): prints `TypeCallable func|lambda|operator`, then each
+      parameter type, then the return type.
+- [x] `pp_ast_get_decoration` has a `default: return NULL` arm, so it already ignores type nodes. No other
+      node-type switch is exhaustive over type nodes (type nodes are only consumed by `pp_type_from_type_node`,
+      which matches inner nodes explicitly). No further changes needed.
 
 ---
 
