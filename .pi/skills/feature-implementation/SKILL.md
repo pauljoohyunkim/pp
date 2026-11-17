@@ -1,3 +1,8 @@
+---
+name: feature-implementation
+description: Reproducible workflow for implementing language/compiler features in PP.
+---
+
 # Feature Implementation Skill
 
 This skill provides a reproducible workflow for implementing language/compiler features in PP.

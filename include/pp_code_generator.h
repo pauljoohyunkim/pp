@@ -22,6 +22,11 @@ extern "C" {
 typedef struct PP_Environment_Backend PP_Environment_Backend;
 
 typedef struct {
+    LLVMBasicBlockRef continue_bb;
+    LLVMBasicBlockRef exit_bb;
+} PP_LoopContext;
+
+typedef struct {
     const PPSymbol* symbol;
     LLVMValueRef ref;
 } PP_Symbol_To_LLVMValueRef;
@@ -94,6 +99,11 @@ typedef struct {
     LLVMMetadataRef di_compile_unit;
     LLVMMetadataRef di_file;
     LLVMMetadataRef di_current_scope;
+
+    /* Loop context stack for break/continue */
+    PP_LoopContext* loop_context_stack;
+    size_t loop_context_count;
+    size_t loop_context_capacity;
 } PP_CodeGenerator;
 
 /**

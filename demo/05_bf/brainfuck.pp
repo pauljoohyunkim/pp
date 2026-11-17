@@ -1,4 +1,3 @@
-
 func readBFCode :: (ctx :: BFContext&) -> void {
     let c :: int32 = pp_std_input_char();
     while (c >= 0) {
@@ -28,7 +27,6 @@ func runBFCode :: (ctx :: BFContext&) -> void {
             if (ctx.mem_idx >= #ctx.memory as uint32) {
                 list_push(ctx.memory, 0uss);
             }
-            ctx.code_idx += 1u;
         } else if (cur == LESS) {
             // <
             if (ctx.mem_idx == 0u) {
@@ -36,19 +34,15 @@ func runBFCode :: (ctx :: BFContext&) -> void {
                 pp_std_abort();
             }
             ctx.mem_idx -= 1u;
-            ctx.code_idx += 1u;
         } else if (cur == PLUS) {
             // +
             ctx.memory[ctx.mem_idx as uint32] += 1uss;
-            ctx.code_idx += 1u;
         } else if (cur == MINUS) {
             // -
             ctx.memory[ctx.mem_idx as uint32] -= 1uss;
-            ctx.code_idx += 1u;
         } else if (cur == PERIOD) {
             // .
             pp_std_print_char(ctx.memory[ctx.mem_idx as uint32]);
-            ctx.code_idx += 1u;
         } else if (cur == COMMA) {
             let c :: const int32 = pp_std_input_char();
             if (c < 0) {
@@ -57,7 +51,6 @@ func runBFCode :: (ctx :: BFContext&) -> void {
                 let ch :: const uint8 = c as uint8;
                 ctx.memory[ctx.mem_idx as uint32] = ch;
             }
-            ctx.code_idx += 1u;
         } else if (cur == LEFT_SQUARE_BRACKET) {
             if (ctx.memory[ctx.mem_idx as uint32] == 0uss) {
                 // skip forward to matching ]
@@ -73,9 +66,9 @@ func runBFCode :: (ctx :: BFContext&) -> void {
                 }
                 // move past the matching ']'
                 ctx.code_idx += 1u;
+                continue;
             } else {
                 list_push(ctx.return_stack, ctx.code_idx);
-                ctx.code_idx += 1u;
             }
         } else if (cur == RIGHT_SQUARE_BRACKET) {
             if (ctx.memory[ctx.mem_idx as uint32] != 0uss) {
@@ -86,16 +79,16 @@ func runBFCode :: (ctx :: BFContext&) -> void {
                     let idx :: const uint32 = list_pop(ctx.return_stack);
                     ctx.code_idx = idx;
                     // next iteration will re-evaluate '['
+                    continue;
                 }
             } else {
                 // pop matching '['
                 if (#ctx.return_stack > 0u) {
                     list_pop(ctx.return_stack);
                 }
-                ctx.code_idx += 1u;
             }
-        } else {
-            ctx.code_idx += 1u;
         }
+        // Common increment for all non-jump instructions
+        ctx.code_idx += 1u;
     }
 }

@@ -1,6 +1,6 @@
 ---
 name: compile-partial-step
- description: Deploy a temporary testing harness for lexer → parser → semantic analyzer → codegen by creating a small driver in /tmp/ and linking against PP libraries. Use when STOP_AT_* builds are no longer applicable.
+description: Deploy a temporary testing harness for lexer → parser → semantic analyzer → codegen by creating a small driver in /tmp/ and linking against PP libraries. Use when STOP_AT_* builds are no longer applicable.
 ---
 
 # Compile Partial Step – Temporary Harness

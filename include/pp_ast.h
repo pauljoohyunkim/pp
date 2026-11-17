@@ -21,6 +21,12 @@ typedef struct PP_AST_Node PP_AST_Node;
 
 typedef enum { PP_VALUE_CATEGORY_LVALUE, PP_VALUE_CATEGORY_RVALUE } PP_ValueCategory;
 
+typedef enum {
+    PP_CK_Function,
+    PP_CK_Lambda,
+    PP_CK_Operator
+} PP_AST_CallableKind;
+
 typedef struct {
     const PPType* resolved_type;
     PP_ValueCategory value_category;
@@ -56,12 +62,8 @@ typedef enum {
     PP_AST_TypePointerNode,
     PP_AST_TypedefDeclarationNode,
     PP_AST_NewtypeDeclarationNode,
-    PP_AST_FunctionDeclarationNode,
-    PP_AST_LambdaDeclarationNode,
-    PP_AST_OperatorDeclarationNode,
-    PP_AST_ExternFunctionDeclarationNode,
-    PP_AST_ExternLambdaDeclarationNode,
-    PP_AST_ExternOperatorDeclarationNode,
+    PP_AST_CallableDeclarationNode,
+    PP_AST_ExternCallableDeclarationNode,
     PP_AST_StatementListNode,
     PP_AST_BinaryExpressionNode,
     PP_AST_UnaryExpressionNode,
@@ -77,7 +79,9 @@ typedef enum {
     PP_AST_CollectionInitializerNode,
     PP_AST_ListPushNode,
     PP_AST_ListPopNode,
-    PP_AST_ListClearNode
+    PP_AST_ListClearNode,
+    PP_AST_BreakStatementNode,
+    PP_AST_ContinueStatementNode
 } PP_AST_NodeType;
 
 typedef enum {
@@ -186,7 +190,7 @@ struct PP_AST_Node {
             const char* identifier;
         } newtype_declaration;
 
-        struct { /* FunctionDeclaration */
+        struct { /* CallableDeclaration */
             const char* name;
             PP_AST_Node** params; /* ParamDeclaration nodes */
             unsigned int param_count;
@@ -194,23 +198,17 @@ struct PP_AST_Node {
             PPSymbolTable* param_symbol_table;
             PP_AST_Node* return_type;
             PP_AST_Node* body; /* StatementList */
-        } function_declaration;
+            PP_AST_CallableKind kind;
+        } callable_declaration;
 
-        struct { /* ExternFunctionDeclaration */
+        struct { /* ExternCallableDeclaration */
             const char* name;
             PP_AST_Node** params; /* ParamDeclaration nodes */
             unsigned int param_count;
             unsigned int param_capacity;
             PP_AST_Node* return_type;
-        } extern_function_declaration;
-
-        struct { /* ExternLambdaDeclaration */
-            const char* name;
-            PP_AST_Node** params; /* ParamDeclaration nodes */
-            unsigned int param_count;
-            unsigned int param_capacity;
-            PP_AST_Node* return_type;
-        } extern_lambda_declaration;
+            PP_AST_CallableKind kind;
+        } extern_callable_declaration;
 
         struct { /* StatementList */
             PP_AST_Node** stmts;
@@ -312,6 +310,12 @@ struct PP_AST_Node {
             PP_AST_Node* list;
             PP_AST_Decoration* decoration;
         } list_clear;
+
+        struct { /* BreakStatement */
+        } break_statement;
+
+        struct { /* ContinueStatement */
+        } continue_statement;
     };
 };
 

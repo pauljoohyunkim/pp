@@ -1427,3 +1427,98 @@ TEST(SemanticTest, ListPushConstRefList) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, OperatorBinaryBuiltinRedefinitionRejected) {
+    const char* source =
+        "operator + :: (x :: const int32&, y :: const int32&) -> int32 { return 99; }\n"
+        "func main :: () -> int32 { return 1 + 2; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, OperatorUnaryBuiltinRedefinitionRejected) {
+    const char* source =
+        "operator - :: (x :: const int32&) -> int32 { return 100 - x; }\n"
+        "func main :: () -> int32 { return -5; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, BreakOutsideLoop) {
+    const char* source =
+        "func main :: () -> int32 { break; return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ContinueOutsideLoop) {
+    const char* source =
+        "func main :: () -> int32 { continue; return 0; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, BreakInsideWhile) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let i :: int32 = 0;\n"
+        "    while (i < 10) {\n"
+        "        break;\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return i;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, ContinueInsideFor) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let i :: int32 = 0;\n"
+        "    for (; i < 10; i = i + 1) {\n"
+        "        continue;\n"
+        "    }\n"
+        "    return i;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, BreakInsideNestedLoops) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let i :: int32 = 0;\n"
+        "    while (i < 10) {\n"
+        "        let j :: int32 = 0;\n"
+        "        while (j < 10) {\n"
+        "            break;\n"
+        "        }\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return i;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+

@@ -45,6 +45,8 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_while_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_break_statement(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_continue_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_variable_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_variable_decl(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_param_decl(PP_Parser* parser);
@@ -717,6 +719,10 @@ static PP_AST_Node* pp_parser_create_statement(PP_Parser* parser) {
             return pp_parser_create_while_statement(parser);
         case PP_TT_FOR:
             return pp_parser_create_for_statement(parser);
+        case PP_TT_BREAK:
+            return pp_parser_create_break_statement(parser);
+        case PP_TT_CONTINUE:
+            return pp_parser_create_continue_statement(parser);
         case PP_TT_LET:
             return pp_parser_create_variable_declaration(parser);
         default: {
@@ -1041,6 +1047,60 @@ error_cleanup:
     return NULL;
 }
 
+static PP_AST_Node* pp_parser_create_break_statement(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_Token* break_tok = NULL;
+    PP_Token* semicolon = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    // break token
+    {
+        break_tok = pp_parser_consume_token(parser, PP_TT_BREAK);
+        NULL_POINTER_ERROR_HANDLE(break_tok);
+    }
+
+    // semicolon
+    {
+        semicolon = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semicolon);
+    }
+
+    node = pp_ast_node_create(PP_AST_BreakStatementNode, break_tok->loc);
+    NULL_POINTER_ERROR_HANDLE(node);
+
+    return node;
+error_cleanup:
+    pp_ast_root_free(node);
+    return NULL;
+}
+
+static PP_AST_Node* pp_parser_create_continue_statement(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_Token* continue_tok = NULL;
+    PP_Token* semicolon = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    // continue token
+    {
+        continue_tok = pp_parser_consume_token(parser, PP_TT_CONTINUE);
+        NULL_POINTER_ERROR_HANDLE(continue_tok);
+    }
+
+    // semicolon
+    {
+        semicolon = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semicolon);
+    }
+
+    node = pp_ast_node_create(PP_AST_ContinueStatementNode, continue_tok->loc);
+    NULL_POINTER_ERROR_HANDLE(node);
+
+    return node;
+error_cleanup:
+    pp_ast_root_free(node);
+    return NULL;
+}
+
 static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser) {
     PP_AST_Node* node = NULL;
     PP_AST_Node* cond = NULL;
@@ -1354,17 +1414,18 @@ static PP_AST_Node* pp_parser_create_function_declaration(PP_Parser* parser) {
     }
     body = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(body);
-    node = pp_ast_node_create(PP_AST_FunctionDeclarationNode, func_tok->loc);
+    node = pp_ast_node_create(PP_AST_CallableDeclarationNode, func_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
-    node->function_declaration.name = name;
-    node->function_declaration.params = params;
+    node->callable_declaration.name = name;
+    node->callable_declaration.params = params;
     params = NULL;
-    node->function_declaration.param_count = param_count;
-    node->function_declaration.param_capacity = param_capacity;
-    node->function_declaration.return_type = return_type;
+    node->callable_declaration.param_count = param_count;
+    node->callable_declaration.param_capacity = param_capacity;
+    node->callable_declaration.return_type = return_type;
     return_type = NULL;
-    node->function_declaration.body = body;
+    node->callable_declaration.body = body;
     body = NULL;
+    node->callable_declaration.kind = PP_CK_Function;
     return node;
 error_cleanup:
     if (params) {
@@ -1395,17 +1456,18 @@ static PP_AST_Node* pp_parser_create_lambda_declaration(PP_Parser* parser) {
     }
     body = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(body);
-    node = pp_ast_node_create(PP_AST_LambdaDeclarationNode, lambda_tok->loc);
+    node = pp_ast_node_create(PP_AST_CallableDeclarationNode, lambda_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
-    node->function_declaration.name = name;
-    node->function_declaration.params = params;
+    node->callable_declaration.name = name;
+    node->callable_declaration.params = params;
     params = NULL;
-    node->function_declaration.param_count = param_count;
-    node->function_declaration.param_capacity = param_capacity;
-    node->function_declaration.return_type = return_type;
+    node->callable_declaration.param_count = param_count;
+    node->callable_declaration.param_capacity = param_capacity;
+    node->callable_declaration.return_type = return_type;
     return_type = NULL;
-    node->function_declaration.body = body;
+    node->callable_declaration.body = body;
     body = NULL;
+    node->callable_declaration.kind = PP_CK_Lambda;
     return node;
 error_cleanup:
     if (params) {
@@ -1488,17 +1550,18 @@ static PP_AST_Node* pp_parser_create_operator_declaration(PP_Parser* parser) {
     NULL_POINTER_ERROR_HANDLE(return_type);
     body = pp_parser_create_block(parser);
     NULL_POINTER_ERROR_HANDLE(body);
-    node = pp_ast_node_create(PP_AST_OperatorDeclarationNode, operator_tok->loc);
+    node = pp_ast_node_create(PP_AST_CallableDeclarationNode, operator_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
-    node->function_declaration.name = name;
-    node->function_declaration.params = params;
+    node->callable_declaration.name = name;
+    node->callable_declaration.params = params;
     params = NULL;
-    node->function_declaration.param_count = param_count;
-    node->function_declaration.param_capacity = param_capacity;
-    node->function_declaration.return_type = return_type;
+    node->callable_declaration.param_count = param_count;
+    node->callable_declaration.param_capacity = param_capacity;
+    node->callable_declaration.return_type = return_type;
     return_type = NULL;
-    node->function_declaration.body = body;
+    node->callable_declaration.body = body;
     body = NULL;
+    node->callable_declaration.kind = PP_CK_Operator;
     return node;
 error_cleanup:
     if (params) {
@@ -1530,15 +1593,16 @@ static PP_AST_Node* pp_parser_create_extern_function_declaration(PP_Parser* pars
         PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
         NULL_POINTER_ERROR_HANDLE(semi_tok);
     }
-    node = pp_ast_node_create(PP_AST_ExternFunctionDeclarationNode, func_tok->loc);
+    node = pp_ast_node_create(PP_AST_ExternCallableDeclarationNode, func_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
-    node->extern_function_declaration.name = name;
-    node->extern_function_declaration.params = params;
+    node->extern_callable_declaration.name = name;
+    node->extern_callable_declaration.params = params;
     params = NULL;
-    node->extern_function_declaration.param_count = param_count;
-    node->extern_function_declaration.param_capacity = param_capacity;
-    node->extern_function_declaration.return_type = return_type;
+    node->extern_callable_declaration.param_count = param_count;
+    node->extern_callable_declaration.param_capacity = param_capacity;
+    node->extern_callable_declaration.return_type = return_type;
     return_type = NULL;
+    node->extern_callable_declaration.kind = PP_CK_Function;
     return node;
 error_cleanup:
     if (params) {
@@ -1569,15 +1633,16 @@ static PP_AST_Node* pp_parser_create_extern_lambda_declaration(PP_Parser* parser
         PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
         NULL_POINTER_ERROR_HANDLE(semi_tok);
     }
-    node = pp_ast_node_create(PP_AST_ExternLambdaDeclarationNode, lambda_tok->loc);
+    node = pp_ast_node_create(PP_AST_ExternCallableDeclarationNode, lambda_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
-    node->extern_lambda_declaration.name = name;
-    node->extern_lambda_declaration.params = params;
+    node->extern_callable_declaration.name = name;
+    node->extern_callable_declaration.params = params;
     params = NULL;
-    node->extern_lambda_declaration.param_count = param_count;
-    node->extern_lambda_declaration.param_capacity = param_capacity;
-    node->extern_lambda_declaration.return_type = return_type;
+    node->extern_callable_declaration.param_count = param_count;
+    node->extern_callable_declaration.param_capacity = param_capacity;
+    node->extern_callable_declaration.return_type = return_type;
     return_type = NULL;
+    node->extern_callable_declaration.kind = PP_CK_Lambda;
     return node;
 error_cleanup:
     if (params) {
@@ -1636,15 +1701,16 @@ static PP_AST_Node* pp_parser_create_extern_operator_declaration(PP_Parser* pars
         PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
         NULL_POINTER_ERROR_HANDLE(semi_tok);
     }
-    node = pp_ast_node_create(PP_AST_ExternOperatorDeclarationNode, operator_tok->loc);
+    node = pp_ast_node_create(PP_AST_ExternCallableDeclarationNode, operator_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
-    node->extern_function_declaration.name = name;
-    node->extern_function_declaration.params = params;
+    node->extern_callable_declaration.name = name;
+    node->extern_callable_declaration.params = params;
     params = NULL;
-    node->extern_function_declaration.param_count = param_count;
-    node->extern_function_declaration.param_capacity = param_capacity;
-    node->extern_function_declaration.return_type = return_type;
+    node->extern_callable_declaration.param_count = param_count;
+    node->extern_callable_declaration.param_capacity = param_capacity;
+    node->extern_callable_declaration.return_type = return_type;
     return_type = NULL;
+    node->extern_callable_declaration.kind = PP_CK_Operator;
     return node;
 error_cleanup:
     if (params) {
