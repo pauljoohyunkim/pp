@@ -236,6 +236,7 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser, PP_StringPoo
     parser->error_list = NULL;
 
     sa->current_function_type = NULL;
+    sa->current_loop_depth = 0;
 
     gtt = pp_global_type_table_create();
     if (!gtt) {
@@ -2739,6 +2740,18 @@ static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, 
             /* Return Statement Checklist (based on cz_semantic_analyzer_check_return_statement) */
             if (!pp_semantic_analyzer_full_analyze_return_statement(sa, symbol_table, node)) { goto error_cleanup; }
             break;
+        case PP_AST_BreakStatementNode:
+            if (sa->current_loop_depth == 0) {
+                pp_error_list_push_error(sa->error_list, node->loc, "break statement outside of loop");
+                goto error_cleanup;
+            }
+            break;
+        case PP_AST_ContinueStatementNode:
+            if (sa->current_loop_depth == 0) {
+                pp_error_list_push_error(sa->error_list, node->loc, "continue statement outside of loop");
+                goto error_cleanup;
+            }
+            break;
         case PP_AST_IfStatementNode:
             /* If Statement Checklist (based on cz_semantic_analyzer_check_if_statement) */
             if (!pp_semantic_analyzer_full_analyze_if_statement(sa, symbol_table, node)) { goto error_cleanup; }
@@ -3370,10 +3383,12 @@ static int pp_semantic_analyzer_full_analyze_for_statement(PP_SemanticAnalyzer* 
     // Body
     assert(node->for_statement.body);
     assert(node->for_statement.body->node_type == PP_AST_StatementListNode);
+    sa->current_loop_depth++;
     if (!pp_semantic_analyzer_full_analyze_statement(sa, for_init_symbol_table, node->for_statement.body)) {
         pp_error_list_push_error(sa->error_list, node->loc, "Body for for statement is invalid");
         goto error_cleanup;
     }
+    sa->current_loop_depth--;
 
     // Link to AST node.
     node->for_statement.for_init_symbol_table = for_init_symbol_table;
@@ -3414,14 +3429,18 @@ static int pp_semantic_analyzer_full_analyze_while_statement(PP_SemanticAnalyzer
         goto error_cleanup;
     }
 
+    // Enter loop
+    sa->current_loop_depth++;
     // Then branch
     if (!pp_semantic_analyzer_full_analyze_statement(sa, symbol_table, node->while_statement.body)) {
         pp_error_list_push_error(sa->error_list, node->loc, "Body of while statement is invalid");
         goto error_cleanup;
     }
+    sa->current_loop_depth--;
 
     return 1;
 error_cleanup:
+    sa->current_loop_depth = 0;
     return 0;
 }
 

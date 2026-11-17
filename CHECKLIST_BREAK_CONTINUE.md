@@ -29,15 +29,16 @@ Related recent work: unified exit path e571808, code gen hardening 30f1867, sema
   - create `PP_AST_BreakStatementNode` with token loc
   - error handling + cleanup
 - [x] `src/pp_parser.c`: Create `pp_parser_create_continue_statement` analogous to break.
-- [ ] Add parser unit tests for simple break/continue statements.
+- [x] `tests/semantictest.cpp`: Add semantic tests for break/continue outside loops, inside while/for, nested loops.
+- [x] `src/pp_ast.c`: Update `pp_ast_root_print` for Break/Continue nodes.
 
 ## 4. Semantic Analyzer
-- [ ] `include/pp_semantic_analyzer.h`: Add loop context field to `PP_SemanticAnalyzer`, e.g. `int loop_depth` or `LoopContext* loop_stack`.
-- [ ] `src/pp_semantic_analyzer.c`: Update `pp_semantic_analyzer_full_analyze_statement` dispatcher for `PP_AST_BreakStatementNode` and `PP_AST_ContinueStatementNode`.
-- [ ] Validation: error if `loop_depth == 0` → "break outside of loop" / "continue outside of loop".
-- [ ] `pp_semantic_analyzer_full_analyze_while_statement`: push loop depth before analyzing body, pop after.
-- [ ] `pp_semantic_analyzer_full_analyze_for_statement`: push loop depth before analyzing body, pop after.
-- [ ] Ensure semantic analyzer migration for unified callable does not interfere.
+- [x] `include/pp_semantic_analyzer.h`: Add loop context field to `PP_SemanticAnalyzer`, e.g. `int loop_depth` or `LoopContext* loop_stack`.
+- [x] `src/pp_semantic_analyzer.c`: Update `pp_semantic_analyzer_full_analyze_statement` dispatcher for `PP_AST_BreakStatementNode` and `PP_AST_ContinueStatementNode`.
+- [x] Validation: error if `loop_depth == 0` → "break outside of loop" / "continue outside of loop".
+- [x] `pp_semantic_analyzer_full_analyze_while_statement`: push loop depth before analyzing body, pop after.
+- [x] `pp_semantic_analyzer_full_analyze_for_statement`: push loop depth before analyzing body, pop after.
+- [x] Ensure semantic analyzer migration for unified callable does not interfere.
 
 ## 5. Code Generation
 - [ ] `src/pp_code_generator.c`: Add loop context struct with `continue_bb` and `exit_bb`.
@@ -77,7 +78,8 @@ Related recent work: unified exit path e571808, code gen hardening 30f1867, sema
 - Lexer: [x]
 - AST: [x]
 - Parser: [x]
-- Semantic: [ ]
+- Semantic: [x]
+- Tests: [x]
 - Codegen: [ ]
 - Tests: [ ]
 - Docs: [ ]
