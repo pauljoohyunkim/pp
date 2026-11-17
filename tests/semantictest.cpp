@@ -1427,3 +1427,25 @@ TEST(SemanticTest, ListPushConstRefList) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+TEST(SemanticTest, OperatorBinaryBuiltinRedefinitionRejected) {
+    const char* source =
+        "operator + :: (x :: const int32&, y :: const int32&) -> int32 { return 99; }\n"
+        "func main :: () -> int32 { return 1 + 2; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, OperatorUnaryBuiltinRedefinitionRejected) {
+    const char* source =
+        "operator - :: (x :: const int32&) -> int32 { return 100 - x; }\n"
+        "func main :: () -> int32 { return -5; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+

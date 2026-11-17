@@ -24,6 +24,7 @@ This skill provides a reproducible workflow to verify that the PP compiler, its 
 ### 1. Fresh build
 ```bash
 cd /home/pbjk/Documents/Lab/pp
+make clean
 make -j
 make bin/unittest
 ```
@@ -37,7 +38,7 @@ Expected:
 definitely lost: 0 bytes in 0 blocks
 indirectly lost: 0 bytes in 0 blocks
 ```
-All 359 tests must pass.
+All tests must pass.
 
 ### 3. Discover demos
 ```bash
@@ -51,6 +52,7 @@ For each demo directory `d`:
 For each demo `d`:
 ```bash
 cd "$d"
+make clean  # To remove any stale binaries
 valgrind --leak-check=full ../../bin/pplang --ppi ../../lib/pp_std/extern/pp_io.ppi main.pp [demo sources] ../../lib/pp_std/bin/pp_std.a -o <binary>
 ```
 Check:
@@ -58,6 +60,7 @@ Check:
 in use at exit: 0 bytes in 0 blocks
 All heap blocks were freed -- no leaks are possible
 ```
+If failure at any step, check Makefile for that demo.
 
 ### 5. Valgrind on execution
 For each demo binary:
@@ -65,6 +68,12 @@ For each demo binary:
 valgrind --leak-check=full ./<binary>
 ```
 Check same heap summary – zero leaks.
+
+### 6. Valgrind on compilation with debug info
+Repeat step 4, but with `-g` flag.
+
+### 7. Valgrind on execution
+Repeat step 5.
 
 ## Automation notes
 

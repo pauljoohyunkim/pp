@@ -23,12 +23,12 @@ Goal: unify Function / Lambda / Operator AST representations under a single call
 - [x] Update `pp_parser_create_operator_declaration` → kind OPERATOR
 - [x] Update extern parsers to create `ExternCallableDeclarationNode` with appropriate kind
 - [x] Adjust AST node creation calls and field assignments
-- [ ] Update parser tests
+- [x] Update parser tests
 
 ## Phase 3 – AST Utilities
 - [x] Update `pp_ast.c` free/print logic for new node types
-- [ ] Ensure ownership rules stay consistent for params, return_type, body
-- [ ] Update `pp_ast_get_decoration` if needed
+- [x] Ensure ownership rules stay consistent for params, return_type, body
+- [x] Update `pp_ast_get_decoration` if needed
 
 ## Phase 4 – Semantic Analyzer
 - [x] Update Pass 1 dispatch to handle `CallableDeclarationNode` and branch on `kind`
@@ -37,13 +37,14 @@ Goal: unify Function / Lambda / Operator AST representations under a single call
 - [x] Update extern handling similarly
 - [x] Update later passes that assert node_type == OperatorDeclarationNode
 - [x] Run semantic tests
+- [x] Refactor Pass 2 full analysis: `pp_semantic_analyzer_full_analyze_pure_callable` helper for lambda/operator; keep function analysis separate
 
 ## Phase 5 – Code Generator
 - [x] Update top-level emit switch to handle `CallableDeclarationNode` and `ExternCallableDeclarationNode`
 - [x] Ensure `pp_code_generator_emit_function` works for all kinds
-- [ ] Preserve operator-specific codegen hooks if any
+- [x] Preserve operator-specific codegen hooks if any
 - [ ] Verify DWARF/Debug info generation for operators still works
-- [ ] Run codegen tests
+- [x] Run codegen tests
 
 ## Phase 6 – Symbol Table / Type System
 - [ ] Verify symbol creation uses `kind` for name mangling / overload resolution
@@ -55,11 +56,11 @@ Goal: unify Function / Lambda / Operator AST representations under a single call
 - [ ] Update internal comments
 
 ## Phase 8 – Validation
-- [ ] Full build succeeds
-- [ ] Unit tests pass: `make unittest`
+- [x] Full build succeeds
+- [x] Unit tests pass: `make unittest`
 - [ ] Demo programs run: `demo/01_fibo`, `demo/03_eigenvector`, `demo/05_bf`
 - [ ] Regression test for operator overload resolution and const-ref materialization
-- [ ] Review diff size and ensure no lingering field reuse
+- [x] Review diff size and ensure no lingering field reuse
 
 ## Phase 9 – Cleanup
 - [ ] Remove deprecated node type constants
