@@ -1028,10 +1028,11 @@ static LLVMMetadataRef pp_code_generator_di_subroutine_type(PP_CodeGenerator* cg
     const PPType* return_type = NULL;
     const PPType** param_types = NULL;
     size_t param_count = 0;
+    LLVMMetadataRef* types = NULL;
     pp_code_generator_di_function_signature(func_type, &return_type, &param_types, &param_count);
 
-    LLVMMetadataRef* types = (LLVMMetadataRef*)calloc(param_count + 1, sizeof(LLVMMetadataRef));
-    if (types == NULL) return NULL;
+    types = (LLVMMetadataRef*)calloc(param_count + 1, sizeof(LLVMMetadataRef));
+    NULL_POINTER_ERROR_HANDLE(types);
 
     LLVMMetadataRef return_di = NULL;
     if (return_type) return_di = pp_code_generator_get_di_type(cg, return_type);
@@ -1048,7 +1049,12 @@ static LLVMMetadataRef pp_code_generator_di_subroutine_type(PP_CodeGenerator* cg
         LLVMDIBuilderCreateSubroutineType(cg->di_builder, cg->di_file, types, (unsigned int)(param_count + 1),
                                           LLVMDIFlagZero);
     free(types);
+    types = NULL;
     return subroutine_type;
+
+error_cleanup:
+    free(types);
+    return NULL;
 }
 
 static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const PPType* t) {
@@ -1059,6 +1065,7 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
         }
     }
     LLVMMetadataRef result = NULL;
+    LLVMMetadataRef* members = NULL;
     switch (t->kind) {
         case PP_TK_Int8:
             result = pp_code_generator_di_basic_type(cg, "int8", 8, PP_DW_ATE_SIGNED);
@@ -1151,9 +1158,9 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             const char* name = t->type.pp_type_struct.name ? t->type.pp_type_struct.name : "<anonymous>";
             const PP_StructLayout* layout = t->type.pp_type_struct.layout;
             size_t field_count = layout ? layout->field_count : 0;
-            LLVMMetadataRef* members = NULL;
             if (field_count > 0) {
                 members = (LLVMMetadataRef*)calloc(field_count, sizeof(LLVMMetadataRef));
+                NULL_POINTER_ERROR_HANDLE(members);
                 for (size_t i = 0; i < field_count; i++) {
                     members[i] = pp_code_generator_get_di_type(cg, layout->fields[i].field_type);
                     if (!members[i]) { members[i] = pp_code_generator_di_void_type(cg); }
@@ -1170,36 +1177,35 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
                                                    0, size_bits, align_bits, LLVMDIFlagZero, NULL, members,
                                                    (unsigned)field_count, 0, NULL, NULL, 0);
             free(members);
+            members = NULL;
             break;
         }
         case PP_TK_String: {
-            LLVMMetadataRef* elems = (LLVMMetadataRef*)calloc(2, sizeof(LLVMMetadataRef));
+            LLVMMetadataRef elems_stack[2];
             LLVMMetadataRef ptr_di =
                 LLVMDIBuilderCreatePointerType(cg->di_builder,
                                                pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64,
                                                64, 0, NULL, 0);
             LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
-            elems[0] = ptr_di;
-            elems[1] = i64_di;
+            elems_stack[0] = ptr_di;
+            elems_stack[1] = i64_di;
             result = LLVMDIBuilderCreateStructType(cg->di_builder, cg->di_compile_unit, "pp.string", 9, cg->di_file, 0,
-                                                   16, 64, LLVMDIFlagZero, NULL, elems, 2, 0, NULL, NULL, 0);
-            free(elems);
+                                                   16, 64, LLVMDIFlagZero, NULL, elems_stack, 2, 0, NULL, NULL, 0);
             break;
         }
         case PP_TK_List: {
-            LLVMMetadataRef* elems = (LLVMMetadataRef*)calloc(4, sizeof(LLVMMetadataRef));
+            LLVMMetadataRef elems_stack[4];
             LLVMMetadataRef ptr_di =
                 LLVMDIBuilderCreatePointerType(cg->di_builder,
                                                pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64,
                                                64, 0, NULL, 0);
             LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
-            elems[0] = ptr_di;
-            elems[1] = i64_di;
-            elems[2] = i64_di;
-            elems[3] = i64_di;
+            elems_stack[0] = ptr_di;
+            elems_stack[1] = i64_di;
+            elems_stack[2] = i64_di;
+            elems_stack[3] = i64_di;
             result = LLVMDIBuilderCreateStructType(cg->di_builder, cg->di_compile_unit, "pp.list", 7, cg->di_file, 0,
-                                                   32, 64, LLVMDIFlagZero, NULL, elems, 4, 0, NULL, NULL, 0);
-            free(elems);
+                                                   32, 64, LLVMDIFlagZero, NULL, elems_stack, 4, 0, NULL, NULL, 0);
             break;
         }
         default:
@@ -1217,6 +1223,10 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
         cg->di_type_cache_count++;
     }
     return result;
+
+error_cleanup:
+    free(members);
+    return NULL;
 }
 
 static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenerator* cg) {
@@ -2733,10 +2743,15 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
     }
 
     free(llvm_args);
+    llvm_args = NULL;
     free(ref_temp_addrs);
+    ref_temp_addrs = NULL;
     free(ref_temp_types);
+    ref_temp_types = NULL;
     free(owning_temp_addrs);
+    owning_temp_addrs = NULL;
     free(owning_temp_types);
+    owning_temp_types = NULL;
     return llvm_val;
 
 error_cleanup:
@@ -2816,6 +2831,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
     assert(node->node_type == PP_AST_BinaryExpressionNode);
 
     LLVMValueRef llvm_val = NULL;
+    LLVMValueRef llvm_args[2] = {0};
+    LLVMValueRef ref_temp_addrs[2] = {0};
+    const PPType* ref_temp_types[2] = {0};
 
     const PP_AST_Decoration* bin_decor = pp_ast_get_decoration(node);
     if (bin_decor && bin_decor->resolved_operator_callable) {
@@ -2831,15 +2849,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
 
         size_t param_count = op_type->type.pp_type_operator.param_count;
         const PP_AST_Node* args_nodes[2] = {node->binary_expression.left, node->binary_expression.right};
-
-        LLVMValueRef* llvm_args = NULL;
-        LLVMValueRef* ref_temp_addrs = NULL;
-        const PPType** ref_temp_types = NULL;
         if (param_count > 0) {
-            llvm_args = (LLVMValueRef*)calloc(param_count, sizeof(LLVMValueRef));
-            ref_temp_addrs = calloc(param_count, sizeof(LLVMValueRef));
-            ref_temp_types = calloc(param_count, sizeof(const PPType*));
-            assert(llvm_args && ref_temp_addrs && ref_temp_types);
             for (unsigned int i = 0; i < param_count; i++) {
                 const PPType* param_type = op_type->type.pp_type_operator.param_types[i];
                 assert(param_type);
@@ -2875,10 +2885,6 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
         for (unsigned int i = 0; i < param_count; i++) {
             if (ref_temp_addrs[i]) { pp_code_generator_emit_drop(cg, ref_temp_addrs[i], ref_temp_types[i]); }
         }
-
-        free(llvm_args);
-        free(ref_temp_addrs);
-        free(ref_temp_types);
 
         const PPType* return_type = bin_decor->resolved_type;
         if (pp_type_is_reference(return_type)) {
