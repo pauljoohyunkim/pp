@@ -65,8 +65,14 @@
 ;; --- Type ---
 <type>                      ::= <mutability> <collection_type> [ "&" ]
 <mutability>                ::= "const" | ""
-<collection_type>           ::= "[" <type> [ ":" <expression> ] "]" | <pointer_type> | <base_type>
+<collection_type>           ::= "[" <type> [ ":" <expression> ] "]"
+                              | <pointer_type>
+                              | <callable_type>
+                              | <base_type>
 <pointer_type>              ::= "ptr" "[" <type> "]"
+<callable_type>             ::= "func"   "[" "(" <type_list> ")" "->" <type> "]"
+                              | "lambda" "[" "(" <type_list> ")" "->" <type> "]"
+<type_list>                 ::= <type> | <type> "," <type_list> | ""
 <base_type>                 ::= "void"
                               | "int32"
                               | "uint32"
@@ -158,3 +164,16 @@
 
 ## Note
 * Pointer support added: `ptr[T]`, `@` address-of, `$` deref, `nullptr` literal.
+* Callable types (`func[...]`, `lambda[...]`): a callable signature is also a *value* type. A value of such a
+  type is a plain pointer-sized code pointer.
+  * Parameter **names** are not part of a callable type; only parameter types are. `<type_list>` above is used
+    only inside `func[...]` / `lambda[...]`.
+  * An empty parameter list `()` is allowed.
+  * Higher-order signatures are allowed, e.g. `func[(func[(int32) -> float]) -> int32]`.
+  * `const` and `&` apply to the binding exactly as for any other object: `const func[(...) -> T]`,
+    `func[(...) -> T]&`.
+  * In v1 the pointee of `<pointer_type>` must not be a callable type: `ptr[func[...]]` is rejected.
+    References to function-typed variables (`func[...]&`) remain allowed.
+  * There is no implicit widening between `lambda[...]` and `func[...]`; an explicit
+    `as func[(...) -> T]` cast with an identical signature (lambda -> func only) is the sole conversion.
+  * Callable values cannot be compared or used with arithmetic/bitwise operators in v1.
