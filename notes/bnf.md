@@ -37,6 +37,8 @@
 <statement>                 ::= <variable_decl> ";"
                               | <assignment_stmt> ";"
                               | <return_stmt> ";"
+                              | <break_stmt> ";"
+                              | <continue_stmt> ";"
                               | <if_stmt>
                               | <for_stmt>
                               | <while_stmt>
@@ -54,6 +56,8 @@
 <if_stmt>                   ::= "if" "(" <expression> ")" <block> [ "else" <else_branch> ]
 <else_branch>               ::= <if_stmt> | <block>
 <while_stmt>                ::= "while" "(" <expression> ")" <block>
+<break_stmt>                ::= "break"
+<continue_stmt>             ::= "continue"
 
 <for_stmt>                  ::= "for" "(" [ <for_init> ] ";" [ <expression> ] ";" [ <for_update> ] ")" <block>
 <for_init>                  ::= <variable_decl> | <assignment_stmt> | <expression>

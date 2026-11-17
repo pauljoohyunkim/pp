@@ -181,6 +181,10 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "true";
         case PP_TT_FALSE:
             return "false";
+        case PP_TT_BREAK:
+            return "break";
+        case PP_TT_CONTINUE:
+            return "continue";
 
         // Literals
         case PP_TT_INTEGER_LITERAL:
