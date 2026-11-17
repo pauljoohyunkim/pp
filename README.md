@@ -163,21 +163,12 @@ Here is a list of models that I have used.
   * Personal favorite due to excellent tooling success rate
   * Self-hosted on a desktop with RTX 4070 Ti Super with 64 Gb of system ram for spillover (Context length set at 64k or 128k, depending on the task.)
 * Gemma4 31b
-  * Used this extensively for agentic AI as well.
-  * Ollama Cloud
 * Nemotron 3 Super 120b & Nemotron 3 Ultra 550b
-  * Used this for commenting and checking over basic logic.
-  * Ollama Cloud
-  * Nemotron 3 Super was not adequate in terms of logical capability for this project, which is expected as this is a very complicated project.
-  * Nemotron 3 Ultra was not as cost efficient for agentic coding for this project.
 * Beam
-  * Used this for porting over code generator from CZ
-  * Ollama Cloud
-  * Free usage due to launch event
 * GPT OSS 120b
-  * Used this for porting over a bit of semantic analyzer
-  * Ollama Cloud
   * While super fast, it kept trying to call "search" tool even though it was not part of my agentic coding tool, hence I could not continue with it.
+
+I later tried free tier (with $10 credit) [openrouter.ai](https://openrouter.ai) models. (I am not sponsored.)
 
 Agentic coding tool of choice was [Pi Coding Agent](https://pi.dev/). You can see the relevant files in [.pi](.pi)
 
