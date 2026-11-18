@@ -75,6 +75,32 @@ typedef int32 MyInt;
 newtype int32 Meters;
 ```
 
+### Callable types
+
+A callable signature is itself a value type:
+
+```pp
+typedef func[(int32, int32) -> int32] BinOp;
+let f :: func[(int32) -> int32] = some_function;
+let g :: lambda[(int32) -> int32] = some_lambda;
+let h :: func[() -> func[(int32) -> int32]] = factory;   // higher-order
+```
+
+* `func[(T1, T2) -> R]` – regular function signature
+* `lambda[(T1, T2) -> R]` – pure lambda signature
+* Parameter names are not part of the type; an empty parameter list `()` is allowed.
+* A callable value is a pointer-sized code pointer: trivially copyable, needs no drop, and has no null value, so a
+  callable-typed variable must be initialized.
+* `const func[...]` and `func[...]&` bind exactly like any other object type.
+* `lambda[...]` and `func[...]` with the same signature are **distinct** types. The only conversion is the explicit
+  `a_lambda as func[...]` widening with an identical signature; there is no implicit widening.
+* `ptr[func[...]]` is supported (a pointer to the slot holding a code pointer), including `nullptr[func[...]]`
+  and pointer equality. `ptr[lambda[...]]` is rejected.
+* Arrays and lists of callable values are supported (e.g. dispatch tables). Global non-empty list initializers
+  remain banned by the general global rule.
+* `==` / `!=` compare callable values by identity when both sides have the identical callable type. Arithmetic and
+  bitwise operators, and ordering comparisons, are rejected.
+
 ### Array
 Fixed-size array type: `[T : N]` where `N` is an unsigned integer literal, e.g. `4u`, `4ul`.
 Currently array sizes are evaluated via `strtoull`, so literals larger than 64 bits are not supported in practice.

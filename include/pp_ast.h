@@ -21,11 +21,7 @@ typedef struct PP_AST_Node PP_AST_Node;
 
 typedef enum { PP_VALUE_CATEGORY_LVALUE, PP_VALUE_CATEGORY_RVALUE } PP_ValueCategory;
 
-typedef enum {
-    PP_CK_Function,
-    PP_CK_Lambda,
-    PP_CK_Operator
-} PP_AST_CallableKind;
+typedef enum { PP_CK_Function, PP_CK_Lambda, PP_CK_Operator } PP_AST_CallableKind;
 
 typedef struct {
     const PPType* resolved_type;
@@ -60,6 +56,7 @@ typedef enum {
     PP_AST_TypeArrayNode,
     PP_AST_TypeListNode,
     PP_AST_TypePointerNode,
+    PP_AST_TypeCallableNode,
     PP_AST_TypedefDeclarationNode,
     PP_AST_NewtypeDeclarationNode,
     PP_AST_CallableDeclarationNode,
@@ -177,6 +174,14 @@ struct PP_AST_Node {
         struct { /* TypePointer */
             PP_AST_Node* pointee_type;
         } type_pointer;
+
+        struct {                       /* TypeCallable */
+            PP_AST_CallableKind kind;  /* PP_CK_Function or PP_CK_Lambda */
+            PP_AST_Node** param_types; /* TypeExpression nodes – parameter types only, no names */
+            unsigned int param_count;
+            unsigned int param_capacity;
+            PP_AST_Node* return_type; /* TypeExpression node */
+        } type_callable;
 
         struct { /* TypedefDeclaration */
             PP_AST_Node* base_type;

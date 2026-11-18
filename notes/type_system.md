@@ -37,6 +37,25 @@ In fact, the syntax for defining lambda function is very different.
 * Function can take any number of different parameters and output something (or nothing, if return type is `void`)
 * Lambda can take any number of parameters, but output exactly one thing.
 
+## Callable Values
+* `func[...]` and `lambda[...]` are value types: a value is a pointer-sized code pointer, trivially copyable and
+  drop-free.
+* Type identity: `PP_TK_Function`, `PP_TK_Lambda` and `PP_TK_Operator` each compare their parameter types and return
+  type recursively (`pp_type_equal` compares the kind first). The signature is part of the type; `const`/`&` inside
+  a signature is part of identity.
+* `lambda[...]` and `func[...]` with the same signature are distinct types. The only conversion is the explicit
+  `lambda[...] as func[...]` widening with an identical signature.
+* Symbol vs value: a callable declaration name (`PPSymbol::is_callable_decl`) denotes code and has no storage; a
+  function-typed variable/parameter/field is a storage location holding a code pointer. The former is an RVALUE, the
+  latter an LVALUE.
+* Decay returns callable types unchanged, and references inside a signature do not make the value "contain a
+  reference".
+* Supported: `ptr[func[...]]` (pointer to the slot holding a code pointer), `nullptr[func[...]]`, arrays/lists of
+  callable values, and `==` / `!=` between identical callable types (code-pointer identity).
+* Still rejected: `ptr[lambda[...]]` (a lambda is a value, not addressable code), arithmetic/bitwise and ordering
+  operators on callables, null callable *values* (a callable-typed variable still requires an initializer), and
+  non-empty global list initializers (general rule).
+
 ## Struct
 * A type for holding many variables as one.
 * During declaration, one could give default initializers.

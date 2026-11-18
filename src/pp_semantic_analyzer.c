@@ -139,7 +139,8 @@ static int pp_semantic_analyzer_struct_cycle_detect(PP_SemanticAnalyzer* sa, con
                                                     PP_StructRecursiveCycleState* states);
 static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
-static int pp_semantic_analyzer_full_analyze_pure_callable(PP_SemanticAnalyzer* sa, PP_AST_Node* node, PPTypeKind expected_type_kind);
+static int pp_semantic_analyzer_full_analyze_pure_callable(PP_SemanticAnalyzer* sa, PP_AST_Node* node,
+                                                           PPTypeKind expected_type_kind);
 static int pp_semantic_analyzer_full_analyze_operator_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
@@ -195,6 +196,8 @@ static int pp_semantic_analyzer_check_list_clear(PP_SemanticAnalyzer* sa, PPSymb
 
 static bool pp_type_is_top_level_const(const PPType* type);
 static bool pp_type_can_assign(const PPType* target, const PPType* source);
+static bool pp_type_is_callable(const PPType* type);
+static bool pp_semantic_callable_signature_equal(const PPType* a, const PPType* b);
 
 /**
  * @brief Creates semantic analyzer from parser
@@ -492,28 +495,12 @@ static bool pp_type_contains_reference_impl(const PPType* t, const PPType** stac
             }
             break;
         case PP_TK_Function:
-            if (pp_type_contains_reference_impl(t->type.pp_type_function.return_type, stack, depth + 1))
-                result = true;
-            else {
-                for (size_t i = 0; i < t->type.pp_type_function.param_count; i++) {
-                    if (pp_type_contains_reference_impl(t->type.pp_type_function.param_types[i], stack, depth + 1)) {
-                        result = true;
-                        break;
-                    }
-                }
-            }
-            break;
         case PP_TK_Lambda:
-            if (pp_type_contains_reference_impl(t->type.pp_type_lambda.return_type, stack, depth + 1))
-                result = true;
-            else {
-                for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
-                    if (pp_type_contains_reference_impl(t->type.pp_type_lambda.param_types[i], stack, depth + 1)) {
-                        result = true;
-                        break;
-                    }
-                }
-            }
+        case PP_TK_Operator:
+            /* A callable value is a code pointer; its signature is part of the
+             * type identity only. References inside the signature are not
+             * stored in the value. */
+            result = false;
             break;
         default:
             result = false;
@@ -707,10 +694,6 @@ static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PP
         pp_error_list_push_error(sa->error_list, loc, "Array/List element type cannot be void");
         return 0;
     }
-    if (elem_type->kind == PP_TK_Function || elem_type->kind == PP_TK_Lambda) {
-        pp_error_list_push_error(sa->error_list, loc, "Array/List element type cannot be function/lambda");
-        return 0;
-    }
     if (pp_type_contains_reference(elem_type)) {
         pp_error_list_push_error(sa->error_list, loc,
                                  "Array/List element type cannot transitively contain a reference");
@@ -739,14 +722,14 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         base_kind = inner->type_base.kind;
         base_identifier = inner->type_base.identifier_name;
     } else if (inner->node_type != PP_AST_TypeArrayNode && inner->node_type != PP_AST_TypeListNode &&
-               inner->node_type != PP_AST_TypePointerNode) {
+               inner->node_type != PP_AST_TypePointerNode && inner->node_type != PP_AST_TypeCallableNode) {
         pp_error_list_push_error(sa->error_list, type_node->loc, "Unsupported type node");
         goto error_cleanup;
     }
 
-    // Handle collection / pointer types from new AST
+    // Handle collection / pointer / callable types from new AST
     if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode ||
-        inner->node_type == PP_AST_TypePointerNode) {
+        inner->node_type == PP_AST_TypePointerNode || inner->node_type == PP_AST_TypeCallableNode) {
         if (inner->node_type == PP_AST_TypePointerNode) {
             const PPType* pointee_type = pp_type_from_type_node(sa, inner->type_pointer.pointee_type);
             if (!pointee_type) goto error_cleanup;
@@ -754,6 +737,15 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             if (pp_type_is_reference(pointee_type) || pp_type_contains_reference(pointee_type)) {
                 pp_error_list_push_error(sa->error_list, type_node->loc, "Pointer cannot contain reference");
                 goto error_cleanup;
+            }
+            // Pointers to `func[...]` are supported: a code pointer is an ordinary pointer.
+            // Pointers to `lambda[...]` remain banned.
+            {
+                const PPType* decayed_pointee = pp_type_decay(sa->gtt, pointee_type);
+                if (pp_type_is_callable(decayed_pointee) && decayed_pointee->kind != PP_TK_Function) {
+                    pp_error_list_push_error(sa->error_list, type_node->loc, "Pointer cannot point to a lambda type");
+                    goto error_cleanup;
+                }
             }
             temp_type = pp_type_create(PP_TK_Pointer);
             if (!temp_type) goto error_cleanup;
@@ -764,7 +756,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 pp_error_list_push_error(sa->error_list, type_node->loc, "Failed to intern pointer type");
                 goto error_cleanup;
             }
-        } else {
+        } else if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode) {
             const PPType* elem_type = NULL;
             if (inner->node_type == PP_AST_TypeArrayNode) {
                 elem_type = pp_type_from_type_node(sa, inner->type_array.element_type);
@@ -798,6 +790,59 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 pp_error_list_push_error(sa->error_list, type_node->loc, "Failed to intern array/list");
                 goto error_cleanup;
             }
+        } else {
+            PP_AST_CallableKind callable_kind = inner->type_callable.kind;
+            PPTypeKind callable_type_kind = (callable_kind == PP_CK_Lambda) ? PP_TK_Lambda : PP_TK_Function;
+            unsigned int i = 0;
+
+            assert(callable_kind == PP_CK_Function || callable_kind == PP_CK_Lambda);
+
+            if (!inner->type_callable.return_type) {
+                pp_error_list_push_error(sa->error_list, type_node->loc,
+                                         "Callable type must have an explicit return type");
+                goto error_cleanup;
+            }
+
+            temp_type = pp_type_create(callable_type_kind);
+            if (!temp_type) {
+                pp_error_list_push_error(sa->error_list, type_node->loc, "Failed to create callable type");
+                goto error_cleanup;
+            }
+
+            for (i = 0; i < inner->type_callable.param_count; i++) {
+                const PPType* param_type = pp_type_from_type_node(sa, inner->type_callable.param_types[i]);
+                if (!param_type) {
+                    pp_error_list_push_error(sa->error_list, type_node->loc, "Invalid parameter type in callable type");
+                    goto error_cleanup;
+                }
+                if (param_type->kind == PP_TK_Void) {
+                    pp_error_list_push_error(sa->error_list, type_node->loc, "Callable type parameter cannot be void");
+                    goto error_cleanup;
+                }
+                if (!pp_type_push_param(temp_type, param_type)) {
+                    pp_error_list_push_error(sa->error_list, type_node->loc,
+                                             "Failed to add parameter type to callable type");
+                    goto error_cleanup;
+                }
+            }
+
+            const PPType* ret_type = pp_type_from_type_node(sa, inner->type_callable.return_type);
+            if (!ret_type) {
+                pp_error_list_push_error(sa->error_list, type_node->loc, "Invalid return type in callable type");
+                goto error_cleanup;
+            }
+            if (callable_type_kind == PP_TK_Function) {
+                temp_type->type.pp_type_function.return_type = ret_type;
+            } else {
+                temp_type->type.pp_type_lambda.return_type = ret_type;
+            }
+
+            gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+            if (!gtt_registered_type) {
+                pp_error_list_push_error(sa->error_list, type_node->loc, "Failed to intern callable type");
+                goto error_cleanup;
+            }
+            temp_type = NULL;
         }
     } else {
         switch (base_kind) {
@@ -1085,7 +1130,7 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     }
 
     // Create symbol
-    func_symbol = pp_symbol_create(func_type, false, false, true, true);
+    func_symbol = pp_symbol_create(func_type, false, false, true, true, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for function '%s'",
                                  node->callable_declaration.name ? node->callable_declaration.name : "<unknown>");
@@ -1346,7 +1391,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
 
     // Create symbol
 
-    func_symbol = pp_symbol_create(func_type, false, false, true, true);
+    func_symbol = pp_symbol_create(func_type, false, false, true, true, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for function '%s'",
                                  node->callable_declaration.name ? node->callable_declaration.name : "<unknown>");
@@ -1457,7 +1502,7 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     }
 
     // Create symbol
-    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, true);
+    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, true, true);
     if (!lambda_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for lambda '%s'",
                                  node->callable_declaration.name ? node->callable_declaration.name : "<unknown>");
@@ -1558,7 +1603,7 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
         }
     }
 
-    func_symbol = pp_symbol_create(func_type, false, false, true, false);
+    func_symbol = pp_symbol_create(func_type, false, false, true, false, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for function '%s'",
                                  node->extern_callable_declaration.name ? node->extern_callable_declaration.name
@@ -1625,8 +1670,7 @@ static int pp_semantic_analyzer_build_global_table_extern_operator_decl(PP_Seman
     for (size_t i = 0; i < node->extern_callable_declaration.param_count; i++) {
         const PPType* param_type = tmp_func->type.pp_type_operator.param_types[i];
         if (!pp_type_is_const(param_type) || !pp_type_is_reference(param_type)) {
-            pp_error_list_push_error(sa->error_list, node->loc,
-                                     "Operator '%s' parameters must be const references.",
+            pp_error_list_push_error(sa->error_list, node->loc, "Operator '%s' parameters must be const references.",
                                      node->extern_callable_declaration.name);
             goto error_cleanup;
         }
@@ -1658,7 +1702,7 @@ static int pp_semantic_analyzer_build_global_table_extern_operator_decl(PP_Seman
         }
     }
 
-    func_symbol = pp_symbol_create(func_type, false, false, true, false);
+    func_symbol = pp_symbol_create(func_type, false, false, true, false, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for operator '%s'",
                                  node->extern_callable_declaration.name ? node->extern_callable_declaration.name
@@ -1713,7 +1757,7 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
         if (!param_type) {
             pp_error_list_push_error(sa->error_list, node->loc, "Invalid parameter type for lambda '%s'",
                                      node->extern_callable_declaration.name ? node->extern_callable_declaration.name
-                                                                          : "<unknown>");
+                                                                            : "<unknown>");
             goto error_cleanup;
         }
         if (!pp_type_push_param(tmp_lambda, param_type)) { goto error_cleanup; }
@@ -1723,7 +1767,7 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
     if (!lambda_type) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to intern lambda type for lambda '%s'",
                                  node->extern_callable_declaration.name ? node->extern_callable_declaration.name
-                                                                      : "<unknown>");
+                                                                        : "<unknown>");
         goto error_cleanup;
     }
     tmp_lambda = NULL;
@@ -1736,23 +1780,23 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
         } else {
             pp_error_list_push_error(sa->error_list, node->loc, "Conflicting types for symbol '%s'",
                                      node->extern_callable_declaration.name ? node->extern_callable_declaration.name
-                                                                          : "<unknown>");
+                                                                            : "<unknown>");
             goto error_cleanup;
         }
     }
 
-    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, false);
+    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, false, true);
     if (!lambda_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for lambda '%s'",
                                  node->extern_callable_declaration.name ? node->extern_callable_declaration.name
-                                                                      : "<unknown>");
+                                                                        : "<unknown>");
         goto error_cleanup;
     }
 
     if (!pp_symbol_table_push(sa->gst, node->extern_callable_declaration.name, lambda_symbol)) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to register lambda '%s'",
                                  node->extern_callable_declaration.name ? node->extern_callable_declaration.name
-                                                                      : "<unknown>");
+                                                                        : "<unknown>");
         goto error_cleanup;
     }
     lambda_symbol = NULL;
@@ -1855,7 +1899,7 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
         goto error_cleanup;
     }
 
-    symbol = pp_symbol_create(var_type, false, false, true, true);
+    symbol = pp_symbol_create(var_type, false, false, true, true, false);
     if (!symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for variable '%s'",
                                  node->variable_declaration.var_decl->param_declaration.identifier);
@@ -2172,7 +2216,8 @@ error_cleanup:
  * processing.
  */
 
-static int pp_semantic_analyzer_full_analyze_pure_callable(PP_SemanticAnalyzer* sa, PP_AST_Node* node, PPTypeKind expected_type_kind) {
+static int pp_semantic_analyzer_full_analyze_pure_callable(PP_SemanticAnalyzer* sa, PP_AST_Node* node,
+                                                           PPTypeKind expected_type_kind) {
     PPSymbolTable* param_symbol_table = NULL;
     PPSymbol* param_symbol = NULL;
     PPSymbolTable* body_symbol_table = NULL;
@@ -2200,14 +2245,14 @@ static int pp_semantic_analyzer_full_analyze_pure_callable(PP_SemanticAnalyzer* 
 
     {
         const PPType* ret_type = (expected_type_kind == PP_TK_Lambda)
-            ? sa->current_function_type->type.pp_type_lambda.return_type
-            : sa->current_function_type->type.pp_type_operator.return_type;
+                                     ? sa->current_function_type->type.pp_type_lambda.return_type
+                                     : sa->current_function_type->type.pp_type_operator.return_type;
         if (ret_type && ret_type->kind != PP_TK_Void) {
             if (!pp_ast_node_returns_on_all_paths(node->callable_declaration.body)) {
                 pp_error_list_push_error(sa->error_list, node->loc,
-                                         "%s \"%s\" returns non-void, but there may exist a path that it exits without returning something.",
-                                         (expected_type_kind == PP_TK_Lambda) ? "Lambda" : "Operator",
-                                         name);
+                                         "%s \"%s\" returns non-void, but there may exist a path that it exits without "
+                                         "returning something.",
+                                         (expected_type_kind == PP_TK_Lambda) ? "Lambda" : "Operator", name);
                 goto error_cleanup;
             }
         }
@@ -2218,13 +2263,11 @@ static int pp_semantic_analyzer_full_analyze_pure_callable(PP_SemanticAnalyzer* 
     param_symbol_table->parent = sa->gst;
 
     size_t type_param_count = (expected_type_kind == PP_TK_Lambda)
-        ? sa->current_function_type->type.pp_type_lambda.param_count
-        : sa->current_function_type->type.pp_type_operator.param_count;
+                                  ? sa->current_function_type->type.pp_type_lambda.param_count
+                                  : sa->current_function_type->type.pp_type_operator.param_count;
     if (type_param_count != node->callable_declaration.param_count) {
-        pp_error_list_push_error(sa->error_list, node->loc,
-                                 "%s \"%s\" has wrong number of types.",
-                                 (expected_type_kind == PP_TK_Lambda) ? "Lambda" : "Operator",
-                                 name);
+        pp_error_list_push_error(sa->error_list, node->loc, "%s \"%s\" has wrong number of types.",
+                                 (expected_type_kind == PP_TK_Lambda) ? "Lambda" : "Operator", name);
         goto error_cleanup;
     }
 
@@ -2236,9 +2279,10 @@ static int pp_semantic_analyzer_full_analyze_pure_callable(PP_SemanticAnalyzer* 
                                      "Duplicate parameter \"%s\" detected", param_name);
             goto error_cleanup;
         }
-        const PPType* param_type = pp_type_from_type_node(sa, node->callable_declaration.params[i]->param_declaration.type_expr);
+        const PPType* param_type =
+            pp_type_from_type_node(sa, node->callable_declaration.params[i]->param_declaration.type_expr);
         if (!param_type) goto error_cleanup;
-        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true, false);
         if (!pp_symbol_table_push(param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, node->callable_declaration.params[i]->loc,
                                      "Could not push parameter \"%s\" to parameter scope", param_name);
@@ -2358,7 +2402,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
         //     }
         // }
 
-        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true, false);
         if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, node->callable_declaration.params[i]->loc,
                                      "Could not push parameter \"%s\" to parameter scope", param_name);
@@ -2642,6 +2686,13 @@ static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAna
                                      node->variable_declaration.var_decl->param_declaration.identifier);
             goto error_cleanup;
         }
+        // Callable values have no null representation in v1.
+        if (pp_type_is_callable(pp_type_decay(sa->gtt, variable_symbol->type))) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Global variable \"%s\" has a callable type, but initializer does not exist.",
+                                     node->variable_declaration.var_decl->param_declaration.identifier);
+            goto error_cleanup;
+        }
     } else {
         // Initializer exists here.
         if (!pp_semantic_analyzer_check_expression(sa, sa->gst, node->variable_declaration.initializer)) {
@@ -2831,6 +2882,13 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         }
     }
 
+    // Callable values have no null representation in v1, so the initializer is mandatory.
+    if (pp_type_is_callable(pp_type_decay(sa->gtt, symbol_type)) && !node->variable_declaration.initializer) {
+        pp_error_list_push_error(sa->error_list, node->loc,
+                                 "Variable \"%s\" has a callable type, but initializer does not exist.", symbol_name);
+        goto error_cleanup;
+    }
+
     // If initializer exists, check validity.
     if (node->variable_declaration.initializer) {
         if (!pp_semantic_analyzer_check_expression(sa, symbol_table, node->variable_declaration.initializer)) {
@@ -2901,9 +2959,10 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         // from outside, then return it back. For this, it must be reference, and initializer must be escapable.
         variable_symbol =
             pp_symbol_create(symbol_type, pp_type_is_const(symbol_type) && initializer_decor->is_constexpr,
-                             pp_type_is_reference(symbol_type) && initializer_decor->is_escapable_ref, false, true);
+                             pp_type_is_reference(symbol_type) && initializer_decor->is_escapable_ref, false, true,
+                             false);
     } else {
-        variable_symbol = pp_symbol_create(symbol_type, false, false, false, true);
+        variable_symbol = pp_symbol_create(symbol_type, false, false, false, true, false);
     }
     NULL_POINTER_ERROR_HANDLE(variable_symbol);
 
@@ -3554,21 +3613,24 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
     const PP_AST_Decoration* callee_decoration = pp_ast_get_decoration(expr->function_call.callee);
     assert(callee_decoration);
 
+    // Decay first: the callee may be a `const func[...]` or `func[...]&` value.
+    const PPType* callee_type = pp_type_decay(sa->gtt, callee_decoration->resolved_type);
+    NULL_POINTER_ERROR_HANDLE(callee_type);
+
     // Check indeed that it is a function.
-    if (callee_decoration->resolved_type->kind != PP_TK_Function &&
-        callee_decoration->resolved_type->kind != PP_TK_Lambda) {
+    if (callee_type->kind != PP_TK_Function && callee_type->kind != PP_TK_Lambda) {
         pp_error_list_push_error(sa->error_list, expr->loc, "Callee is not a registered function.");
         goto error_cleanup;
     }
 
     // Keep track of whether or not the function is lambda.
-    bool function_is_lambda = callee_decoration->resolved_type->kind == PP_TK_Lambda;
+    bool function_is_lambda = callee_type->kind == PP_TK_Lambda;
 
     // Restriction: lambda and operator bodies may not call regular functions.
     // They may call lambda or operator functions only.
     if (sa->current_function_type &&
         (sa->current_function_type->kind == PP_TK_Lambda || sa->current_function_type->kind == PP_TK_Operator)) {
-        if (callee_decoration->resolved_type->kind == PP_TK_Function) {
+        if (callee_type->kind == PP_TK_Function) {
             pp_error_list_push_error(sa->error_list, expr->loc,
                                      "Lambda/operator function cannot call regular function");
             goto error_cleanup;
@@ -3577,25 +3639,23 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
 
     // Param count validation
     if (function_is_lambda) {
-        if (callee_decoration->resolved_type->type.pp_type_lambda.param_count != expr->function_call.arg_count) {
+        if (callee_type->type.pp_type_lambda.param_count != expr->function_call.arg_count) {
             pp_error_list_push_error(sa->error_list, expr->loc,
                                      "Lambda function expects %d arguments but only received %d arguments",
-                                     callee_decoration->resolved_type->type.pp_type_lambda.param_count,
-                                     expr->function_call.arg_count);
+                                     callee_type->type.pp_type_lambda.param_count, expr->function_call.arg_count);
             goto error_cleanup;
         }
     } else {
-        if (callee_decoration->resolved_type->type.pp_type_function.param_count != expr->function_call.arg_count) {
+        if (callee_type->type.pp_type_function.param_count != expr->function_call.arg_count) {
             pp_error_list_push_error(sa->error_list, expr->loc,
                                      "Function expects %d arguments but only received %d arguments",
-                                     callee_decoration->resolved_type->type.pp_type_function.param_count,
-                                     expr->function_call.arg_count);
+                                     callee_type->type.pp_type_function.param_count, expr->function_call.arg_count);
             goto error_cleanup;
         }
     }
 
-    size_t param_count = function_is_lambda ? callee_decoration->resolved_type->type.pp_type_lambda.param_count
-                                            : callee_decoration->resolved_type->type.pp_type_function.param_count;
+    size_t param_count = function_is_lambda ? callee_type->type.pp_type_lambda.param_count
+                                            : callee_type->type.pp_type_function.param_count;
 
     bool is_escapable = true;
     // Argument type checking loop
@@ -3610,9 +3670,8 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
         const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(expr->function_call.arguments[i]);
         assert(arg_decor);
         const PPType* arg_type = arg_decor->resolved_type;
-        const PPType* param_type = function_is_lambda
-                                       ? callee_decoration->resolved_type->type.pp_type_lambda.param_types[i]
-                                       : callee_decoration->resolved_type->type.pp_type_function.param_types[i];
+        const PPType* param_type = function_is_lambda ? callee_type->type.pp_type_lambda.param_types[i]
+                                                      : callee_type->type.pp_type_function.param_types[i];
         assert(arg_type);
         assert(param_type);
         const PPType* decayed_arg_type = pp_type_decay(sa->gtt, arg_type);
@@ -3649,9 +3708,8 @@ static int pp_semantic_analyzer_check_function_call(PP_SemanticAnalyzer* sa, PPS
         }
     }
 
-    const PPType* return_type = function_is_lambda
-                                    ? callee_decoration->resolved_type->type.pp_type_lambda.return_type
-                                    : callee_decoration->resolved_type->type.pp_type_function.return_type;
+    const PPType* return_type = function_is_lambda ? callee_type->type.pp_type_lambda.return_type
+                                                   : callee_type->type.pp_type_function.return_type;
     assert(return_type);
     if (function_is_lambda) {
         // Void cannot be returned in lambda function
@@ -3733,6 +3791,29 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
         pp_error_list_push_error(sa->error_list, expr->loc, "Decaying type failure");
         goto error_cleanup;
     }
+
+    // Callable values support identity comparison (== / !=) only, and both operands must
+    // have the identical callable type. Every other operator stays rejected.
+    const bool callable_operands = pp_type_is_callable(decayed_lhs_type) || pp_type_is_callable(decayed_rhs_type);
+    if (callable_operands) {
+        const bool is_equality =
+            expr->binary_expression.op == PP_TT_EQUAL_EQUAL || expr->binary_expression.op == PP_TT_EXCLAMATION_EQUAL;
+        if (!is_equality) {
+            pp_error_list_push_error(sa->error_list, expr->loc,
+                                     "Callable values support no operators other than == and !=.");
+            goto error_cleanup;
+        }
+        if (!pp_type_is_callable(decayed_lhs_type) || !pp_type_is_callable(decayed_rhs_type) ||
+            !pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
+            pp_error_list_push_error(sa->error_list, expr->loc,
+                                     "Callable values can only be compared with an identical callable type.");
+            goto error_cleanup;
+        }
+        binary_type = pp_type_create(PP_TK_Bool);
+    }
+
+    // Callable operands never consult the builtin operator table or overloads.
+    if (callable_operands) goto builtin_binary_done;
 
     switch (expr->binary_expression.op) {
         case PP_TT_BAR_BAR:
@@ -3913,6 +3994,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
             binary_type = (PPType*)interned_ret_type;
         }
     }
+builtin_binary_done:
     if (!binary_type) {
         pp_error_list_push_error(sa->error_list, expr->loc, "Binary operator requires compatible operand types");
         goto error_cleanup;
@@ -4039,6 +4121,20 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
     if (!decayed_operand_type) {
         pp_error_list_push_error(sa->error_list, expr->loc, "Failure decaying type");
         goto error_cleanup;
+    }
+
+    // Callable values support only the address-of operator, and only for `func[...]`
+    // values: a lambda is a value, not addressable code.
+    if (pp_type_is_callable(decayed_operand_type)) {
+        if (expr->unary_expression.op != PP_TT_AT) {
+            pp_error_list_push_error(sa->error_list, expr->loc,
+                                     "Callable values only support the address-of operator.");
+            goto error_cleanup;
+        }
+        if (decayed_operand_type->kind != PP_TK_Function) {
+            pp_error_list_push_error(sa->error_list, expr->loc, "Address-of cannot be applied to a lambda value.");
+            goto error_cleanup;
+        }
     }
 
     const char* op_spelling = NULL;
@@ -4358,6 +4454,15 @@ static int pp_semantic_analyzer_check_null_literal_expression(PP_SemanticAnalyze
             pp_error_list_push_error(sa->error_list, expr->loc, "Failed to resolve nullptr type");
             goto error_cleanup;
         }
+        // Pointers to `func[...]` are supported; pointers to lambdas are not.
+        {
+            const PPType* decayed_pointee = pp_type_decay(sa->gtt, t);
+            if (pp_type_is_callable(decayed_pointee) && decayed_pointee->kind != PP_TK_Function) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "nullptr cannot be typed as a pointer to a lambda type");
+                goto error_cleanup;
+            }
+        }
         // Build pointer type ptr[T] from T
         PPType* ptr_type = pp_type_create(PP_TK_Pointer);
         if (!ptr_type) goto error_cleanup;
@@ -4389,9 +4494,10 @@ error_cleanup:
 /* pp_semantic_analyzer_check_identifier_expression Checklist (based on
  * cz_semantic_analyzer_check_identifier_expression): [x] Validate inputs via asserts [x] Early exit if
  * expr->identifier.decoration already set [x] Lookup identifier in symbol table via pp_symbol_table_lookup [x] Retrieve
- * identifier type from symbol [x] Determine value category: RVALUE if Function/Lambda else LVALUE [x] Create decoration
- * with symbol type, value_category, is_constexpr false, escapable_ref = symbol->is_escapable_ref [x] Verify symbol
- * exists and push error if not found
+ * identifier type from symbol [x] Determine value category: RVALUE for callable declaration names
+ * (symbol->is_callable_decl), LVALUE for everything else, including function-typed variables/parameters/fields [x]
+ * Create decoration with symbol type, value_category, is_constexpr false, escapable_ref = symbol->is_escapable_ref [x]
+ * Verify symbol exists and push error if not found
  * [-] Propagate symbol scope level into decoration, CZ uses symbol->scope_level -> PP does not track scope level per
  * symbol [x] Use symbol->is_escapable_ref when creating decoration [x] Lambda capture rules: allow lambda globals,
  * reject function globals, require const for variable globals
@@ -4419,9 +4525,11 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
 
     if (function_is_lambda && identifier_symbol->is_global) {
         const PPType* sym_type = identifier_symbol->type;
-        if (sym_type->kind == PP_TK_Lambda) {
+        /* Only declaration names are pure code. A function-typed global variable
+         * is ordinary global state, so it falls through to the const check. */
+        if (identifier_symbol->is_callable_decl && sym_type->kind == PP_TK_Lambda) {
             /* lambda names are immutable pure code – allowed */
-        } else if (sym_type->kind == PP_TK_Function) {
+        } else if (identifier_symbol->is_callable_decl && sym_type->kind == PP_TK_Function) {
             pp_error_list_push_error(sa->error_list, expr->loc, "\"%s\" is a regular function used inside lambda",
                                      expr->identifier.identifier);
             goto error_cleanup;
@@ -4444,12 +4552,12 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     const PPType* identifier_type = identifier_symbol->type;
     assert(identifier_type);
 
-    decoration =
-        pp_ast_decoration_create(identifier_type,
-                                 identifier_type->kind == PP_TK_Function || identifier_type->kind == PP_TK_Lambda
-                                     ? PP_VALUE_CATEGORY_RVALUE
-                                     : PP_VALUE_CATEGORY_LVALUE,
-                                 false, identifier_symbol->is_escapable_ref);
+    // A callable declaration name is a link-time constant, so it is constexpr;
+    // this is what lets `let g :: func[...] = named_func;` work at global scope.
+    decoration = pp_ast_decoration_create(identifier_type,
+                                          identifier_symbol->is_callable_decl ? PP_VALUE_CATEGORY_RVALUE
+                                                                              : PP_VALUE_CATEGORY_LVALUE,
+                                          identifier_symbol->is_callable_decl, identifier_symbol->is_escapable_ref);
     NULL_POINTER_ERROR_HANDLE(decoration);
 
     expr->identifier.decoration = decoration;
@@ -4721,7 +4829,9 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
     for (size_t i = 0; i < struct_type->type.pp_type_struct.layout->field_count; i++) {
         const PPStructField* field = &struct_type->type.pp_type_struct.layout->fields[i];
         const PPType* field_type = field->field_type;
-        if ((pp_type_is_const(field_type) || pp_type_is_reference(field_type)) && !field->default_initializer) {
+        if ((pp_type_is_const(field_type) || pp_type_is_reference(field_type) ||
+             pp_type_is_callable(pp_type_decay(sa->gtt, field_type))) &&
+            !field->default_initializer) {
             bool found = false;
             for (size_t j = 0; j < expr->struct_initializer.entry_count; j++) {
                 if (field->field_name == expr->struct_initializer.entries[j].member_identifier->identifier.identifier) {
@@ -4731,7 +4841,8 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
             }
             if (!found) {
                 pp_error_list_push_error(sa->error_list, expr->loc,
-                                         "No initializer given for const or reference field \"%s\"", field->field_name);
+                                         "No initializer given for const, reference, or callable field \"%s\"",
+                                         field->field_name);
                 goto error_cleanup;
             }
         }
@@ -4872,8 +4983,21 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
 
     bool cast_ok = false;
 
-    // Casting to reference is not allowed
-    if (pp_type_is_reference(target_type)) {
+    // v1 callable casts: only lambda[...] -> func[...] with an identical signature.
+    // Everything else involving a callable type is rejected (func -> lambda,
+    // lambda -> lambda, func -> func, callable <-> non-callable).
+    if (pp_type_is_callable(decayed_expr_type) || pp_type_is_callable(decayed_target_type)) {
+        if (pp_type_is_callable(decayed_expr_type) && pp_type_is_callable(decayed_target_type) &&
+            decayed_expr_type->kind == PP_TK_Lambda && decayed_target_type->kind == PP_TK_Function) {
+            cast_ok = pp_semantic_callable_signature_equal(decayed_expr_type, decayed_target_type);
+        }
+        if (!cast_ok) {
+            pp_error_list_push_error(sa->error_list, expr->loc,
+                                     "Only a lambda[...] value can be cast to an identical func[...] signature.");
+            goto error_cleanup;
+        }
+    } else if (pp_type_is_reference(target_type)) {
+        // Casting to reference is not allowed
         // error already handled by cast_ok staying false
         // Cast from reference source to pointer target is allowed
     } else if (pp_type_is_reference(expr_type) && pp_type_is_pointer(decayed_target_type)) {
@@ -5079,6 +5203,42 @@ const PPSymbol* pp_semantic_analyzer_unary_operator_lookup(PP_SemanticAnalyzer* 
 
 static bool pp_type_is_top_level_const(const PPType* type) { return type && type->kind == PP_TK_Const; }
 
+/* Signature identity of two callable types, ignoring the callable kind itself.
+ * Used by the explicit lambda[...] -> func[...] widening cast. */
+static bool pp_semantic_callable_signature_equal(const PPType* a, const PPType* b) {
+    size_t a_count = 0;
+    size_t b_count = 0;
+    const PPType* const* a_params = NULL;
+    const PPType* const* b_params = NULL;
+    const PPType* a_ret = NULL;
+    const PPType* b_ret = NULL;
+    size_t i = 0;
+
+    if (!a || !b) return false;
+    if (!pp_type_is_callable(a) || !pp_type_is_callable(b)) return false;
+
+    a_count = (a->kind == PP_TK_Lambda) ? a->type.pp_type_lambda.param_count : a->type.pp_type_function.param_count;
+    b_count = (b->kind == PP_TK_Lambda) ? b->type.pp_type_lambda.param_count : b->type.pp_type_function.param_count;
+    if (a_count != b_count) return false;
+
+    a_params = (a->kind == PP_TK_Lambda) ? a->type.pp_type_lambda.param_types : a->type.pp_type_function.param_types;
+    b_params = (b->kind == PP_TK_Lambda) ? b->type.pp_type_lambda.param_types : b->type.pp_type_function.param_types;
+    for (i = 0; i < a_count; i++) {
+        if (!pp_type_equal(a_params[i], b_params[i])) return false;
+    }
+
+    a_ret = (a->kind == PP_TK_Lambda) ? a->type.pp_type_lambda.return_type : a->type.pp_type_function.return_type;
+    b_ret = (b->kind == PP_TK_Lambda) ? b->type.pp_type_lambda.return_type : b->type.pp_type_function.return_type;
+    return pp_type_equal(a_ret, b_ret);
+}
+
+/* True when the (already decayed) type is a callable signature. Callable values
+ * are code pointers: no null value, no operators, no storage inside collections. */
+static bool pp_type_is_callable(const PPType* type) {
+    if (!type) return false;
+    return type->kind == PP_TK_Function || type->kind == PP_TK_Lambda || type->kind == PP_TK_Operator;
+}
+
 static bool pp_type_can_assign(const PPType* target, const PPType* source) {
     if (!target || !source) return false;
     if (target == source) return true;
@@ -5090,17 +5250,14 @@ static bool pp_type_can_assign(const PPType* target, const PPType* source) {
         return false;
     }
     switch (target->kind) {
-        case PP_TK_Pointer:
-            {
-                assert(source->kind == PP_TK_Pointer);
-                const PPType* src_pointee = source->type.pp_type_pointer.pointee;
-                const PPType* tgt_pointee = target->type.pp_type_pointer.pointee;
-                // Prevent const stripping on pointer pointee
-                if (pp_type_is_const(src_pointee) && !pp_type_is_const(tgt_pointee)) {
-                    return false;
-                }
-                return pp_type_can_assign(tgt_pointee, src_pointee);
-            }
+        case PP_TK_Pointer: {
+            assert(source->kind == PP_TK_Pointer);
+            const PPType* src_pointee = source->type.pp_type_pointer.pointee;
+            const PPType* tgt_pointee = target->type.pp_type_pointer.pointee;
+            // Prevent const stripping on pointer pointee
+            if (pp_type_is_const(src_pointee) && !pp_type_is_const(tgt_pointee)) { return false; }
+            return pp_type_can_assign(tgt_pointee, src_pointee);
+        }
         case PP_TK_Const:
             return pp_type_can_assign(target->type.pp_type_const.const_of, source->type.pp_type_const.const_of);
         case PP_TK_Array:

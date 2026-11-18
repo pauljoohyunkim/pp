@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
+
 #include <memory>
+
 #include "pp_lexer.h"
-#include "pp_string_pool.h"
 #include "pp_parser.h"
+#include "pp_string_pool.h"
 static PP_StringPool* test_sp = pp_string_pool_create();
 
 static void parse_source(const char* source, int& lexer_errors, int& parser_errors, int& parse_result) {
@@ -211,7 +213,7 @@ TEST(ParserTest, BadMultipleErrorsRecovery) {
         "    return 1;\n"
         "}\n"
         "func bad_missing_brace :: () -> void {\n"
-        "    let x :: int32 = 5\n" // missing semicolon
+        "    let x :: int32 = 5\n"  // missing semicolon
         "    return;\n"
         "}\n"
         "func good2 :: () -> int32 {\n"
@@ -1097,7 +1099,8 @@ TEST(ParserTest, TestNestedStructInit) {
 }
 
 TEST(ParserTest, TestCollectionInitMixedTypes) {
-    const char* source = "func f ::() -> void { let a :: int32 = [int32; 0, 1, 2]; let b :: bool = [bool: 3; true, false, true]; }";
+    const char* source =
+        "func f ::() -> void { let a :: int32 = [int32; 0, 1, 2]; let b :: bool = [bool: 3; true, false, true]; }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -1193,8 +1196,7 @@ TEST(ParserTest, CzGoodVerificationAnchor) {
 }
 
 TEST(ParserTest, NestedArrayType) {
-    const char* source =
-        "func f :: (x :: [[int32 : 3u] : 4u]) -> void { }";
+    const char* source = "func f :: (x :: [[int32 : 3u] : 4u]) -> void { }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -1202,8 +1204,7 @@ TEST(ParserTest, NestedArrayType) {
 }
 
 TEST(ParserTest, ArrayReferenceType) {
-    const char* source =
-        "func f :: (x :: [int32 : 4u]& ) -> void { }";
+    const char* source = "func f :: (x :: [int32 : 4u]& ) -> void { }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -1211,8 +1212,7 @@ TEST(ParserTest, ArrayReferenceType) {
 }
 
 TEST(ParserTest, GoodExternFunctionDeclaration) {
-    const char* source =
-        "extern func foo :: (a :: int32, b :: int32) -> int32;";
+    const char* source = "extern func foo :: (a :: int32, b :: int32) -> int32;";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -1220,8 +1220,7 @@ TEST(ParserTest, GoodExternFunctionDeclaration) {
 }
 
 TEST(ParserTest, GoodExternLambdaDeclaration) {
-    const char* source =
-        "extern lambda add :: (x :: int32) -> int32;";
+    const char* source = "extern lambda add :: (x :: int32) -> int32;";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
@@ -1353,4 +1352,82 @@ TEST(ParserTest, ListBuiltinPushArityError) {
     EXPECT_GT(parser_errors, 0);
 }
 
+TEST(ParserTest, GoodCallableTypeFunctionSyntax) {
+    const char* source =
+        "func predef :: (a :: int32, b :: float) -> float { return b; }\n"
+        "let f :: func[(int32, float) -> float] = predef;\n";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
 
+TEST(ParserTest, GoodCallableTypeLambdaSyntax) {
+    const char* source =
+        "lambda step :: (a :: int32) -> int32 { return a; }\n"
+        "let f :: lambda[(int32) -> int32] = step;\n";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodCallableTypeConstAndReference) {
+    const char* source =
+        "func predef :: (a :: int32) -> int32 { return a; }\n"
+        "func rebind :: () -> void {\n"
+        "    let f :: func[(int32) -> int32] = predef;\n"
+        "    let c :: const func[(int32) -> int32] = predef;\n"
+        "    let r :: func[(int32) -> int32]& = f;\n"
+        "    r = predef;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodCallableTypeHigherOrder) {
+    const char* source =
+        "func predef :: (a :: int32) -> float { return 1.0; }\n"
+        "let hof :: func[(func[(int32) -> float]) -> int32] = predef;\n";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodCallableTypeEmptyParamList) {
+    const char* source = "let f :: func[() -> int32] = g;\n";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodCallableTypeAsParamAndReturn) {
+    const char* source =
+        "func use :: (cb :: func[(int32) -> int32]) -> func[(int32) -> int32] {\n"
+        "    return cb;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, BadCallableTypeWithParamNames) {
+    const char* source = "let f :: func[(x :: int32) -> int32] = g;\n";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(parser_errors, 0);
+}
+
+TEST(ParserTest, BadCallableTypeMissingArrow) {
+    const char* source = "let f :: func[(int32) int32] = g;\n";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_GT(parser_errors, 0);
+}

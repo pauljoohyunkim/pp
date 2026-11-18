@@ -8,5 +8,13 @@
 * Lambdas are pure: cannot call regular functions or capture mutable globals.
 * Operator overloading limited to const-ref parameters and value returns.
 * Array sizes are limited to 64-bit via `strtoull` parsing.
+* Callable values (`func[...]` / `lambda[...]`) are code pointers only: no closures or captured environments.
+* No pointers to lambda types: `ptr[lambda[...]]` is rejected (pointers to `func[...]` are supported).
+* A non-empty global list initializer is rejected for every element type, including callables.
+* Callable values support only `==` / `!=` between identical callable types; no arithmetic/bitwise or ordering
+  operators.
+* `lambda[...]` → `func[...]` widening is explicit-only and requires an identical signature.
+* Function-typed globals require an initializer that is a `func` or `lambda` declaration name (no indirect
+  initialization).
 
 These limits are tracked in `PROGRESS.md`.

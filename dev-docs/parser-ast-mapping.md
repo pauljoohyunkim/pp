@@ -13,7 +13,12 @@ This guide explains how the recursive-descent parser turns source text into AST 
   * `PP_AST_NewtypeDeclarationNode`
 
 ## Key mappings
-* `type` → `PP_AST_TypeExpressionNode` containing a `TypeBase`, `TypeArray` or `TypeList` node, with `is_const`/`is_reference` flags.
+* `type` → `PP_AST_TypeExpressionNode` containing a `TypeBase`, `TypeArray`, `TypeList`, `TypePointer` or
+  `TypeCallable` node, with `is_const`/`is_reference` flags.
+  * `ptr[T]` is parsed by `pp_parser_parse_pointer_type`; `func[(...)] -> T` / `lambda[(...)] -> T` are parsed by
+    `pp_parser_parse_callable_type`, both dispatched from `pp_parser_parse_collection_type`.
+  * `PP_AST_TypeCallableNode` stores `kind` (`PP_CK_Function` / `PP_CK_Lambda`), `param_types[]`, `param_count`,
+    `param_capacity` and `return_type`. Parameter *names* are rejected by the parser.
 * `param_decl` → `PP_AST_ParamDeclarationNode` with identifier and type expression.
 * `struct_member` → field stored in `struct_declaration.fields[]` with optional initializer AST node.
 * `block` → `PP_AST_StatementListNode` with owned child statements.

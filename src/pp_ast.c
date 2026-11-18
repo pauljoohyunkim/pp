@@ -224,6 +224,16 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_root_free_internal(node->type_pointer.pointee_type);
             break;
         }
+        case PP_AST_TypeCallableNode: {
+            if (node->type_callable.param_types) {
+                for (unsigned int i = 0; i < node->type_callable.param_count; i++) {
+                    pp_ast_root_free_internal(node->type_callable.param_types[i]);
+                }
+                free(node->type_callable.param_types);
+            }
+            pp_ast_root_free_internal(node->type_callable.return_type);
+            break;
+        }
         case PP_AST_TypedefDeclarationNode: {
             /* typedef_declaration.identifier is pool-owned const char* – do not free */
             pp_ast_root_free_internal(node->typedef_declaration.base_type);
@@ -439,6 +449,15 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
         case PP_AST_TypePointerNode:
             printf("TypePointer\n");
             pp_ast_root_print(node->type_pointer.pointee_type, depth + 1);
+            break;
+        case PP_AST_TypeCallableNode:
+            printf("TypeCallable %s\n", node->type_callable.kind == PP_CK_Lambda     ? "lambda"
+                                        : node->type_callable.kind == PP_CK_Operator ? "operator"
+                                                                                     : "func");
+            for (unsigned int i = 0; i < node->type_callable.param_count; i++) {
+                pp_ast_root_print(node->type_callable.param_types[i], depth + 1);
+            }
+            if (node->type_callable.return_type) pp_ast_root_print(node->type_callable.return_type, depth + 1);
             break;
         case PP_AST_StructInitializerNode:
             printf("StructInitializer %s\n",

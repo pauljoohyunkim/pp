@@ -345,6 +345,9 @@ static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType*
         case PP_TK_Bool:
         case PP_TK_Void:
         case PP_TK_Pointer:
+        case PP_TK_Function:
+        case PP_TK_Lambda:
+        case PP_TK_Operator:
             return true;
         case PP_TK_Const:
             return pp_type_is_trivially_copyable_impl(type->type.pp_type_const.const_of, stack, depth + 1);

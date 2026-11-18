@@ -311,9 +311,12 @@ const PPType* pp_type_decay(PP_GlobalTypeTable* gtt, const PPType* type) {
         case PP_TK_Struct:
         case PP_TK_Newtype:
         case PP_TK_String:
+        case PP_TK_Function:
+        case PP_TK_Lambda:
+        case PP_TK_Operator:
             return type;
         default:
-            assert(0 && "Not available (yet) for Function, Lambda");
+            assert(0 && "pp_type_decay: unhandled type kind");
             break;
     }
 
@@ -385,6 +388,9 @@ const PPType* pp_type_decay_cg(const PP_GlobalTypeTable* gtt, const PPType* type
         case PP_TK_Struct:
         case PP_TK_Newtype:
         case PP_TK_String:
+        case PP_TK_Function:
+        case PP_TK_Lambda:
+        case PP_TK_Operator:
             return type;
         default:
             goto error_cleanup;
