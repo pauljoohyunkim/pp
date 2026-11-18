@@ -202,9 +202,14 @@ Gate: codegen tests assert the drop call and the null guard in IR.
 - [x] Do not commit the built binary
 
 ### Phase 8 — Docs / cleanup
-- [ ] `docs/language/` section for handles (contract table from §1)
-- [ ] `notes/` ownership note update
-- [ ] Confirm no `HANDLE_OWNERSHIP_PROBLEM.md` remains
+- [x] `docs/language/09-handles.md` — user-facing page (rule, examples, drop function, reassignment, pointer
+      handles, restrictions, C interop). Linked from `03-declarations.md` and `docs/README.md`.
+- [x] `docs/reference/grammar.md` — `handle` added to the declaration production.
+- [x] `docs/reference/known-limitations.md` — handle restrictions listed.
+- [x] `notes/handle_design.md` — decisions, rationale, rejected alternatives, compiler contract, test map
+      (this is the file to hand to another agent/LLM for context).
+- [x] `notes/ownership_model.md` — points at `notes/handle_design.md` for language-level ownership.
+- [x] Confirm no `HANDLE_OWNERSHIP_PROBLEM.md` remains
 
 ---
 
@@ -220,7 +225,7 @@ Gate: codegen tests assert the drop call and the null guard in IR.
 | 5 | Codegen: dispatch, drop body, no flags | IR assertions in codegen tests | [x] |
 | 6 | Full test suite | `./bin/unittest` all green | [x] |
 | 7 | Demo | `demo/06_handle` prints `12345678`, exit 0, valgrind clean | [x] |
-| 8 | Docs | read-through | [ ] |
+| 8 | Docs | read-through | [x] |
 
 ## 4. Definition of done
 

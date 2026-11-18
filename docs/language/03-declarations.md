@@ -71,6 +71,20 @@ newtype int32 Meters;
 
 `typedef` creates an alias. `newtype` creates a distinct nominal type.
 
+## Handles
+
+`handle` declares a nominal type that owns a resource and binds the function that releases it:
+
+```pp
+handle File   :: int32     drop pp_file_close;
+handle Buffer :: ptr[void] drop EVP_free;
+```
+
+A handle is born in a `let`, is shared only by reference, and is dropped automatically at the end of its scope.
+It cannot be copied, passed by value, or released explicitly.
+
+See [Handles](09-handles.md) for the full rules.
+
 ## Operators
 
 User-defined operators are declared with `operator`:
