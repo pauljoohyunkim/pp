@@ -764,6 +764,10 @@ static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PP
                                  "Array/List element type cannot transitively contain a reference");
         return 0;
     }
+    if (pp_type_contains_handle(elem_type)) {
+        pp_error_list_push_error(sa->error_list, loc, "Array/List element type cannot contain a handle");
+        return 0;
+    }
     return 1;
 }
 
@@ -2704,6 +2708,14 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_fields(PP_SemanticAnaly
             goto error_cleanup;
         }
 
+        // Handle drop is a per-variable effect; owning storage inside an aggregate needs storage moves.
+        if (pp_type_contains_handle(field_type)) {
+            pp_error_list_push_error(sa->error_list, field->field->param_declaration.type_expr->loc,
+                                     "Struct field '%s' cannot have a handle type",
+                                     field->field->param_declaration.identifier);
+            goto error_cleanup;
+        }
+
         // If initializer = NULL, it stores NULL, and if initializer exists, it stores the initializer.
         if (!pp_struct_layout_push_field(struct_layout, field->field->param_declaration.identifier, field_type,
                                          field->initializer)) {
@@ -3162,6 +3174,14 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         }
     }
 
+    // A handle must be acquired through an initializer: its drop is bound to a real resource.
+    if (pp_type_contains_handle(symbol_type) && !node->variable_declaration.initializer) {
+        pp_error_list_push_error(sa->error_list, node->loc,
+                                 "Variable \"%s\" is declared as handle type, but initializer does not exist.",
+                                 symbol_name);
+        goto error_cleanup;
+    }
+
     // Callable values have no null representation in v1, so the initializer is mandatory.
     if (pp_type_is_callable(pp_type_decay(sa->gtt, symbol_type)) && !node->variable_declaration.initializer) {
         pp_error_list_push_error(sa->error_list, node->loc,
@@ -3308,6 +3328,33 @@ static int pp_semantic_analyzer_full_analyze_return_statement(PP_SemanticAnalyze
         pp_error_list_push_error(sa->error_list, node->loc,
                                  "Return type and expression type in the return statement do not match.");
         goto error_cleanup;
+    }
+
+    // Returning an owning non-copyable value is a move, so it must come from a local variable.
+    // Returning a reference (or any other l-value expression) would silently copy the resource.
+    const PPType* declared_return_type = sa->current_function_type->type.pp_type_function.return_type;
+    if (pp_type_needs_drop(declared_return_type) && !pp_type_is_copyable(declared_return_type)) {
+        if (node->return_statement.expr->node_type != PP_AST_IdentifierNode) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Returning a non-copyable value by value requires moving a local variable.");
+            goto error_cleanup;
+        }
+        const char* returned_name = node->return_statement.expr->identifier.identifier;
+        if (!returned_name || !pp_symbol_table_lookup(symbol_table, returned_name, true)) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Returning a non-copyable value by value requires a local variable, but \"%s\" "
+                                     "is not one.",
+                                     returned_name ? returned_name : "<unknown>");
+            goto error_cleanup;
+        }
+        // A reference (or pointer dereference) is a borrow: returning it by value would copy the resource.
+        if (pp_type_is_reference(expr_decor->resolved_type)) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Cannot return a non-copyable value by value from a reference: \"%s\" is "
+                                     "borrowed.",
+                                     returned_name);
+            goto error_cleanup;
+        }
     }
 
     // Return type reference handling.
@@ -5255,6 +5302,13 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
 
     if (pp_type_is_top_level_const(target_type)) {
         pp_error_list_push_error(sa->error_list, expr->loc, "Casting to const is not allowed.");
+        goto error_cleanup;
+    }
+
+    // Handles are acquired through functions returning the handle type, never fabricated by a cast.
+    // The reverse direction (handle -> underlying) remains legal: it only reads the raw value.
+    if (pp_type_contains_handle(target_type)) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "Casting to a handle type is not allowed.");
         goto error_cleanup;
     }
 

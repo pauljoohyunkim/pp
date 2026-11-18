@@ -2106,3 +2106,126 @@ TEST(SemanticTest, HandleIsMoveOnly) {
     EXPECT_EQ(parser_errors, 0);
     EXPECT_GT(semantic_errors, 0);
 }
+
+/* --- handle ownership tightening --- */
+
+TEST(SemanticTest, HandleNoCastToHandle) {
+    const char* source =
+        "func close_fd :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop close_fd;\n"
+        "func main :: () -> void {\n"
+        "    let f :: File = 3 as File;\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleRequiresInitializer) {
+    const char* source =
+        "func close_fd :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop close_fd;\n"
+        "func main :: () -> void {\n"
+        "    let f :: File;\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleReturnFromReferenceError) {
+    const char* source =
+        "func close_fd :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop close_fd;\n"
+        "func dup :: (h :: const File&) -> File {\n"
+        "    return h;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleReturnLocalMoveValid) {
+    const char* source =
+        "func close_fd :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop close_fd;\n"
+        "extern func open_file :: () -> File;\n"
+        "func make :: () -> File {\n"
+        "    let h :: File = open_file();\n"
+        "    return h;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleStructFieldError) {
+    const char* source =
+        "func close_fd :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop close_fd;\n"
+        "struct Holder { f :: File; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleCollectionElementError) {
+    const char* source =
+        "func close_fd :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop close_fd;\n"
+        "func main :: () -> void {\n"
+        "    let files :: [File];\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleReverseCastValid) {
+    const char* source =
+        "func close_fd :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop close_fd;\n"
+        "extern func open_file :: () -> File;\n"
+        "func raw :: () -> int32 {\n"
+        "    let h :: File = open_file();\n"
+        "    return h as int32;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleByValueArgumentIsMoveValid) {
+    const char* source =
+        "func close_fd :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop close_fd;\n"
+        "extern func open_file :: () -> File;\n"
+        "func consume :: (f :: File) -> void { return; }\n"
+        "func main :: () -> void {\n"
+        "    let h :: File = open_file();\n"
+        "    consume(h);\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
