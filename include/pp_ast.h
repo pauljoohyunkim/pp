@@ -76,7 +76,9 @@ typedef enum {
     PP_AST_CollectionInitializerNode,
     PP_AST_ListPushNode,
     PP_AST_ListPopNode,
-    PP_AST_ListClearNode
+    PP_AST_ListClearNode,
+    PP_AST_BreakStatementNode,
+    PP_AST_ContinueStatementNode
 } PP_AST_NodeType;
 
 typedef enum {
@@ -313,6 +315,12 @@ struct PP_AST_Node {
             PP_AST_Node* list;
             PP_AST_Decoration* decoration;
         } list_clear;
+
+        struct { /* BreakStatement */
+        } break_statement;
+
+        struct { /* ContinueStatement */
+        } continue_statement;
     };
 };
 

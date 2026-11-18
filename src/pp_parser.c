@@ -45,6 +45,8 @@ static PP_AST_Node* pp_parser_create_if_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_while_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_for_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_break_statement(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_continue_statement(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_variable_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_variable_decl(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_param_decl(PP_Parser* parser);
@@ -844,6 +846,10 @@ static PP_AST_Node* pp_parser_create_statement(PP_Parser* parser) {
             return pp_parser_create_while_statement(parser);
         case PP_TT_FOR:
             return pp_parser_create_for_statement(parser);
+        case PP_TT_BREAK:
+            return pp_parser_create_break_statement(parser);
+        case PP_TT_CONTINUE:
+            return pp_parser_create_continue_statement(parser);
         case PP_TT_LET:
             return pp_parser_create_variable_declaration(parser);
         default: {
@@ -1165,6 +1171,60 @@ static PP_AST_Node* pp_parser_create_return_statement(PP_Parser* parser) {
 error_cleanup:
     pp_ast_root_free(node);
     pp_ast_root_free(expr);
+    return NULL;
+}
+
+static PP_AST_Node* pp_parser_create_break_statement(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_Token* break_tok = NULL;
+    PP_Token* semicolon = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    // break token
+    {
+        break_tok = pp_parser_consume_token(parser, PP_TT_BREAK);
+        NULL_POINTER_ERROR_HANDLE(break_tok);
+    }
+
+    // semicolon
+    {
+        semicolon = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semicolon);
+    }
+
+    node = pp_ast_node_create(PP_AST_BreakStatementNode, break_tok->loc);
+    NULL_POINTER_ERROR_HANDLE(node);
+
+    return node;
+error_cleanup:
+    pp_ast_root_free(node);
+    return NULL;
+}
+
+static PP_AST_Node* pp_parser_create_continue_statement(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_Token* continue_tok = NULL;
+    PP_Token* semicolon = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    // continue token
+    {
+        continue_tok = pp_parser_consume_token(parser, PP_TT_CONTINUE);
+        NULL_POINTER_ERROR_HANDLE(continue_tok);
+    }
+
+    // semicolon
+    {
+        semicolon = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semicolon);
+    }
+
+    node = pp_ast_node_create(PP_AST_ContinueStatementNode, continue_tok->loc);
+    NULL_POINTER_ERROR_HANDLE(node);
+
+    return node;
+error_cleanup:
+    pp_ast_root_free(node);
     return NULL;
 }
 

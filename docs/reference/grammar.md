@@ -13,6 +13,12 @@ declaration ::= function | lambda | struct | variable | operator | extern
 
 ```ebnf
 statement ::= variable_declaration | assignment | return | if_stmt | while_stmt | for_stmt | block | expression_stmt
+         | break_stmt | continue_stmt
+```
+
+```ebnf
+break_stmt ::= "break" ";"
+continue_stmt ::= "continue" ";"
 ```
 
 ## Expressions

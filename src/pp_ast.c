@@ -295,6 +295,12 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_decoration_free(node->list_clear.decoration);
             break;
         }
+        case PP_AST_BreakStatementNode:
+            /* break has no sub expressions */
+            break;
+        case PP_AST_ContinueStatementNode:
+            /* continue has no sub expressions */
+            break;
         default:
             break;
     }
@@ -358,6 +364,12 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             if (node->for_statement.cond) pp_ast_root_print(node->for_statement.cond, depth + 1);
             if (node->for_statement.update) pp_ast_root_print(node->for_statement.update, depth + 1);
             pp_ast_root_print(node->for_statement.body, depth + 1);
+            break;
+        case PP_AST_BreakStatementNode:
+            printf("BreakStatement\n");
+            break;
+        case PP_AST_ContinueStatementNode:
+            printf("ContinueStatement\n");
             break;
         case PP_AST_CallableDeclarationNode:
             printf("Function %s\n", node->callable_declaration.name ? node->callable_declaration.name : "");

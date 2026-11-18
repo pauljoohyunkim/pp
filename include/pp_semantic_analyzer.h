@@ -41,6 +41,7 @@ typedef struct {
     PP_OperatorOverloadRegistry* operator_overloads;
 
     const PPType* current_function_type;
+    unsigned int current_loop_depth; /* Loop nesting depth for break/continue validation. */
     PP_ErrorList* error_list;
 } PP_SemanticAnalyzer;
 

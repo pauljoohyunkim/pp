@@ -24,6 +24,8 @@ Exit code is `0` only when everything is clean. Logs:
 * `$LOGDIR/pp_valgrind_unittest.log`
 * `$LOGDIR/pp_valgrind_<demo>_<plain|debug>_compile.log` and `..._run.log`
 
+On failure, the summary names the failing step and the log file that holds the full Valgrind output.
+
 ## What the script does
 
 1. **Fresh build**: `make clean`, `make pplang`, `make unittest`, and `make -C lib/pp_std`.
@@ -35,13 +37,27 @@ Exit code is `0` only when everything is clean. Logs:
    demo, twice (plain and `-g`):
    * `make clean`, then `make PPLANG="valgrind --leak-check=full --error-exitcode=1 <root>/bin/pplang [-g]"`.
      Wrapping `PPLANG` reuses each demo Makefile's own sources, `.ppi` flags and stdlib archive, so nothing is
-     duplicated here.
+     duplicated here. Demo Makefiles also accept `PPCFLAGSEXTRA` for extra pplang flags (e.g. `-O2`), which the
+     script does not need because `-g` is passed directly to `pplang`.
    * Locate the produced binary with `find <demo> -maxdepth 1 -type f -perm -u+x` (demos contain no other
      executables) and run it under valgrind.
    * Require `All heap blocks were freed -- no leaks are possible` in **both** the compile and run logs.
    * Treat a missing binary as a failure. Do not trust `make`'s exit status alone: `bin/pplang` used to exit 0
      when the system linker failed, so artifact presence is the reliable signal (the driver now propagates link
      status, but keep artifact checks as a guard).
+
+## Success criteria
+
+* `bin/unittest` passes under Valgrind with 0 definitely/indirectly/possibly lost and 0 errors.
+* Every demo compiles under Valgrind with no leaks.
+* Every demo binary runs under Valgrind with no leaks.
+* The same holds for the `-g` build of every demo.
+
+## Failure investigation
+
+* Read `$LOGDIR/pp_valgrind_summary.log` to find the failing demo/mode/step.
+* Then open the matching `..._compile.log` or `..._run.log`; it has the full Valgrind output with the leak stacks.
+* Reproduce by hand (below), keeping the artifact instead of deleting it.
 
 ## Manual fallback
 
