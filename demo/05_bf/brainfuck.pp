@@ -73,7 +73,7 @@ func runBFCode :: (ctx :: BFContext&) -> void {
         } else if (cur == RIGHT_SQUARE_BRACKET) {
             if (ctx.memory[ctx.mem_idx as uint32] != 0uss) {
                 if (#ctx.return_stack == 0u) {
-                    pp_std_print_string("[ ] Unmatched ']' – aborting\n");
+                    pp_std_print_string("[ ] Unmatched ']' - aborting\n");
                     pp_std_abort();
                 } else {
                     let idx :: const uint32 = list_pop(ctx.return_stack);
