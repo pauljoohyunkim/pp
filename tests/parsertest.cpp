@@ -1431,3 +1431,19 @@ TEST(ParserTest, BadCallableTypeMissingArrow) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_GT(parser_errors, 0);
 }
+
+TEST(ParserTest, GoodHandleDeclaration) {
+    const char* source = "handle File :: int32 drop pp_std_file_close;\n";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodHandleDeclarationPtr) {
+    const char* source = "handle Evp :: ptr[void] drop EVP_free;\n";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}

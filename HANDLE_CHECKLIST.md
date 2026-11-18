@@ -37,11 +37,11 @@ Type-introducing declaration, same family as `newtype` and `typedef`.
 - [x] Update keyword table in `src/pp_lexer.c`
 
 ### Parser / AST
-- [ ] Add AST node enum for `AST_HANDLE_DECL` in `include/pp_ast.h`
-- [ ] Add struct fields: name, underlying_type, drop_func_name
-- [ ] Parser support in `src/pp_parser.c`: parse `handle_decl`
-- [ ] Update `global_declaration` parsing
-- [ ] Add parser tests
+- [x] Add AST node enum for `AST_HANDLE_DECL` in `include/pp_ast.h`
+- [x] Add struct fields: name, underlying_type, drop_func_name
+- [x] Parser support in `src/pp_parser.c`: parse `handle_decl`
+- [x] Update `global_declaration` parsing
+- [x] Add parser tests
 
 ### Semantic Analyzer
 - [ ] Pass 1: register handle in `named_types`, create PPType with kind Handle
