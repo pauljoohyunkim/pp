@@ -727,6 +727,8 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     PPType* temp_type = NULL;                 /* owned – can be freed on error */
     const PPType* gtt_lookedup_type = NULL;   /* For alias and named types */
     const PPType* gtt_registered_type = NULL; /* borrowed from GTT – must not be freed here */
+    const PPType* param_type = NULL;          /* borrowed from GTT – parameter of a callable type */
+    const PPType* ret_type = NULL;            /* borrowed from GTT – return type of a callable type */
 
     // Resolve base type via new recursive AST or legacy fields
     const PP_AST_Node* inner = type_node->type_expression.type_node;
@@ -739,14 +741,14 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
         base_kind = inner->type_base.kind;
         base_identifier = inner->type_base.identifier_name;
     } else if (inner->node_type != PP_AST_TypeArrayNode && inner->node_type != PP_AST_TypeListNode &&
-               inner->node_type != PP_AST_TypePointerNode) {
+               inner->node_type != PP_AST_TypePointerNode && inner->node_type != PP_AST_TypeCallableNode) {
         pp_error_list_push_error(sa->error_list, type_node->loc, "Unsupported type node");
         goto error_cleanup;
     }
 
-    // Handle collection / pointer types from new AST
+    // Handle collection / pointer / callable types from new AST
     if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode ||
-        inner->node_type == PP_AST_TypePointerNode) {
+        inner->node_type == PP_AST_TypePointerNode || inner->node_type == PP_AST_TypeCallableNode) {
         if (inner->node_type == PP_AST_TypePointerNode) {
             const PPType* pointee_type = pp_type_from_type_node(sa, inner->type_pointer.pointee_type);
             if (!pointee_type) goto error_cleanup;
@@ -764,7 +766,7 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 pp_error_list_push_error(sa->error_list, type_node->loc, "Failed to intern pointer type");
                 goto error_cleanup;
             }
-        } else {
+        } else if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode) {
             const PPType* elem_type = NULL;
             if (inner->node_type == PP_AST_TypeArrayNode) {
                 elem_type = pp_type_from_type_node(sa, inner->type_array.element_type);
@@ -798,6 +800,61 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 pp_error_list_push_error(sa->error_list, type_node->loc, "Failed to intern array/list");
                 goto error_cleanup;
             }
+        } else {
+            PP_AST_CallableKind callable_kind = inner->type_callable.kind;
+            PPTypeKind callable_type_kind = (callable_kind == PP_CK_Lambda) ? PP_TK_Lambda : PP_TK_Function;
+            unsigned int i = 0;
+
+            assert(callable_kind == PP_CK_Function || callable_kind == PP_CK_Lambda);
+
+            if (!inner->type_callable.return_type) {
+                pp_error_list_push_error(sa->error_list, type_node->loc,
+                                         "Callable type must have an explicit return type");
+                goto error_cleanup;
+            }
+
+            temp_type = pp_type_create(callable_type_kind);
+            if (!temp_type) {
+                pp_error_list_push_error(sa->error_list, type_node->loc, "Failed to create callable type");
+                goto error_cleanup;
+            }
+
+            for (i = 0; i < inner->type_callable.param_count; i++) {
+                param_type = pp_type_from_type_node(sa, inner->type_callable.param_types[i]);
+                if (!param_type) {
+                    pp_error_list_push_error(sa->error_list, type_node->loc, "Invalid parameter type in callable type");
+                    goto error_cleanup;
+                }
+                if (param_type->kind == PP_TK_Void) {
+                    pp_error_list_push_error(sa->error_list, type_node->loc, "Callable type parameter cannot be void");
+                    goto error_cleanup;
+                }
+                if (!pp_type_push_param(temp_type, param_type)) {
+                    pp_error_list_push_error(sa->error_list, type_node->loc,
+                                             "Failed to add parameter type to callable type");
+                    goto error_cleanup;
+                }
+                param_type = NULL;
+            }
+
+            ret_type = pp_type_from_type_node(sa, inner->type_callable.return_type);
+            if (!ret_type) {
+                pp_error_list_push_error(sa->error_list, type_node->loc, "Invalid return type in callable type");
+                goto error_cleanup;
+            }
+            if (callable_type_kind == PP_TK_Function) {
+                temp_type->type.pp_type_function.return_type = ret_type;
+            } else {
+                temp_type->type.pp_type_lambda.return_type = ret_type;
+            }
+            ret_type = NULL;
+
+            gtt_registered_type = pp_global_type_table_intern(sa->gtt, temp_type);
+            if (!gtt_registered_type) {
+                pp_error_list_push_error(sa->error_list, type_node->loc, "Failed to intern callable type");
+                goto error_cleanup;
+            }
+            temp_type = NULL;
         }
     } else {
         switch (base_kind) {

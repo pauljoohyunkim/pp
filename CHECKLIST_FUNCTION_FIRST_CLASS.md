@@ -153,24 +153,39 @@ No captures, no closures: a function value is a code pointer only. No null funct
 
 Note: malformed callable types at global scope recover with `parse_result == 1` and `parser_errors > 0`, matching
 other `Bad*` tests in this suite.
-Note: until Phase 3 lands, semantic analysis reports "Unsupported type node" for any `func[...]`/`lambda[...]`
-— expected.
+Note: semantic analysis reported "Unsupported type node" for `func[...]`/`lambda[...]` until Phase 3 landed.
 
 ---
 
-## Phase 3 — Type resolution
+## Phase 3 — Type resolution  — DONE
 
-- [ ] In `pp_type_from_type_node` (`src/pp_semantic_analyzer.c`), accept `PP_AST_TypeCallableNode`.
-- [ ] Resolve each parameter type and the return type with `pp_type_from_type_node`.
-- [ ] Create `PP_TK_Function` or `PP_TK_Lambda` according to the node's `kind`.
-- [ ] Push parameter types via `pp_type_push_param`, then set `return_type`.
-- [ ] Intern the type in the global type table and free the temporary on failure.
-- [ ] Validate parameter and return types as needed (`void` return is allowed; `void` parameter should be
-      rejected).
-- [ ] Confirm named functions produce a structurally identical `PP_TK_Function` type for the same signature, so
-      `let f :: func[...] = predef_func;` type-checks exactly.
-- [ ] Confirm `const func[...]` and `func[...]&` create the usual `PP_TK_Const` / `PP_TK_Reference` wrappers.
-- [ ] Confirm `lambda[(...)]` and `func[(...)]` of the same signature are distinct types.
+- [x] In `pp_type_from_type_node` (`src/pp_semantic_analyzer.c`), accept `PP_AST_TypeCallableNode` (inner-node
+      whitelist and the collection/pointer branch condition extended; new final `else` arm handles callables).
+- [x] Resolve each parameter type and the return type with `pp_type_from_type_node` (recursive, so higher-order
+      signatures work).
+- [x] Create `PP_TK_Function` or `PP_TK_Lambda` according to the node's `kind` (`PP_CK_Lambda` → `PP_TK_Lambda`,
+      otherwise `PP_TK_Function`; `PP_CK_Operator` cannot appear in a type node and is asserted away).
+- [x] Push parameter types via `pp_type_push_param`, then set `return_type` in the matching union member.
+- [x] Intern the type in the global type table; on failure push an error and go to `error_cleanup`, which frees
+      the temporary `temp_type` unconditionally (NULL-safe).
+- [x] Validate as needed: missing `return_type` node is rejected (defensive; the parser always produces one),
+      `void` return type is allowed, a `void` parameter type is rejected with "Callable type parameter cannot be
+      void". Parameter-name rejection stays in the parser.
+- [x] Named-function identity: `pp_global_type_table_intern` compares signatures structurally
+      (`pp_type_equal`, `src/pp_type_table.c:125-139`), so a declaration and a `func[...]` type of the same
+      signature intern to the same `PP_TK_Function`. Exercising it through `let f :: func[...] = named_func;`
+      needs Phase 4 (decay) and Phase 5 (symbol `is_callable`).
+- [x] `const func[...]` / `func[...]&` build the usual `PP_TK_Const` / `PP_TK_Reference` wrappers (wrapping code is
+      outside the branch and applies to all types). Verified through parameter types: semantic analysis passes;
+      codegen still asserts, which is Phase 4+ work.
+- [x] `lambda[(...)]` and `func[(...)]` of the same signature are distinct types: `pp_type_equal` switches on
+      `kind` before comparing signatures, so interning keeps them separate.
+
+Verification: `make pplang` and `make unittest` clean (381 tests pass). Smoke tests via `bin/pplang`:
+`typedef func[(int32, int32) -> int32] AddFn;`, `typedef lambda[(int32) -> int32] MakeFn;`,
+higher-order `func[() -> func[(int32) -> int32]]` all compile; `func[(void) -> int32]` is rejected.
+Known gap (later phases): a callable-typed struct field passes semantic analysis but aborts in
+`pp_code_generator_fill_type_map_complex` (`assert(llvm_member_type)`) — Phase 4 type-map work.
 
 ---
 
