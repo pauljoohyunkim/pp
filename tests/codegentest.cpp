@@ -2361,3 +2361,32 @@ TEST(CodeGenTest, HandleReturnedByCallIsNotDroppedInCallee) {
     // make() hands ownership to the caller: it must not drop what it returns.
     EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 0u);
 }
+
+TEST(CodeGenTest, StringReassignDropsOldValue) {
+    const char* source = "func work :: () -> void {\n"
+                         "    let s :: string = \"aaaa\";\n"
+                         "    s = \"bbbb\";\n"
+                         "    return;\n"
+                         "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // One drop for the overwritten buffer, one at scope exit.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
+TEST(CodeGenTest, ListReassignDropsOldValue) {
+    const char* source = "func work :: () -> void {\n"
+                         "    let l :: [int32] = [int32; 1, 2, 3];\n"
+                         "    l = [int32; 4, 5, 6];\n"
+                         "    return;\n"
+                         "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}

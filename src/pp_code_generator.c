@@ -1993,9 +1993,10 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
         // Normal rvalue or trivial copy
         LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
         assert(llvm_rhs);
-        // A handle owns its resource: the value it currently holds must be released before the new one is
-        // stored, otherwise the old resource leaks.
-        if (pp_type_is_handle(lhs_type)) { pp_code_generator_emit_drop(cg, llvm_lhs, lhs_type); }
+        // An owning lvalue always holds a live value (an uninitialized local is zero-filled at declaration), so
+        // whatever it holds now must be released before the new value is stored. This covers handles as well as
+        // strings and lists; without it the overwritten value leaks.
+        if (needs_drop) { pp_code_generator_emit_drop(cg, llvm_lhs, lhs_type); }
         LLVMBuildStore(cg->builder, llvm_rhs, llvm_lhs);
         return 1;
     }

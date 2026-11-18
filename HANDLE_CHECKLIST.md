@@ -152,7 +152,10 @@ File: `src/pp_code_generator.c`, `include/pp_code_generator.h` (no struct change
 - [x] Confirm `return <call>` leaves no drop of the returned user in the callee
 - [x] **Reassignment must drop the overwritten value.** The assignment path only dropped the old value when the
       RHS was an lvalue; `h = pp_open();` stored over a live handle and leaked it (found by the demo: one close
-      instead of two). Fixed by emitting the handle drop before the store in the rvalue path.
+      instead of two). Fixed in the drop mechanic rather than by banning reassignment: the rvalue path now drops
+      whenever the LHS type needs a drop. That also fixes the same leak for `s = "..."` (verified: 8 bytes
+      definitely lost before, clean after) and for `l = [T; ...]`. Safe because an uninitialized owning local is
+      zero-filled at declaration, so the old value is always either null or live.
 
 Gate: codegen tests assert the drop call and the null guard in IR.
 
