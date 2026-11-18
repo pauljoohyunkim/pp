@@ -9,6 +9,8 @@ Type-introducing declaration, same family as `newtype` and `typedef`.
 - Pass 1: register handle name in `named_types`, create PPType with new Handle kind carrying underlying type and drop function name string
 - Pass 2: resolve `free_func` in value namespace, check signature `func[(underlying) -> void]`, non-lambda. Store resolved symbol on type
 - Type guards: reject const/reference underlying, reject underlying function type
+- Type guards: reject underlying that **contains a reference** anywhere (recursive)
+- Type guards: reject underlying that **contains a handle** anywhere (recursive, no nesting)
 - Namespace: same as structs/newtypes/typedefs, reuse duplicate-name check
 - Drop generation: `drop_T` for handle calls bound free_func then sentinel/null rule
 - Copyability: `type_is_copyable` returns false for handle
@@ -28,8 +30,8 @@ Type-introducing declaration, same family as `newtype` and `typedef`.
 ### Grammar / Docs
 - [x] Update `notes/bnf.md` `<global_declaration>` to include `<handle_decl> ";"`
 - [x] Add `<handle_decl>` production
-- [ ] Update `docs/` language guide for handle semantics
-- [ ] Document `.ppi` requirements for handle + free_func extern
+- [ ] Update `docs/` language guide for handle semantics  (deferred: do with codegen/docs pass)
+- [ ] Document `.ppi` requirements for handle + free_func extern  (deferred per user)
 
 ### Lexer / Tokens
 - [x] Add `handle` keyword token
@@ -44,37 +46,40 @@ Type-introducing declaration, same family as `newtype` and `typedef`.
 - [x] Add parser tests
 
 ### Semantic Analyzer
-- [ ] Pass 1: register handle in `named_types`, create PPType with kind Handle
-- [ ] Store underlying type, drop_func_name string
-- [ ] Duplicate name check vs structs/newtypes/typedefs
-- [ ] Type guards: reject const/reference underlying, reject function underlying
-- [ ] Pass 2: resolve `free_func` in value namespace
-- [ ] Validate signature `func[(underlying) -> void]`, non-lambda
-- [ ] Store resolved symbol on type
-- [ ] Add `type_contains_handle` check
-- [ ] Ban handle in lambda signatures/bodies
-- [ ] Update `type_is_copyable` to false for handle
-- [ ] Enforce move-only: ban copy from lvalue, by-value param, assignment without move
-- [ ] Allow explicit cast from underlying to handle and reverse cast
-- [ ] Handle null/sentinel rules for drop skipping
-- [ ] Recursive copyability for structs containing handles
-- [ ] Update `notes/general_coding_rule.md` / `ownership_model.md` if needed
+- [x] Pass 1: register handle in `named_types` as `PP_TK_Newtype` carrying `drop_func_name`
+- [x] Store underlying type, drop_func_name string
+- [x] Duplicate name check vs structs/newtypes/typedefs
+- [x] Type guards: reject const/reference underlying, reject function/lambda underlying
+- [x] Add `pp_type_contains_handle` recursive helper (semantic analyzer local)
+- [x] Reject underlying containing reference (`pp_type_contains_reference`)
+- [x] Reject underlying containing handle (`pp_type_contains_handle`)
+- [x] Pass 2: resolve `free_func` in value namespace
+- [x] Validate signature `func[(underlying) -> void]`, non-lambda/non-operator, callable declaration
+- [x] Store resolved symbol on type (`drop_symbol`)
+- [x] Ban handle in lambda signatures and lambda-local variables
+- [x] Ban handle-typed global variables
+- [x] Update `pp_type_needs_drop` / `pp_type_is_copyable` / `pp_type_is_trivially_copyable` for handles
+- [x] Enforce move-only: ban copy from lvalue (existing copyability checks now fire)
+- [x] Explicit casts handled by existing newtype machine-type resolution
+- [ ] Update `notes/general_coding_rule.md` / `ownership_model.md` if needed  (pending decision)
 
 ### Code Generator
-- [ ] Lower handle type to underlying for DWARF typedef
+- [ ] Lower handle type to underlying for DWARF typedef  (already free: Newtype lowers to underlying)
 - [ ] Drop generation: emit call to bound free_func for handle values
 - [ ] Ensure drop not skipped for handles, with null/sentinel check
 - [ ] Emit move semantics: clear source to sentinel on move
 - [ ] Ensure reassignment drops old value then stores new
-- [ ] Debug info emission for handle type
+- [ ] Debug info emission for handle type  (already free: DI type lowers Newtype to underlying)
 - [ ] C boundary: pass raw underlying T to C calls
 
 ### Runtime / Stdlib
 - [ ] No runtime helpers required, but document free_func contract
 
 ### Tests
-- [ ] Unit tests for parser: valid/invalid handle decl
-- [ ] Semantic tests: name collision, const underlying reject, func underlying reject, bad free_func signature reject
+- [x] Unit tests for parser: valid/invalid handle decl
+- [x] Semantic tests: name collision, const/ref/func/struct-with-ref/handle-of-handle underlying reject,
+      missing drop fn, wrong param type, non-void return, two params, lambda as drop, global variable ban,
+      lambda signature/local ban, move-only copy ban
 - [ ] Codegen tests: drop calls free_func exactly once per handle
 - [ ] ASan-test early return, loop, struct field containing handle
 - [ ] Reassign test: old value dropped, new stored
@@ -84,10 +89,10 @@ Type-introducing declaration, same family as `newtype` and `typedef`.
 - [ ] Add demo in `demo/` for handle usage with examples `File` and `Evp`
 
 ### Validation
-- [ ] `make -j`
-- [ ] `bin/unittest`
-- [ ] Valgrind leak check passes
-- [ ] Notebook updated with results
+- [x] `make -j`
+- [x] `bin/unittest` (444 tests pass, incl. 20 new handle tests)
+- [x] Valgrind leak check passes for lexer+parser+semantic path (0 bytes lost, 0 errors)
+- [x] Notebook updated with results
 
 ## Success Criteria
 - Feature works as specified

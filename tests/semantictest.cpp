@@ -1861,3 +1861,248 @@ TEST(SemanticTest, BreakInsideNestedLoops) {
     EXPECT_EQ(parser_errors, 0);
     EXPECT_EQ(semantic_errors, 0);
 }
+
+/* --- handle declaration --- */
+
+TEST(SemanticTest, HandleValidInt32) {
+    const char* source =
+        "func pp_std_file_close :: (fd :: int32) -> void {\n"
+        "    return;\n"
+        "}\n"
+        "handle File :: int32 drop pp_std_file_close;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleDropDeclaredAfterHandle) {
+    const char* source =
+        "handle File :: int32 drop pp_std_file_close;\n"
+        "func pp_std_file_close :: (fd :: int32) -> void {\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleValidPointer) {
+    const char* source =
+        "extern func EVP_free :: (p :: ptr[void]) -> void;\n"
+        "handle Evp :: ptr[void] drop EVP_free;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleValidOverNewtype) {
+    const char* source =
+        "newtype int32 AGE;\n"
+        "func free_using_age :: (a :: AGE) -> void {\n"
+        "    return;\n"
+        "}\n"
+        "handle Handle :: AGE drop free_using_age;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleValidOverStruct) {
+    const char* source =
+        "struct FileMeta { fd :: int32; }\n"
+        "func free_meta :: (m :: FileMeta) -> void {\n"
+        "    return;\n"
+        "}\n"
+        "handle MetaHandle :: FileMeta drop free_meta;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleDuplicateNameError) {
+    const char* source =
+        "func f :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop f;\n"
+        "handle File :: int32 drop f;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleConstUnderlyingError) {
+    const char* source =
+        "func f :: (fd :: int32) -> void { return; }\n"
+        "handle File :: const int32 drop f;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleReferenceUnderlyingError) {
+    const char* source =
+        "func f :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32& drop f;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleFunctionUnderlyingError) {
+    const char* source =
+        "func f :: (g :: func[(int32) -> int32]) -> void { return; }\n"
+        "handle Bad :: func[(int32) -> int32] drop f;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleStructContainingReferenceError) {
+    const char* source =
+        "struct Borrow { ref :: int32&; }\n"
+        "func f :: (b :: Borrow) -> void { return; }\n"
+        "handle Bad :: Borrow drop f;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleOfHandleError) {
+    const char* source =
+        "func f :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop f;\n"
+        "handle Nested :: File drop f;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleMissingDropFunctionError) {
+    const char* source =
+        "handle File :: int32 drop does_not_exist;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleDropWrongParamTypeError) {
+    const char* source =
+        "func f :: (fd :: float) -> void { return; }\n"
+        "handle File :: int32 drop f;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleDropNonVoidReturnError) {
+    const char* source =
+        "func f :: (fd :: int32) -> int32 { return fd; }\n"
+        "handle File :: int32 drop f;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleDropTwoParamsError) {
+    const char* source =
+        "func f :: (fd :: int32, x :: int32) -> void { return; }\n"
+        "handle File :: int32 drop f;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleDropIsLambdaError) {
+    const char* source =
+        "lambda f :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop f;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleGlobalVariableError) {
+    const char* source =
+        "func f :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop f;\n"
+        "let g :: File;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleLambdaParamError) {
+    const char* source =
+        "func f :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop f;\n"
+        "lambda use_file :: (h :: File) -> void { return; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleLambdaLocalVariableError) {
+    const char* source =
+        "func f :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop f;\n"
+        "lambda mk :: () -> void {\n"
+        "    let h :: File;\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
+
+TEST(SemanticTest, HandleIsMoveOnly) {
+    const char* source =
+        "func f :: (fd :: int32) -> void { return; }\n"
+        "handle File :: int32 drop f;\n"
+        "func main :: () -> void {\n"
+        "    let a :: File;\n"
+        "    let b :: File = a;\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_GT(semantic_errors, 0);
+}
