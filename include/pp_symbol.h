@@ -15,6 +15,10 @@ typedef struct PPSymbol {
     bool is_escapable_ref;
     bool is_global;
     bool is_definition;
+    /* True only for callable *declaration* symbols (function/lambda/operator
+     * names). Function-typed variables, parameters and fields are false: they
+     * are storage locations that happen to hold a callable value. */
+    bool is_callable_decl;
 } PPSymbol;
 
 /**
@@ -25,10 +29,11 @@ typedef struct PPSymbol {
  * @param is_escapable_ref Whether reference is escapable
  * @param is_global Whether symbol is declared in the global scope
  * @param is_definition Whether symbol is a definition as opposed to a forward declaration
+ * @param is_callable_decl Whether symbol names a callable declaration (function/lambda/operator)
  * @return PPSymbol* Allocated symbol on success, NULL on failure
  */
 PPSymbol* pp_symbol_create(const PPType* type, bool is_constexpr, bool is_escapable_ref, bool is_global,
-                           bool is_definition);
+                           bool is_definition, bool is_callable_decl);
 
 /**
  * @brief Free a PPSymbol

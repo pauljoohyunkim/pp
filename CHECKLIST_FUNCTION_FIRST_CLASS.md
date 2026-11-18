@@ -174,7 +174,7 @@ Note: semantic analysis reported "Unsupported type node" for `func[...]`/`lambda
 - [x] Named-function identity: `pp_global_type_table_intern` compares signatures structurally
       (`pp_type_equal`, `src/pp_type_table.c:125-139`), so a declaration and a `func[...]` type of the same
       signature intern to the same `PP_TK_Function`. Exercising it through `let f :: func[...] = named_func;`
-      needs Phase 4 (decay) and Phase 5 (symbol `is_callable`).
+      needs Phase 4 (decay) and Phase 5 (symbol `is_callable_decl`).
 - [x] `const func[...]` / `func[...]&` build the usual `PP_TK_Const` / `PP_TK_Reference` wrappers (wrapping code is
       outside the branch and applies to all types). Verified through parameter types: semantic analysis passes;
       codegen still asserts, which is Phase 4+ work.
@@ -212,21 +212,30 @@ Note: `ptr[func[...]]` is still accepted by the type layer — Phase 6 item, not
 
 ---
 
-## Phase 5 — Symbol and identifier semantics
+## Phase 5 — Symbol and identifier semantics  — DONE
 
-- [ ] Add `bool is_callable;` to `PPSymbol` (`include/pp_symbol.h`).
-- [ ] Set `is_callable = true` only for function/lambda/operator declaration symbols in the global-table build
-      paths.
-- [ ] Update `pp_symbol_create` signature and all call sites.
-- [ ] In `pp_semantic_analyzer_check_identifier_expression`:
-  - [ ] callable declaration names remain `RVALUE`;
-  - [ ] function-typed variables/parameters/fields become `LVALUE`.
-- [ ] Verify `f = g;` is accepted for a mutable function-typed variable.
-- [ ] Verify `let h :: func[...]& = f;` is accepted (and rejected when `f` is a function name, which is not a
-      storage location).
-- [ ] Verify `let c :: const func[...] = ...;` rejects rebinding.
-- [ ] Verify lambda-body restrictions still reject global mutable state and regular-function calls where intended.
-- [ ] Verify a call through a value inside a lambda is allowed only for `lambda[...]`.
+- [x] Added `bool is_callable;` to `PPSymbol` (`include/pp_symbol.h`) with a comment: true only for callable
+      declaration names, false for storage locations holding a callable value.
+- [x] `is_callable = true` only in the declaration paths: function decl, operator decl, lambda decl, extern function,
+      extern operator (mangled), extern lambda. Globals, parameters and locals pass `false`.
+- [x] `pp_symbol_create` gained a trailing `bool is_callable` parameter; all 11 call sites updated.
+- [x] `pp_semantic_analyzer_check_identifier_expression`:
+  - [x] callable declaration names are `RVALUE` (via `symbol->is_callable_decl`);
+  - [x] function-typed variables/parameters/fields are `LVALUE` (type kind is no longer used for the category).
+- [x] Lambda global restriction now keys on `is_callable_decl` as well: a `lambda` declaration name stays allowed, a
+      `func` declaration name is still rejected as a "regular function used inside lambda", and a function-typed
+      *global variable* (even one holding a func value) now falls through to the ordinary global-state checks and
+      reports "mutable symbol declared outside of lambda".
+
+Verification (semantic stage via `bin/pplang`, codegen still pending Phase 7/8):
+- `let f :: func[(int32, int32) -> int32] = add; f = sub;` — accepted.
+- `let h :: func[...]& = add;` — rejected: "Variable \"h\" is a reference, but initializer is not an l-value"
+  (function names are not storage locations).
+- `let h :: func[...]& = f;` — accepted (function-typed variable is an l-value).
+- `let c :: const func[...] = add; c = sub;` — rejected: "LHS of assignment should be mutable (non-const)".
+- Lambda parameter of type `lambda[...]` called inside a lambda — accepted; same with a `func[...]` parameter —
+  rejected "Lambda/operator function cannot call regular function".
+- `make pplang` builds, `./bin/unittest` 381/381 pass.
 
 ---
 
@@ -296,7 +305,7 @@ Core idea: **value representation = opaque pointer; callable signature = `LLVMFu
 - [ ] `pp_code_generator_generate_rvalue_identifier`:
   - [ ] return the LLVM function value for callable declaration names;
   - [ ] load the pointer from the slot for function-typed variables/parameters.
-  Use `is_callable` or the decoration value category to distinguish.
+  Use `is_callable_decl` or the decoration value category to distinguish.
 - [ ] `pp_code_generator_generate_lvalue_identifier`: confirm reference dereference and slot addressing work for
       function-typed variables after the lowering change.
 - [ ] `pp_code_generator_l_value_to_r_value`: confirm it loads a `ptr` for callable values.

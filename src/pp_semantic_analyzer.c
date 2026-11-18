@@ -1123,7 +1123,7 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     }
 
     // Create symbol
-    func_symbol = pp_symbol_create(func_type, false, false, true, true);
+    func_symbol = pp_symbol_create(func_type, false, false, true, true, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for function '%s'",
                                  node->callable_declaration.name ? node->callable_declaration.name : "<unknown>");
@@ -1384,7 +1384,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
 
     // Create symbol
 
-    func_symbol = pp_symbol_create(func_type, false, false, true, true);
+    func_symbol = pp_symbol_create(func_type, false, false, true, true, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for function '%s'",
                                  node->callable_declaration.name ? node->callable_declaration.name : "<unknown>");
@@ -1495,7 +1495,7 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     }
 
     // Create symbol
-    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, true);
+    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, true, true);
     if (!lambda_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for lambda '%s'",
                                  node->callable_declaration.name ? node->callable_declaration.name : "<unknown>");
@@ -1596,7 +1596,7 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
         }
     }
 
-    func_symbol = pp_symbol_create(func_type, false, false, true, false);
+    func_symbol = pp_symbol_create(func_type, false, false, true, false, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for function '%s'",
                                  node->extern_callable_declaration.name ? node->extern_callable_declaration.name
@@ -1695,7 +1695,7 @@ static int pp_semantic_analyzer_build_global_table_extern_operator_decl(PP_Seman
         }
     }
 
-    func_symbol = pp_symbol_create(func_type, false, false, true, false);
+    func_symbol = pp_symbol_create(func_type, false, false, true, false, true);
     if (!func_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for operator '%s'",
                                  node->extern_callable_declaration.name ? node->extern_callable_declaration.name
@@ -1778,7 +1778,7 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
         }
     }
 
-    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, false);
+    lambda_symbol = pp_symbol_create(lambda_type, false, false, true, false, true);
     if (!lambda_symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for lambda '%s'",
                                  node->extern_callable_declaration.name ? node->extern_callable_declaration.name
@@ -1892,7 +1892,7 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
         goto error_cleanup;
     }
 
-    symbol = pp_symbol_create(var_type, false, false, true, true);
+    symbol = pp_symbol_create(var_type, false, false, true, true, false);
     if (!symbol) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for variable '%s'",
                                  node->variable_declaration.var_decl->param_declaration.identifier);
@@ -2275,7 +2275,7 @@ static int pp_semantic_analyzer_full_analyze_pure_callable(PP_SemanticAnalyzer* 
         const PPType* param_type =
             pp_type_from_type_node(sa, node->callable_declaration.params[i]->param_declaration.type_expr);
         if (!param_type) goto error_cleanup;
-        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true, false);
         if (!pp_symbol_table_push(param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, node->callable_declaration.params[i]->loc,
                                      "Could not push parameter \"%s\" to parameter scope", param_name);
@@ -2395,7 +2395,7 @@ static int pp_semantic_analyzer_full_analyze_function_decl(PP_SemanticAnalyzer* 
         //     }
         // }
 
-        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true);
+        param_symbol = pp_symbol_create(param_type, false, pp_type_is_reference(param_type), false, true, false);
         if (!pp_symbol_table_push(func_param_symbol_table, param_name, param_symbol)) {
             pp_error_list_push_error(sa->error_list, node->callable_declaration.params[i]->loc,
                                      "Could not push parameter \"%s\" to parameter scope", param_name);
@@ -2938,9 +2938,10 @@ static int pp_semantic_analyzer_full_analyze_variable_declaration(PP_SemanticAna
         // from outside, then return it back. For this, it must be reference, and initializer must be escapable.
         variable_symbol =
             pp_symbol_create(symbol_type, pp_type_is_const(symbol_type) && initializer_decor->is_constexpr,
-                             pp_type_is_reference(symbol_type) && initializer_decor->is_escapable_ref, false, true);
+                             pp_type_is_reference(symbol_type) && initializer_decor->is_escapable_ref, false, true,
+                             false);
     } else {
-        variable_symbol = pp_symbol_create(symbol_type, false, false, false, true);
+        variable_symbol = pp_symbol_create(symbol_type, false, false, false, true, false);
     }
     NULL_POINTER_ERROR_HANDLE(variable_symbol);
 
@@ -4426,9 +4427,10 @@ error_cleanup:
 /* pp_semantic_analyzer_check_identifier_expression Checklist (based on
  * cz_semantic_analyzer_check_identifier_expression): [x] Validate inputs via asserts [x] Early exit if
  * expr->identifier.decoration already set [x] Lookup identifier in symbol table via pp_symbol_table_lookup [x] Retrieve
- * identifier type from symbol [x] Determine value category: RVALUE if Function/Lambda else LVALUE [x] Create decoration
- * with symbol type, value_category, is_constexpr false, escapable_ref = symbol->is_escapable_ref [x] Verify symbol
- * exists and push error if not found
+ * identifier type from symbol [x] Determine value category: RVALUE for callable declaration names
+ * (symbol->is_callable_decl), LVALUE for everything else, including function-typed variables/parameters/fields [x]
+ * Create decoration with symbol type, value_category, is_constexpr false, escapable_ref = symbol->is_escapable_ref [x]
+ * Verify symbol exists and push error if not found
  * [-] Propagate symbol scope level into decoration, CZ uses symbol->scope_level -> PP does not track scope level per
  * symbol [x] Use symbol->is_escapable_ref when creating decoration [x] Lambda capture rules: allow lambda globals,
  * reject function globals, require const for variable globals
@@ -4456,9 +4458,11 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
 
     if (function_is_lambda && identifier_symbol->is_global) {
         const PPType* sym_type = identifier_symbol->type;
-        if (sym_type->kind == PP_TK_Lambda) {
+        /* Only declaration names are pure code. A function-typed global variable
+         * is ordinary global state, so it falls through to the const check. */
+        if (identifier_symbol->is_callable_decl && sym_type->kind == PP_TK_Lambda) {
             /* lambda names are immutable pure code – allowed */
-        } else if (sym_type->kind == PP_TK_Function) {
+        } else if (identifier_symbol->is_callable_decl && sym_type->kind == PP_TK_Function) {
             pp_error_list_push_error(sa->error_list, expr->loc, "\"%s\" is a regular function used inside lambda",
                                      expr->identifier.identifier);
             goto error_cleanup;
@@ -4481,12 +4485,10 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     const PPType* identifier_type = identifier_symbol->type;
     assert(identifier_type);
 
-    decoration =
-        pp_ast_decoration_create(identifier_type,
-                                 identifier_type->kind == PP_TK_Function || identifier_type->kind == PP_TK_Lambda
-                                     ? PP_VALUE_CATEGORY_RVALUE
-                                     : PP_VALUE_CATEGORY_LVALUE,
-                                 false, identifier_symbol->is_escapable_ref);
+    decoration = pp_ast_decoration_create(identifier_type,
+                                          identifier_symbol->is_callable_decl ? PP_VALUE_CATEGORY_RVALUE
+                                                                              : PP_VALUE_CATEGORY_LVALUE,
+                                          false, identifier_symbol->is_escapable_ref);
     NULL_POINTER_ERROR_HANDLE(decoration);
 
     expr->identifier.decoration = decoration;
