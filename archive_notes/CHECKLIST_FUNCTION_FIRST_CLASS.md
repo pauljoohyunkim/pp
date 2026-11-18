@@ -509,3 +509,36 @@ the exit code. Left unchanged.
 - `ptr[func[...]]` is rejected in v1. References (`func[...]&`) remain allowed.
 - Comparisons and arithmetic/bitwise operators are rejected for callable values.
 - Keep this checklist updated as implementation proceeds.
+
+---
+
+## Post-v1 decision changes (2026-11-18)
+
+Three v1 restrictions were relaxed after v1 shipped:
+
+- [x] **Pointers to functions are allowed.** `ptr[func[...]]` now works, including `@f` on a `func[...]`-typed
+      variable, `$p`, `nullptr[func[...]]`, and pointer equality. This enables nullable callbacks and the
+      type-punned `ptr[uint8] as ptr[func[...]]` code-pointer case (verified end to end).
+  - [x] Still rejected: `ptr[lambda[...]]`, `nullptr[lambda[...]]`, and `@lambda_value`
+        ("Address-of cannot be applied to a lambda value."). A lambda is a value, not addressable code.
+  - [x] `@` is now the only unary operator accepted on `func[...]` values; everything else still errors.
+- [x] **Arrays and lists of callable values are allowed.** The element-type ban in
+      `pp_type_validate_collection_element` was removed. Elements lower to `ptr`, are trivially copyable and
+      drop-free, so indexing/push/assign work unchanged. A **non-empty global list initializer is still rejected**
+      by the general global-list rule (unchanged, not callable-specific).
+- [x] **`==` / `!=` on callable values are allowed.** Only between operands with the identical callable type
+      (after decay), and only for `func`/`lambda` values of the same kind. Emitted as pointer identity
+      (`icmp eq/ne ptr`). Arithmetic, bitwise and ordering operators remain rejected.
+
+New semantic error messages: "Pointer cannot point to a lambda type", "nullptr cannot be typed as a pointer to a
+lambda type", "Address-of cannot be applied to a lambda value.", "Callable values support no operators other than
+== and !=.", "Callable values can only be compared with an identical callable type."
+
+Unchanged by design: no variadic callables, no closures/captures (lambdas stay mathematically pure, so a callable
+value remains a single code pointer), callable-typed variables still require an initializer.
+
+Tests: semantic suite grew to 25 `Callable*` tests (added collections-allowed, pointer-to-function, equality,
+and the corresponding reject cases); codegen suite grew to 11 (added pointer-to-function, equality IR, and
+collection IR). Full suite: **417 tests, all passing**. Docs updated in `notes/bnf.md`,
+`docs/language/01-types.md`, `04-expressions.md`, `07-functions-and-lambdas.md`,
+`docs/reference/known-limitations.md`, `notes/type_system.md`.

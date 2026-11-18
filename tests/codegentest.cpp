@@ -2131,3 +2131,71 @@ TEST(CodeGenTest, CallableDebugInfoValid) {
     assert_ir_contains(cg.get(), "!DILocalVariable");
     assert_ir_contains(cg.get(), "!DISubroutineType");
 }
+
+TEST(CodeGenTest, CallablePointerToFunction) {
+    const char* source =
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32) -> int32] = inc;\n"
+        "    let p :: ptr[func[(int32) -> int32]] = @f;\n"
+        "    let g :: func[(int32) -> int32] = $p;\n"
+        "    let q :: ptr[func[(int32) -> int32]] = nullptr[func[(int32) -> int32]];\n"
+        "    if (q == nullptr[func[(int32) -> int32]]) { return g(1); }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    // The slot holding the code pointer is addressable; the loaded value is called.
+    assert_ir_contains(cg.get(), "store ptr @inc");
+    assert_ir_contains(cg.get(), "call i32 %");
+    // Null pointer comparison is emitted as pointer identity.
+    assert_ir_contains(cg.get(), "icmp eq ptr");
+}
+
+TEST(CodeGenTest, CallableEqualityCodegen) {
+    const char* source =
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func dec :: (a :: int32) -> int32 { return a - 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: func[(int32) -> int32] = inc;\n"
+        "    let b :: func[(int32) -> int32] = dec;\n"
+        "    let c :: func[(int32) -> int32] = a;\n"
+        "    if (a == b) { return 1; }\n"
+        "    if (a != c) { return 2; }\n"
+        "    return 3;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    assert_ir_contains(cg.get(), "icmp eq ptr");
+    assert_ir_contains(cg.get(), "icmp ne ptr");
+}
+
+TEST(CodeGenTest, CallableCollectionsCodegen) {
+    const char* source =
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func dec :: (a :: int32) -> int32 { return a - 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let l :: [func[(int32) -> int32]] = [func[(int32) -> int32]; inc, dec];\n"
+        "    let a :: [func[(int32) -> int32] : 2u] = [func[(int32) -> int32] : 2u; inc, dec];\n"
+        "    let g :: func[(int32) -> int32] = l[0u];\n"
+        "    let h :: func[(int32) -> int32] = a[1u];\n"
+        "    return g(1) + h(1);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    // Elements are stored as code pointers inside the collection buffers.
+    assert_ir_contains(cg.get(), "store ptr @inc");
+    assert_ir_contains(cg.get(), "call i32 %");
+}

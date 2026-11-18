@@ -65,8 +65,10 @@ func main :: () -> int32 {
   widening.
 * Callable struct fields are supported, and function-typed globals are allowed when initialized with a callable
   declaration name.
-* Pointer-to-callable (`ptr[func[...]]`), collections of callable values, and operators on callable values are
-  rejected in v1.
+* Pointers to `func[...]` are supported (`@f`, `$p`, `nullptr[func[...]]`), while `ptr[lambda[...]]` is rejected.
+* Arrays and lists of callable values are supported; a non-empty *global* list initializer stays banned by the
+  general global rule.
+* `==` / `!=` compare identical callable types by identity; other operators are rejected.
 
 ## Calling
 

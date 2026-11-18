@@ -694,10 +694,6 @@ static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PP
         pp_error_list_push_error(sa->error_list, loc, "Array/List element type cannot be void");
         return 0;
     }
-    if (elem_type->kind == PP_TK_Function || elem_type->kind == PP_TK_Lambda) {
-        pp_error_list_push_error(sa->error_list, loc, "Array/List element type cannot be function/lambda");
-        return 0;
-    }
     if (pp_type_contains_reference(elem_type)) {
         pp_error_list_push_error(sa->error_list, loc,
                                  "Array/List element type cannot transitively contain a reference");
@@ -742,10 +738,14 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 pp_error_list_push_error(sa->error_list, type_node->loc, "Pointer cannot contain reference");
                 goto error_cleanup;
             }
-            // v1: pointers to callable types are not supported.
-            if (pp_type_is_callable(pp_type_decay(sa->gtt, pointee_type))) {
-                pp_error_list_push_error(sa->error_list, type_node->loc, "Pointer cannot point to a callable type");
-                goto error_cleanup;
+            // Pointers to `func[...]` are supported: a code pointer is an ordinary pointer.
+            // Pointers to `lambda[...]` remain banned.
+            {
+                const PPType* decayed_pointee = pp_type_decay(sa->gtt, pointee_type);
+                if (pp_type_is_callable(decayed_pointee) && decayed_pointee->kind != PP_TK_Function) {
+                    pp_error_list_push_error(sa->error_list, type_node->loc, "Pointer cannot point to a lambda type");
+                    goto error_cleanup;
+                }
             }
             temp_type = pp_type_create(PP_TK_Pointer);
             if (!temp_type) goto error_cleanup;
@@ -3792,11 +3792,28 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
         goto error_cleanup;
     }
 
-    // v1: callable values support no binary operators (including == / !=).
-    if (pp_type_is_callable(decayed_lhs_type) || pp_type_is_callable(decayed_rhs_type)) {
-        pp_error_list_push_error(sa->error_list, expr->loc, "Callable values do not support binary operators in v1.");
-        goto error_cleanup;
+    // Callable values support identity comparison (== / !=) only, and both operands must
+    // have the identical callable type. Every other operator stays rejected.
+    const bool callable_operands = pp_type_is_callable(decayed_lhs_type) || pp_type_is_callable(decayed_rhs_type);
+    if (callable_operands) {
+        const bool is_equality =
+            expr->binary_expression.op == PP_TT_EQUAL_EQUAL || expr->binary_expression.op == PP_TT_EXCLAMATION_EQUAL;
+        if (!is_equality) {
+            pp_error_list_push_error(sa->error_list, expr->loc,
+                                     "Callable values support no operators other than == and !=.");
+            goto error_cleanup;
+        }
+        if (!pp_type_is_callable(decayed_lhs_type) || !pp_type_is_callable(decayed_rhs_type) ||
+            !pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
+            pp_error_list_push_error(sa->error_list, expr->loc,
+                                     "Callable values can only be compared with an identical callable type.");
+            goto error_cleanup;
+        }
+        binary_type = pp_type_create(PP_TK_Bool);
     }
+
+    // Callable operands never consult the builtin operator table or overloads.
+    if (callable_operands) goto builtin_binary_done;
 
     switch (expr->binary_expression.op) {
         case PP_TT_BAR_BAR:
@@ -3977,6 +3994,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
             binary_type = (PPType*)interned_ret_type;
         }
     }
+builtin_binary_done:
     if (!binary_type) {
         pp_error_list_push_error(sa->error_list, expr->loc, "Binary operator requires compatible operand types");
         goto error_cleanup;
@@ -4105,11 +4123,18 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
         goto error_cleanup;
     }
 
-    // v1: callable values support no unary operators (including '@', which would
-    // build a pointer to a callable).
+    // Callable values support only the address-of operator, and only for `func[...]`
+    // values: a lambda is a value, not addressable code.
     if (pp_type_is_callable(decayed_operand_type)) {
-        pp_error_list_push_error(sa->error_list, expr->loc, "Callable values do not support unary operators in v1.");
-        goto error_cleanup;
+        if (expr->unary_expression.op != PP_TT_AT) {
+            pp_error_list_push_error(sa->error_list, expr->loc,
+                                     "Callable values only support the address-of operator.");
+            goto error_cleanup;
+        }
+        if (decayed_operand_type->kind != PP_TK_Function) {
+            pp_error_list_push_error(sa->error_list, expr->loc, "Address-of cannot be applied to a lambda value.");
+            goto error_cleanup;
+        }
     }
 
     const char* op_spelling = NULL;
@@ -4429,11 +4454,14 @@ static int pp_semantic_analyzer_check_null_literal_expression(PP_SemanticAnalyze
             pp_error_list_push_error(sa->error_list, expr->loc, "Failed to resolve nullptr type");
             goto error_cleanup;
         }
-        // v1: pointers to callable types are not supported.
-        if (pp_type_is_callable(pp_type_decay(sa->gtt, t))) {
-            pp_error_list_push_error(sa->error_list, expr->loc,
-                                     "nullptr cannot be typed as a pointer to a callable type");
-            goto error_cleanup;
+        // Pointers to `func[...]` are supported; pointers to lambdas are not.
+        {
+            const PPType* decayed_pointee = pp_type_decay(sa->gtt, t);
+            if (pp_type_is_callable(decayed_pointee) && decayed_pointee->kind != PP_TK_Function) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "nullptr cannot be typed as a pointer to a lambda type");
+                goto error_cleanup;
+            }
         }
         // Build pointer type ptr[T] from T
         PPType* ptr_type = pp_type_create(PP_TK_Pointer);

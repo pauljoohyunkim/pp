@@ -172,8 +172,12 @@
   * Higher-order signatures are allowed, e.g. `func[(func[(int32) -> float]) -> int32]`.
   * `const` and `&` apply to the binding exactly as for any other object: `const func[(...) -> T]`,
     `func[(...) -> T]&`.
-  * In v1 the pointee of `<pointer_type>` must not be a callable type: `ptr[func[...]]` is rejected.
+  * `ptr[func[...]]` is allowed: a callable value is itself a code pointer, so a pointer to it is a pointer to
+    the slot holding that code pointer. `ptr[lambda[...]]` is rejected (a lambda is a value, not addressable code).
     References to function-typed variables (`func[...]&`) remain allowed.
   * There is no implicit widening between `lambda[...]` and `func[...]`; an explicit
     `as func[(...) -> T]` cast with an identical signature (lambda -> func only) is the sole conversion.
-  * Callable values cannot be compared or used with arithmetic/bitwise operators in v1.
+  * Callable values support identity comparison `==` / `!=` between identical callable types, and nothing else;
+    arithmetic/bitwise operators and the remaining comparisons are rejected.
+  * Arrays and lists of callable values are allowed. Global non-empty list initializers remain banned by the
+    general rule (not specific to callables).

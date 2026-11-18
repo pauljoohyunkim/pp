@@ -50,7 +50,11 @@ In fact, the syntax for defining lambda function is very different.
   latter an LVALUE.
 * Decay returns callable types unchanged, and references inside a signature do not make the value "contain a
   reference".
-* Not supported in v1: pointers to callables, arrays/lists of callables, operators on callables, null callables.
+* Supported: `ptr[func[...]]` (pointer to the slot holding a code pointer), `nullptr[func[...]]`, arrays/lists of
+  callable values, and `==` / `!=` between identical callable types (code-pointer identity).
+* Still rejected: `ptr[lambda[...]]` (a lambda is a value, not addressable code), arithmetic/bitwise and ordering
+  operators on callables, null callable *values* (a callable-typed variable still requires an initializer), and
+  non-empty global list initializers (general rule).
 
 ## Struct
 * A type for holding many variables as one.

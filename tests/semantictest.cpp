@@ -1600,34 +1600,98 @@ TEST(SemanticTest, CallableUninitializedGlobalRejected) {
         "callable global variable requires an initializer");
 }
 
-TEST(SemanticTest, CallableCollectionsRejected) {
-    expect_semantic_reject(
+TEST(SemanticTest, CallableCollectionsAllowed) {
+    expect_semantic_accept(
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func dec :: (a :: int32) -> int32 { return a - 1; }\n"
         "func main :: () -> int32 {\n"
-        "    let a :: [func[(int32) -> int32]: 2];\n"
-        "    return 0;\n"
+        "    let l :: [func[(int32) -> int32]] = [func[(int32) -> int32]; inc, dec];\n"
+        "    let a :: [func[(int32) -> int32] : 2u] = [func[(int32) -> int32] : 2u; inc, dec];\n"
+        "    return l[0u](1) + a[1u](1);\n"
         "}\n",
-        "arrays of callable values are rejected");
-    expect_semantic_reject(
-        "func main :: () -> int32 {\n"
-        "    let l :: [func[(int32) -> int32]];\n"
-        "    return 0;\n"
-        "}\n",
-        "lists of callable values are rejected");
+        "lists and arrays of callable values are supported");
 }
 
-TEST(SemanticTest, CallablePointerRejected) {
+TEST(SemanticTest, CallableGlobalNonEmptyListRejected) {
     expect_semantic_reject(
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "let fs :: [func[(int32) -> int32]] = [func[(int32) -> int32]; inc];\n"
+        "func main :: () -> int32 { return 0; }\n",
+        "a non-empty global list is still rejected, including lists of callables");
+}
+
+TEST(SemanticTest, CallablePointerToFunctionAllowed) {
+    expect_semantic_accept(
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
         "func main :: () -> int32 {\n"
-        "    let p :: ptr[func[(int32) -> int32]];\n"
+        "    let f :: func[(int32) -> int32] = inc;\n"
+        "    let p :: ptr[func[(int32) -> int32]] = @f;\n"
+        "    let g :: func[(int32) -> int32] = $p;\n"
+        "    let q :: ptr[func[(int32) -> int32]] = nullptr[func[(int32) -> int32]];\n"
+        "    if (q == nullptr[func[(int32) -> int32]]) { return g(1); }\n"
         "    return 0;\n"
         "}\n",
-        "ptr[func[...]] is rejected");
+        "pointers to func[...] values, nullptr and pointer comparison are supported");
+}
+
+TEST(SemanticTest, CallablePointerToLambdaRejected) {
     expect_semantic_reject(
         "func main :: () -> int32 {\n"
-        "    let p :: ptr[func[(int32) -> int32]] = nullptr[func[(int32) -> int32]];\n"
+        "    let p :: ptr[lambda[(int32) -> int32]];\n"
         "    return 0;\n"
         "}\n",
-        "nullptr[func[...]] is rejected");
+        "ptr[lambda[...]] is rejected");
+    expect_semantic_reject(
+        "func main :: () -> int32 {\n"
+        "    let p :: ptr[lambda[(int32) -> int32]] = nullptr[lambda[(int32) -> int32]];\n"
+        "    return 0;\n"
+        "}\n",
+        "nullptr[lambda[...]] is rejected");
+    expect_semantic_reject(
+        "lambda dbl :: (a :: int32) -> int32 { return a * 2; }\n"
+        "func main :: () -> int32 {\n"
+        "    let l :: lambda[(int32) -> int32] = dbl;\n"
+        "    @l;\n"
+        "    return 0;\n"
+        "}\n",
+        "address-of a lambda value is rejected");
+}
+
+TEST(SemanticTest, CallableEqualityAllowed) {
+    expect_semantic_accept(
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func dec :: (a :: int32) -> int32 { return a - 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: func[(int32) -> int32] = inc;\n"
+        "    let b :: func[(int32) -> int32] = dec;\n"
+        "    let c :: func[(int32) -> int32] = a;\n"
+        "    if (a == b || a != c) { return 1; }\n"
+        "    return 0;\n"
+        "}\n",
+        "== and != between identical callable types are supported");
+}
+
+TEST(SemanticTest, CallableEqualityRequiresIdenticalType) {
+    expect_semantic_reject(
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func inc64 :: (a :: int64) -> int32 { return 0; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: func[(int32) -> int32] = inc;\n"
+        "    let b :: func[(int64) -> int32] = inc64;\n"
+        "    if (a == b) { return 1; }\n"
+        "    return 0;\n"
+        "}\n",
+        "comparison of callables with different signatures is rejected");
+    expect_semantic_reject(
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "lambda dbl :: (a :: int32) -> int32 { return a * 2; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: func[(int32) -> int32] = inc;\n"
+        "    let b :: lambda[(int32) -> int32] = dbl;\n"
+        "    if (a == b) { return 1; }\n"
+        "    return 0;\n"
+        "}\n",
+        "comparison between func and lambda values is rejected");
 }
 
 TEST(SemanticTest, CallableNoImplicitLambdaWidening) {
@@ -1705,18 +1769,18 @@ TEST(SemanticTest, CallableOperatorsRejected) {
         "func main :: () -> int32 {\n"
         "    let a :: func[(int32) -> int32] = add;\n"
         "    let b :: func[(int32) -> int32] = other;\n"
-        "    let c :: bool = a == b;\n"
+        "    let c :: func[(int32) -> int32] = a + b;\n"
         "    return 0;\n"
         "}\n",
-        "comparison of callable values is rejected");
+        "arithmetic on callable values is rejected");
     expect_semantic_reject(
         "func add :: (a :: int32) -> int32 { return a + 1; }\n"
         "func main :: () -> int32 {\n"
         "    let a :: func[(int32) -> int32] = add;\n"
-        "    @a;\n"
+        "    let b :: bool = !a;\n"
         "    return 0;\n"
         "}\n",
-        "address-of a callable value is rejected");
+        "unary operators other than '@' are rejected on callable values");
 }
 
 TEST(SemanticTest, CallableVoidParameterRejected) {
