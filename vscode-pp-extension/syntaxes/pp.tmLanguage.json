@@ -1,0 +1,247 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "PP",
+  "scopeName": "source.pp",
+  "fileTypes": ["pp", "ppi"],
+  "injectionSelector": "L:source.pp - comment - string",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#literals" },
+    { "include": "#operators" },
+    { "include": "#identifiers" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.pp",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.pp",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            { "include": "#string-escapes" }
+          ]
+        },
+        {
+          "name": "string.quoted.double.static.pp",
+          "begin": "@\"",
+          "end": "\"",
+          "patterns": [
+            { "include": "#string-escapes" }
+          ]
+        }
+      ]
+    },
+    "string-escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.pp",
+          "match": "\\\\(?:[\\\\\"'ntrabvf0]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.flow.pp",
+          "match": "\\b(?:if|else|while|for|return|break|continue)\\b"
+        },
+        {
+          "name": "keyword.declaration.function.pp",
+          "match": "\\b(?:func|lambda|operator)\\b"
+        },
+        {
+          "name": "keyword.declaration.extern.pp",
+          "match": "\\bextern\\b"
+        },
+        {
+          "name": "keyword.declaration.type.pp",
+          "match": "\\b(?:struct|typedef|newtype|handle)\\b"
+        },
+        {
+          "name": "keyword.declaration.variable.pp",
+          "match": "\\b(?:let|const)\\b"
+        },
+        {
+          "name": "keyword.other.drop.pp",
+          "match": "\\bdrop\\b"
+        },
+        {
+          "name": "keyword.operator.as.pp",
+          "match": "\\bas\\b"
+        },
+        {
+          "name": "keyword.operator.pp",
+          "match": "\\b(?:and|or|not)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.pp",
+          "match": "\\b(?:void|bool|string)\\b"
+        },
+        {
+          "name": "storage.type.integer.pp",
+          "match": "\\b(?:int|uint)(?:8|16|32|64|128)\\b"
+        },
+        {
+          "name": "storage.type.float.pp",
+          "match": "\\bfloat\\b"
+        },
+        {
+          "name": "storage.type.pointer.pp",
+          "match": "\\bptr\\b"
+        },
+        {
+          "name": "storage.type.modifier.pp",
+          "match": "\\b(?:const|ref)\\b"
+        },
+        {
+          "name": "storage.type.function.pp",
+          "match": "\\b(?:func|lambda|operator)\\b(?=\\s*\\[)"
+        },
+        {
+          "name": "storage.type.callable.pp",
+          "match": "\\b(?:func|lambda|operator)(?=\\s*\\[(?:\\s*\\])?)"
+        }
+      ]
+    },
+    "literals": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.pp",
+          "match": "\\b(?:true|false)\\b"
+        },
+        {
+          "name": "constant.language.null.pp",
+          "match": "\\bnullptr\\b"
+        },
+        {
+          "name": "constant.numeric.float.pp",
+          "match": "\\b(?:\\d+\\.\\d*|\\d*\\.\\d+)(?:[eE][+-]?\\d+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.pp",
+          "match": "\\b\\d+(?:[uUsSlL]+)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.pp",
+          "match": "(?:\\+|-|\\*|/|%|&|\\||\\^)=|="
+        },
+        {
+          "name": "keyword.operator.comparison.pp",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.pp",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.arithmetic.pp",
+          "match": "[+\\-*/%]"
+        },
+        {
+          "name": "keyword.operator.bitwise.pp",
+          "match": "[&|^~]"
+        },
+        {
+          "name": "keyword.operator.shift.pp",
+          "match": "<<|>>"
+        },
+        {
+          "name": "keyword.operator.arrow.pp",
+          "match": "->|=>"
+        },
+        {
+          "name": "keyword.operator.type-ascription.pp",
+          "match": "::"
+        },
+        {
+          "name": "keyword.operator.address-of.pp",
+          "match": "@"
+        },
+        {
+          "name": "keyword.operator.dereference.pp",
+          "match": "\\$"
+        },
+        {
+          "name": "keyword.operator.length.pp",
+          "match": "#"
+        },
+        {
+          "name": "keyword.operator.member-access.pp",
+          "match": "\\."
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.function.pp",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*::)"
+        },
+        {
+          "name": "entity.name.type.pp",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "name": "variable.parameter.pp",
+          "match": "\\b[a-z_][A-Za-z0-9_]*\\b(?=\\s*::)"
+        },
+        {
+          "name": "variable.other.pp",
+          "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+        },
+        {
+          "name": "support.function.builtin.pp",
+          "match": "\\b(?:list_push|list_pop|list_clear|pp_std_print(?:_string|_char|_uint64|_float|_int64)?|pp_std_input_char|pp_std_abort)\\b"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.semicolon.pp",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.separator.comma.pp",
+          "match": ","
+        },
+        {
+          "name": "punctuation.separator.colon.pp",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.bracket.curly.pp",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.bracket.round.pp",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.bracket.square.pp",
+          "match": "[\\[\\]]"
+        }
+      ]
+    }
+  }
+}

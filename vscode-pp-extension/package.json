@@ -1,0 +1,30 @@
+{
+  "name": "pp-language",
+  "displayName": "PP Language Support",
+  "description": "Syntax highlighting for the PP programming language",
+  "version": "0.1.0",
+  "publisher": "pauljoohyunkim",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "pp",
+        "aliases": ["PP", "pp"],
+        "extensions": [".pp", ".ppi"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "pp",
+        "scopeName": "source.pp",
+        "path": "./syntaxes/pp.tmLanguage.json"
+      }
+    ]
+  }
+}
