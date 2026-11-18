@@ -2,6 +2,8 @@
 
 This note describes who owns what memory in the PP compiler so that double-free / use-after-free can be avoided.
 
+For *language-level* resource ownership (the `handle` type and its drop function), see `notes/handle_design.md`.
+
 ## General rules
 * **String Pool is the single owner of all source text.** Identifier names, literal lexemes and type names are interned via `pp_string_pool_push`. The returned `const char*` must never be freed by callers.
 * **Free functions tolerate NULL.** Custom free helpers `pp_*_free` safely handle NULL. Do not guard the free call itself; guard only loops that dereference members.

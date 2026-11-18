@@ -2199,3 +2199,243 @@ TEST(CodeGenTest, CallableCollectionsCodegen) {
     assert_ir_contains(cg.get(), "store ptr @inc");
     assert_ir_contains(cg.get(), "call i32 %");
 }
+
+/* ---------------------------------------------------------------------------
+ * Handle codegen tests
+ * ------------------------------------------------------------------------- */
+static size_t count_ir_occurrences(PP_CodeGenerator* cg, const std::string& needle) {
+    std::string ir = module_to_string(cg->mod);
+    size_t count = 0;
+    size_t pos = ir.find(needle);
+    while (pos != std::string::npos) {
+        count++;
+        pos = ir.find(needle, pos + needle.size());
+    }
+    return count;
+}
+
+static PP_CodeGenerator* run_handle_codegen(const char* source, int& codegen_result, int& semantic_errors) {
+    int lexer_errors = 0, parser_errors = 0;
+    PP_CodeGenerator* cg = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    EXPECT_EQ(lexer_errors, 0) << source;
+    EXPECT_EQ(parser_errors, 0) << source;
+    EXPECT_EQ(semantic_errors, 0) << source;
+    return cg;
+}
+
+TEST(CodeGenTest, HandleDeclarationEmitsNoCode) {
+    const char* source = "handle File :: int32 drop pp_close;\n"
+                         "extern func pp_close :: (fd :: int32) -> void;\n";
+    int semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_handle_codegen(source, codegen_result, semantic_errors);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // No drop helper is emitted unless a handle value actually exists.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp_close"), 0u);
+}
+
+TEST(CodeGenTest, HandleDropsViaBoundFunction) {
+    const char* source = "handle File :: int32 drop pp_close;\n"
+                         "extern func pp_close :: (fd :: int32) -> void;\n"
+                         "extern func pp_open :: () -> File;\n"
+                         "func work :: () -> void {\n"
+                         "    let h :: File = pp_open();\n"
+                         "    return;\n"
+                         "}\n";
+    int semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_handle_codegen(source, codegen_result, semantic_errors);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "call void @pp_close(i32");
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 1u);
+}
+
+TEST(CodeGenTest, HandleDropsOnEveryReturnPath) {
+    const char* source = "handle File :: int32 drop pp_close;\n"
+                         "extern func pp_close :: (fd :: int32) -> void;\n"
+                         "extern func pp_open :: () -> File;\n"
+                         "func early :: (flag :: bool) -> int32 {\n"
+                         "    let h :: File = pp_open();\n"
+                         "    if (flag) { return 1; }\n"
+                         "    return 0;\n"
+                         "}\n";
+    int semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_handle_codegen(source, codegen_result, semantic_errors);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // One drop on the early-return path, one at the end of the function.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
+TEST(CodeGenTest, HandlePointerSkipsNullDrop) {
+    const char* source = "handle Res :: ptr[void] drop pp_free;\n"
+                         "extern func pp_free :: (p :: ptr[void]) -> void;\n"
+                         "extern func pp_null :: () -> Res;\n"
+                         "func work :: () -> void {\n"
+                         "    let r :: Res = pp_null();\n"
+                         "    return;\n"
+                         "}\n";
+    int semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_handle_codegen(source, codegen_result, semantic_errors);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "handle_is_null");
+    assert_ir_contains(cg.get(), "call void @pp_free(ptr");
+}
+
+TEST(CodeGenTest, HandleBorrowDoesNotDrop) {
+    const char* source = "handle File :: int32 drop pp_close;\n"
+                         "extern func pp_close :: (fd :: int32) -> void;\n"
+                         "extern func pp_open :: () -> File;\n"
+                         "func peek :: (f :: const File&) -> int32 {\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "func work :: () -> int32 {\n"
+                         "    let h :: File = pp_open();\n"
+                         "    return peek(h);\n"
+                         "}\n";
+    int semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_handle_codegen(source, codegen_result, semantic_errors);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // Only work() owns the handle, so exactly one drop site exists.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 1u);
+}
+
+TEST(CodeGenTest, HandleReassignDropsOldValue) {
+    const char* source = "handle File :: int32 drop pp_close;\n"
+                         "extern func pp_close :: (fd :: int32) -> void;\n"
+                         "extern func pp_open :: () -> File;\n"
+                         "func work :: () -> void {\n"
+                         "    let h :: File = pp_open();\n"
+                         "    h = pp_open();\n"
+                         "    return;\n"
+                         "}\n";
+    int semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_handle_codegen(source, codegen_result, semantic_errors);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // One drop for the overwritten value, one at scope exit.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
+TEST(CodeGenTest, HandleInLoopDropsEachIteration) {
+    const char* source = "handle File :: int32 drop pp_close;\n"
+                         "extern func pp_close :: (fd :: int32) -> void;\n"
+                         "extern func pp_open :: () -> File;\n"
+                         "func work :: () -> void {\n"
+                         "    let i :: int32 = 0;\n"
+                         "    while (i < 3) {\n"
+                         "        let h :: File = pp_open();\n"
+                         "        i = i + 1;\n"
+                         "    }\n"
+                         "    return;\n"
+                         "}\n";
+    int semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_handle_codegen(source, codegen_result, semantic_errors);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // One drop site inside the loop body, executed on every iteration.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 1u);
+}
+
+TEST(CodeGenTest, HandleReturnedByCallIsNotDroppedInCallee) {
+    const char* source = "handle File :: int32 drop pp_close;\n"
+                         "extern func pp_close :: (fd :: int32) -> void;\n"
+                         "extern func pp_open :: () -> File;\n"
+                         "func make :: () -> File {\n"
+                         "    return pp_open();\n"
+                         "}\n";
+    int semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_handle_codegen(source, codegen_result, semantic_errors);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // make() hands ownership to the caller: it must not drop what it returns.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 0u);
+}
+
+TEST(CodeGenTest, StringReassignDropsOldValue) {
+    const char* source = "func work :: () -> void {\n"
+                         "    let s :: string = \"aaaa\";\n"
+                         "    s = \"bbbb\";\n"
+                         "    return;\n"
+                         "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // One drop for the overwritten buffer, one at scope exit.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
+TEST(CodeGenTest, ListReassignDropsOldValue) {
+    const char* source = "func work :: () -> void {\n"
+                         "    let l :: [int32] = [int32; 1, 2, 3];\n"
+                         "    l = [int32; 4, 5, 6];\n"
+                         "    return;\n"
+                         "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
+TEST(CodeGenTest, ListOfStringsDropUsesElementStride) {
+    // The list drop loop must walk the backing array with the element type's size, not sizeof(ptr).
+    const char* source =
+        "func work :: () -> void {\n"
+        "    let l :: [string] = [string; \"aaaaaaaa\", \"bbbbbbbb\"];\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "getelementptr %pp.string, ptr %data_ptr, i64 %list_drop_i_val");
+}
+
+TEST(CodeGenTest, ListElementAssignmentDropsOldValue) {
+    const char* source =
+        "func work :: () -> void {\n"
+        "    let l :: [string] = [string; \"aaaaaaaa\", \"bbbbbbbb\"];\n"
+        "    l[0u] = \"cccccccc\";\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // In work(): one drop for the overwritten element, one list drop at scope exit. The list drop helper body
+    // itself calls the element drop helper, which is the third occurrence.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 3u);
+}
+
+TEST(CodeGenTest, StructFieldAssignmentDropsOldValue) {
+    const char* source =
+        "struct S { name :: string; }\n"
+        "func work :: () -> void {\n"
+        "    let s :: S = S{ .name = \"aaaaaaaa\" };\n"
+        "    s.name = \"bbbbbbbb\";\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    EXPECT_GE(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+

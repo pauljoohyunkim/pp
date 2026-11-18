@@ -244,6 +244,11 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_root_free_internal(node->newtype_declaration.base_type);
             break;
         }
+        case PP_AST_HandleDeclarationNode: {
+            /* handle_declaration.identifier and drop_func_name are pool-owned */
+            pp_ast_root_free_internal(node->handle_declaration.underlying_type);
+            break;
+        }
         case PP_AST_StructDeclarationNode: {
             /* struct_declaration.name is pool-owned const char* – do not free */
             if (node->struct_declaration.fields) {
@@ -470,6 +475,18 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
                 pp_ast_root_print(node->type_callable.param_types[i], depth + 1);
             }
             if (node->type_callable.return_type) pp_ast_root_print(node->type_callable.return_type, depth + 1);
+            break;
+        case PP_AST_TypedefDeclarationNode:
+            printf("TypedefDeclaration %s\n", node->typedef_declaration.identifier ? node->typedef_declaration.identifier : "");
+            pp_ast_root_print(node->typedef_declaration.base_type, depth + 1);
+            break;
+        case PP_AST_NewtypeDeclarationNode:
+            printf("NewtypeDeclaration %s\n", node->newtype_declaration.identifier ? node->newtype_declaration.identifier : "");
+            pp_ast_root_print(node->newtype_declaration.base_type, depth + 1);
+            break;
+        case PP_AST_HandleDeclarationNode:
+            printf("HandleDeclaration %s drop %s\n", node->handle_declaration.identifier ? node->handle_declaration.identifier : "", node->handle_declaration.drop_func_name ? node->handle_declaration.drop_func_name : "");
+            pp_ast_root_print(node->handle_declaration.underlying_type, depth + 1);
             break;
         case PP_AST_StructInitializerNode:
             printf("StructInitializer %s\n",

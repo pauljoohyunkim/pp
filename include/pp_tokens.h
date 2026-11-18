@@ -91,6 +91,8 @@ typedef enum {
     PP_TT_STRUCT,
     PP_TT_TYPEDEF,
     PP_TT_NEWTYPE,
+    PP_TT_HANDLE,
+    PP_TT_DROP,
     PP_TT_PTR,
     PP_TT_NULLPTR,
     PP_TT_AS,

@@ -6,8 +6,14 @@ This is a high-level summary. See `notes/bnf.md` for full BNF.
 
 ```ebnf
 program ::= { declaration }
-declaration ::= function | lambda | struct | variable | operator | extern
+declaration ::= function | lambda | struct | variable | operator | extern | handle
 ```
+
+```ebnf
+handle ::= "handle" identifier "::" type "drop" identifier ";"
+```
+
+`handle` and `drop` are reserved keywords. See [Handles](../language/09-handles.md).
 
 ## Statements
 

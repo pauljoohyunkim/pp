@@ -457,6 +457,12 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     } else if (pp_lexer_exactly_match_keyword(lexer, "newtype")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_NEWTYPE, 7)) return 0;
                         advance_pp(lexer, 7);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "handle")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_HANDLE, 6)) return 0;
+                        advance_pp(lexer, 6);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "drop")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_DROP, 4)) return 0;
+                        advance_pp(lexer, 4);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "ptr")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_PTR, 3)) return 0;
                         advance_pp(lexer, 3);
