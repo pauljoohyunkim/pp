@@ -171,6 +171,10 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "typedef";
         case PP_TT_NEWTYPE:
             return "newtype";
+        case PP_TT_HANDLE:
+            return "handle";
+        case PP_TT_DROP:
+            return "drop";
         case PP_TT_PTR:
             return "ptr";
         case PP_TT_NULLPTR:

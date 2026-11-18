@@ -67,6 +67,7 @@ static PP_AST_Node* pp_parser_create_extern_operator_declaration(PP_Parser* pars
 static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_typedef_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_handle_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_global_variable_declaration(PP_Parser* parser);
 static int pp_parser_parse_param_list(PP_Parser* parser, PP_AST_Node*** out_params, unsigned int* out_count,
                                       unsigned int* out_capacity);
@@ -324,6 +325,9 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                 break;
             case PP_TT_NEWTYPE:
                 decl = pp_parser_create_newtype_declaration(parser);
+                break;
+            case PP_TT_HANDLE:
+                decl = pp_parser_create_handle_declaration(parser);
                 break;
             case PP_TT_LET:
                 decl = pp_parser_create_global_variable_declaration(parser);
@@ -2007,6 +2011,64 @@ static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser) {
 error_cleanup:
     pp_ast_root_free(node);
     pp_ast_root_free(base_type);
+    return NULL;
+}
+
+static PP_AST_Node* pp_parser_create_handle_declaration(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* underlying_type = NULL;
+    PP_SourceLoc handle_loc = {0};
+    const char* name_lexeme = NULL;
+    const char* drop_func_lexeme = NULL;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    {
+        const PP_Token* handle_tok = pp_parser_consume_token(parser, PP_TT_HANDLE);
+        NULL_POINTER_ERROR_HANDLE(handle_tok);
+        handle_loc = handle_tok->loc;
+    }
+
+    {
+        const PP_Token* name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(name_tok);
+        name_lexeme = name_tok->lexeme;
+    }
+
+    {
+        const PP_Token* coloncolon_tok = pp_parser_consume_token(parser, PP_TT_COLON_COLON);
+        NULL_POINTER_ERROR_HANDLE(coloncolon_tok);
+    }
+
+    underlying_type = pp_parser_create_type(parser);
+    NULL_POINTER_ERROR_HANDLE(underlying_type);
+
+    {
+        const PP_Token* drop_tok = pp_parser_consume_token(parser, PP_TT_DROP);
+        NULL_POINTER_ERROR_HANDLE(drop_tok);
+    }
+
+    {
+        const PP_Token* drop_func_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(drop_func_tok);
+        drop_func_lexeme = drop_func_tok->lexeme;
+    }
+
+    {
+        const PP_Token* semicolon_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semicolon_tok);
+    }
+
+    node = pp_ast_node_create(PP_AST_HandleDeclarationNode, handle_loc);
+    NULL_POINTER_ERROR_HANDLE(node);
+    node->handle_declaration.underlying_type = underlying_type;
+    node->handle_declaration.identifier = name_lexeme;
+    node->handle_declaration.drop_func_name = drop_func_lexeme;
+    underlying_type = NULL;
+
+    return node;
+error_cleanup:
+    pp_ast_root_free(node);
+    pp_ast_root_free(underlying_type);
     return NULL;
 }
 

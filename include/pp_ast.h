@@ -59,6 +59,7 @@ typedef enum {
     PP_AST_TypeCallableNode,
     PP_AST_TypedefDeclarationNode,
     PP_AST_NewtypeDeclarationNode,
+    PP_AST_HandleDeclarationNode,
     PP_AST_CallableDeclarationNode,
     PP_AST_ExternCallableDeclarationNode,
     PP_AST_StatementListNode,
@@ -194,6 +195,12 @@ struct PP_AST_Node {
             PP_AST_Node* base_type;
             const char* identifier;
         } newtype_declaration;
+
+        struct { /* HandleDeclaration */
+            PP_AST_Node* underlying_type;
+            const char* identifier;
+            const char* drop_func_name;
+        } handle_declaration;
 
         struct { /* CallableDeclaration */
             const char* name;

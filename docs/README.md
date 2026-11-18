@@ -44,6 +44,7 @@ See the [pp_std repository](https://github.com/pauljoohyunkim/pp_std) for detail
   - [Initialization](language/06-initialization.md)
   - [Functions & Lambdas](language/07-functions-and-lambdas.md)
   - [Operators](language/08-operators.md)
+  - [Handles](language/09-handles.md)
 - [Examples](examples/index.md)
 - [Reference](reference/)
   - [Grammar](reference/grammar.md)

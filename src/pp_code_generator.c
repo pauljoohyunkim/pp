@@ -211,7 +211,9 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
         pp_code_generator_emit_drop(cg, address, type->type.pp_type_const.const_of);
         return;
     }
-    if (type->kind == PP_TK_Newtype) {
+    // A plain newtype is transparent, but a handle is not: it owns a resource and drops through its bound
+    // function, which gen_drop_body emits.
+    if (type->kind == PP_TK_Newtype && !pp_type_is_handle(type)) {
         pp_code_generator_emit_drop(cg, address, type->type.pp_type_newtype.underlying);
         return;
     }
@@ -279,9 +281,11 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
                 LLVMBuildCondBr(cg->builder, cond, loop_body_bb, loop_after_bb);
                 LLVMPositionBuilderAtEnd(cg->builder, loop_body_bb);
                 // elem_ptr = data_ptr + i
+                // `data_ptr` is the array base, so the GEP element type is the element type itself
+                // (using a pointer-to-element here would advance by sizeof(ptr) instead of sizeof(elem)).
+                LLVMTypeRef elem_llvm_ty = pp_environment_backend_lookup_type(cg, elem_type);
                 LLVMValueRef elem_ptr =
-                    LLVMBuildGEP2(cg->builder, LLVMPointerType(pp_environment_backend_lookup_type(cg, elem_type), 0),
-                                  data_ptr, &i_val, 1, "list_drop_elem_ptr");
+                    LLVMBuildGEP2(cg->builder, elem_llvm_ty, data_ptr, &i_val, 1, "list_drop_elem_ptr");
                 // Drop element
                 pp_code_generator_emit_drop(cg, elem_ptr, elem_type);
                 // i++
@@ -1567,6 +1571,7 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
                 break;
             case PP_AST_TypedefDeclarationNode:
             case PP_AST_NewtypeDeclarationNode:
+            case PP_AST_HandleDeclarationNode:
             case PP_AST_ExternCallableDeclarationNode:
                 break;
             default:
@@ -1990,6 +1995,10 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
         // Normal rvalue or trivial copy
         LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
         assert(llvm_rhs);
+        // An owning lvalue always holds a live value (an uninitialized local is zero-filled at declaration), so
+        // whatever it holds now must be released before the new value is stored. This covers handles as well as
+        // strings and lists; without it the overwritten value leaks.
+        if (needs_drop) { pp_code_generator_emit_drop(cg, llvm_lhs, lhs_type); }
         LLVMBuildStore(cg->builder, llvm_rhs, llvm_lhs);
         return 1;
     }
@@ -4503,7 +4512,35 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
         pp_code_generator_restore_builder_insert_block(cg, saved_bb);
         return;
     }
-    if (type->kind == PP_TK_List) {
+    if (pp_type_is_handle(type)) {
+        // Handle: load the underlying value and hand it to the bound drop function.
+        const PPType* underlying = type->type.pp_type_newtype.underlying;
+        const PPSymbol* drop_symbol = type->type.pp_type_newtype.drop_symbol;
+        LLVMTypeRef llvm_underlying = underlying ? pp_environment_backend_lookup_type(cg, underlying) : NULL;
+        LLVMValueRef drop_fn =
+            drop_symbol ? pp_environment_backend_lookup_val(cg->global_env_b, drop_symbol, false) : NULL;
+        if (llvm_underlying && drop_fn) {
+            LLVMValueRef value_ptr =
+                LLVMBuildBitCast(cg->builder, arg0, LLVMPointerType(llvm_underlying, 0), "handle_ptr");
+            LLVMValueRef value = LLVMBuildLoad2(cg->builder, llvm_underlying, value_ptr, "handle_value");
+            LLVMTypeRef drop_fn_type = LLVMGlobalGetValueType(drop_fn);
+
+            // Pointer-backed handles skip the drop when the value is null.
+            if (LLVMGetTypeKind(llvm_underlying) == LLVMPointerTypeKind) {
+                LLVMValueRef is_null =
+                    LLVMBuildICmp(cg->builder, LLVMIntEQ, value, LLVMConstNull(llvm_underlying), "handle_is_null");
+                LLVMBasicBlockRef call_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "handle_drop_call");
+                LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "handle_drop_end");
+                LLVMBuildCondBr(cg->builder, is_null, merge_bb, call_bb);
+                LLVMPositionBuilderAtEnd(cg->builder, call_bb);
+                LLVMBuildCall2(cg->builder, drop_fn_type, drop_fn, &value, 1, "");
+                LLVMBuildBr(cg->builder, merge_bb);
+                LLVMPositionBuilderAtEnd(cg->builder, merge_bb);
+            } else {
+                LLVMBuildCall2(cg->builder, drop_fn_type, drop_fn, &value, 1, "");
+            }
+        }
+    } else if (type->kind == PP_TK_List) {
         const PPType* elem_type = type->type.pp_type_list.element_type;
         LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, type);
         if (llvm_list_type) {
@@ -4543,8 +4580,8 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
                     LLVMValueRef cond = LLVMBuildICmp(cg->builder, LLVMIntSLT, i_val, len, "list_drop_loop_cond");
                     LLVMBuildCondBr(cg->builder, cond, loop_body_bb, loop_after_bb);
                     LLVMPositionBuilderAtEnd(cg->builder, loop_body_bb);
-                    LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, LLVMPointerType(elem_llvm_type, 0), data_ptr,
-                                                          &i_val, 1, "list_drop_elem_ptr");
+                    LLVMValueRef elem_ptr =
+                        LLVMBuildGEP2(cg->builder, elem_llvm_type, data_ptr, &i_val, 1, "list_drop_elem_ptr");
                     LLVMValueRef elem_i8 =
                         LLVMBuildBitCast(cg->builder, elem_ptr, LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0),
                                          "elem_i8");

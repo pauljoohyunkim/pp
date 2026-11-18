@@ -139,6 +139,12 @@ bool pp_type_is_reference(const PPType* type) {
     return type->kind == PP_TK_Reference;
 }
 
+bool pp_type_is_handle(const PPType* type) {
+    if (type == NULL) return false;
+
+    return type->kind == PP_TK_Newtype && type->type.pp_type_newtype.drop_func_name != NULL;
+}
+
 bool pp_type_is_pointer(const PPType* type) {
     if (type == NULL) return false;
 
@@ -215,6 +221,7 @@ bool pp_type_needs_drop(const PPType* type) {
 
 static bool pp_type_needs_drop_impl(const PPType* type, const PPType** stack, int depth) {
     if (type == NULL) return false;
+    if (pp_type_is_handle(type)) return true;
     if (depth > 0) {
         for (int i = 0; i < depth; i++) {
             if (stack[i] == type) return false;
@@ -273,6 +280,7 @@ bool pp_type_is_copyable(const PPType* type) {
 static bool pp_type_is_copyable_impl(const PPType* type, const PPType** stack, int depth) {
     if (type == NULL) return false;
     if (pp_type_is_reference(type)) return false;
+    if (pp_type_is_handle(type)) return false;
     if (pp_type_is_trivially_copyable_impl(type, stack, depth)) return true;
     if (!pp_type_needs_drop_impl(type, stack, depth)) return true;
 
@@ -319,6 +327,7 @@ static bool pp_type_is_copyable_impl(const PPType* type, const PPType** stack, i
 static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType** stack, int depth) {
     if (type == NULL) return false;
     if (pp_type_is_reference(type)) return false;
+    if (pp_type_is_handle(type)) return false;
     if (depth > 0) {
         for (int i = 0; i < depth; i++) {
             if (stack[i] == type) return true;

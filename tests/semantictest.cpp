@@ -1861,3 +1861,296 @@ TEST(SemanticTest, BreakInsideNestedLoops) {
     EXPECT_EQ(parser_errors, 0);
     EXPECT_EQ(semantic_errors, 0);
 }
+
+/* ---------------------------------------------------------------------------
+ * Handle declaration tests
+ *
+ * Expected outcome helpers: keep the handle tests terse.
+ * ------------------------------------------------------------------------- */
+static void expect_handle_ok(const char* source) {
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0) << source;
+    EXPECT_EQ(parser_errors, 0) << source;
+    EXPECT_EQ(analyze_result, 1) << source;
+    EXPECT_EQ(semantic_errors, 0) << source;
+}
+
+static void expect_handle_error(const char* source) {
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0) << source;
+    EXPECT_EQ(parser_errors, 0) << source;
+    EXPECT_GT(semantic_errors, 0) << source;
+}
+
+TEST(SemanticTest, HandleDeclInt32Valid) {
+    expect_handle_ok("handle File :: int32 drop pp_close;\n"
+                     "extern func pp_close :: (fd :: int32) -> void;\n");
+}
+
+TEST(SemanticTest, HandleDeclPointerValid) {
+    expect_handle_ok("handle Res :: ptr[void] drop pp_free;\n"
+                     "extern func pp_free :: (p :: ptr[void]) -> void;\n");
+}
+
+TEST(SemanticTest, HandleDuplicateNameError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n");
+}
+
+TEST(SemanticTest, HandleCollidesWithNewtypeError) {
+    expect_handle_error("newtype int32 File;\n"
+                        "handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n");
+}
+
+TEST(SemanticTest, HandleConstUnderlyingError) {
+    expect_handle_error("handle File :: const int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n");
+}
+
+TEST(SemanticTest, HandleReferenceUnderlyingError) {
+    expect_handle_error("handle File :: int32& drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n");
+}
+
+TEST(SemanticTest, HandleStructUnderlyingWithReferenceError) {
+    expect_handle_error("struct Holder { r :: int32&; }\n"
+                        "handle File :: Holder drop pp_close;\n"
+                        "extern func pp_close :: (h :: Holder) -> void;\n");
+}
+
+TEST(SemanticTest, HandleOfHandleError) {
+    expect_handle_error("handle Inner :: int32 drop pp_close;\n"
+                        "handle Outer :: Inner drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n");
+}
+
+TEST(SemanticTest, HandleFunctionUnderlyingError) {
+    expect_handle_error("handle Fn :: func[(int32) -> int32] drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n");
+}
+
+TEST(SemanticTest, HandleMissingDropFunctionError) {
+    expect_handle_error("handle File :: int32 drop pp_missing;\n");
+}
+
+TEST(SemanticTest, HandleDropWrongParamTypeError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (p :: ptr[void]) -> void;\n");
+}
+
+TEST(SemanticTest, HandleDropTwoParamsError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32, extra :: int32) -> void;\n");
+}
+
+TEST(SemanticTest, HandleDropNonVoidReturnError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> int32;\n");
+}
+
+TEST(SemanticTest, HandleDropLambdaError) {
+    expect_handle_error("handle File :: int32 drop pp_release;\n"
+                        "lambda pp_release :: (fd :: int32) -> void { return; }\n");
+}
+
+TEST(SemanticTest, HandleDropCallableVariableError) {
+    expect_handle_error("handle File :: int32 drop rel;\n"
+                        "let rel :: func[(int32) -> void] = nullptr[void];\n");
+}
+
+/* --- Handle positions: params, globals, fields, collections, casts --- */
+
+TEST(SemanticTest, HandleByValueParameterError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "func consume :: (f :: File) -> void { return; }\n");
+}
+
+TEST(SemanticTest, HandleConstRefParameterValid) {
+    expect_handle_ok("handle File :: int32 drop pp_close;\n"
+                     "extern func pp_close :: (fd :: int32) -> void;\n"
+                     "func consume :: (f :: const File&) -> void { return; }\n"
+                     "func main :: () -> int32 {\n"
+                     "    let h :: File = pp_open();\n"
+                     "    consume(h);\n"
+                     "    return 0;\n"
+                     "}\n"
+                     "extern func pp_open :: () -> File;\n");
+}
+
+TEST(SemanticTest, HandleMutableRefParameterValid) {
+    expect_handle_ok("handle File :: int32 drop pp_close;\n"
+                     "extern func pp_close :: (fd :: int32) -> void;\n"
+                     "extern func pp_open :: () -> File;\n"
+                     "func use :: (f :: File&) -> void { return; }\n"
+                     "func main :: () -> int32 {\n"
+                     "    let h :: File = pp_open();\n"
+                     "    use(h);\n"
+                     "    return 0;\n"
+                     "}\n");
+}
+
+TEST(SemanticTest, HandleLambdaParameterError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "lambda peek :: (f :: const File&) -> int32 { return 0; }\n");
+}
+
+TEST(SemanticTest, HandleLambdaReturnError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "lambda open_it :: () -> File { return pp_open(); }\n"
+                        "extern func pp_open :: () -> File;\n");
+}
+
+TEST(SemanticTest, HandleGlobalVariableError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "let g :: File = nullptr[File];\n");
+}
+
+TEST(SemanticTest, HandleStructFieldError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "struct Holder { f :: File; }\n");
+}
+
+TEST(SemanticTest, HandleCollectionElementError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "func main :: () -> int32 {\n"
+                        "    let xs :: [File];\n"
+                        "    return 0;\n"
+                        "}\n");
+}
+
+TEST(SemanticTest, HandleCastToHandleError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "func main :: () -> int32 {\n"
+                        "    let h :: File = 0 as File;\n"
+                        "    return 0;\n"
+                        "}\n");
+}
+
+TEST(SemanticTest, HandleRequiresInitializerError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "func main :: () -> int32 {\n"
+                        "    let h :: File;\n"
+                        "    return 0;\n"
+                        "}\n");
+}
+
+TEST(SemanticTest, HandleReturnLocalError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "extern func pp_open :: () -> File;\n"
+                        "func make :: () -> File {\n"
+                        "    let h :: File = pp_open();\n"
+                        "    return h;\n"
+                        "}\n");
+}
+
+TEST(SemanticTest, HandleReturnRvalueValid) {
+    expect_handle_ok("handle File :: int32 drop pp_close;\n"
+                     "extern func pp_close :: (fd :: int32) -> void;\n"
+                     "extern func pp_open :: () -> File;\n"
+                     "func make :: () -> File { return pp_open(); }\n");
+}
+
+TEST(SemanticTest, HandleReverseCastValid) {
+    expect_handle_ok("handle File :: int32 drop pp_close;\n"
+                     "extern func pp_close :: (fd :: int32) -> void;\n"
+                     "extern func pp_open :: () -> File;\n"
+                     "func main :: () -> int32 {\n"
+                     "    let h :: File = pp_open();\n"
+                     "    let raw :: int32 = h as int32;\n"
+                     "    return raw;\n"
+                     "}\n");
+}
+
+TEST(SemanticTest, HandleReassignmentValid) {
+    expect_handle_ok("handle File :: int32 drop pp_close;\n"
+                     "extern func pp_close :: (fd :: int32) -> void;\n"
+                     "extern func pp_open :: () -> File;\n"
+                     "func main :: () -> int32 {\n"
+                     "    let h :: File = pp_open();\n"
+                     "    h = pp_open();\n"
+                     "    return 0;\n"
+                     "}\n");
+}
+
+TEST(SemanticTest, HandleLocalInLambdaError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "extern func pp_open :: () -> File;\n"
+                        "lambda leaky :: () -> int32 {\n"
+                        "    let h :: File = pp_open();\n"
+                        "    return 0;\n"
+                        "}\n");
+}
+
+TEST(SemanticTest, HandleLocalInBlockValid) {
+    expect_handle_ok("handle File :: int32 drop pp_close;\n"
+                     "extern func pp_close :: (fd :: int32) -> void;\n"
+                     "extern func pp_open :: () -> File;\n"
+                     "func main :: () -> int32 {\n"
+                     "    {\n"
+                     "        let h :: File = pp_open();\n"
+                     "    }\n"
+                     "    return 0;\n"
+                     "}\n");
+}
+
+TEST(SemanticTest, HandleDropFunctionDirectCallError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "func main :: () -> int32 {\n"
+                        "    pp_close(1);\n"
+                        "    return 0;\n"
+                        "}\n");
+}
+
+TEST(SemanticTest, HandleDropFunctionNotCalledWhenUnrelatedNameValid) {
+    expect_handle_ok("handle File :: int32 drop pp_close;\n"
+                     "extern func pp_close :: (fd :: int32) -> void;\n"
+                     "extern func pp_open :: () -> File;\n"
+                     "func helper :: (fd :: int32) -> void { return; }\n"
+                     "func main :: () -> int32 {\n"
+                     "    helper(1);\n"
+                     "    let h :: File = pp_open();\n"
+                     "    return 0;\n"
+                     "}\n");
+}
+
+TEST(SemanticTest, HandleDropFunctionAsValueError) {
+    expect_handle_error("handle File :: int32 drop pp_close;\n"
+                        "extern func pp_close :: (fd :: int32) -> void;\n"
+                        "func main :: () -> int32 {\n"
+                        "    let g :: func[(int32) -> void] = pp_close;\n"
+                        "    g(1);\n"
+                        "    return 0;\n"
+                        "}\n");
+}
+
+TEST(SemanticTest, HandleDropTakingAnotherHandleError) {
+    expect_handle_error("handle A :: int32 drop b_close;\n"
+                        "handle B :: int32 drop b_close;\n"
+                        "extern func b_close :: (b :: B) -> void;\n");
+}
+
+TEST(SemanticTest, HandleDropAsExternIsAccepted) {
+    expect_handle_ok("handle File :: int32 drop pp_close;\n"
+                     "extern func pp_close :: (fd :: int32) -> void;\n");
+}
+
+TEST(SemanticTest, HandleDropAsDefinedFuncIsAccepted) {
+    expect_handle_ok("extern func pp_release :: (fd :: int32) -> void;\n"
+                     "func pp_close :: (fd :: int32) -> void { pp_release(fd); }\n"
+                     "handle File :: int32 drop pp_close;\n");
+}

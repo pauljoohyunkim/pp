@@ -17,6 +17,7 @@
                               | <variable_decl> ";"
                               | <typedef_decl> ";"
                               | <newtype_decl> ";"
+                              | <handle_decl> ";"
 
 <function_signature>        ::= <identifier> "::" "(" <param_list> ")" "->" <type>
 <lambda_signature>          ::= <identifier> "::" "(" <param_list> ")" "->" <type>
@@ -31,6 +32,7 @@
 <struct_member>             ::= <param_decl> [ "=" <expression> ]
 <typedef_decl>              ::= "typedef" <base_type> <identifier>
 <newtype_decl>              ::= "newtype" <base_type> <identifier>
+<handle_decl>               ::= "handle" <identifier> "::" <type> "drop" <identifier>
 
 <block>                     ::= "{" <statement_list> "}"
 <statement_list>            ::= <statement> <statement_list> | ""
