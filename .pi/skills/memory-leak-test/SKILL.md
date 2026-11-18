@@ -1,89 +1,74 @@
 ---
 name: memory-leak-test
-description: Valgrind-based memory leak validation for PP compiler. Builds pplang and unit tests, runs unit tests under valgrind, and validates compilation and runtime of all demos under valgrind.
+description: Valgrind-based memory leak validation for PP compiler. One script builds pplang/unittest/pp_std, runs the unit tests under valgrind, and validates compilation and execution of every demo (plain and -g) under valgrind.
 license: MIT
-compatibility: Requires valgrind installed, project root at /home/pbjk/Documents/Lab/pp
+compatibility: Requires valgrind, make and a native toolchain; run inside the pp repository.
 metadata:
   author: pi
 ---
 
 # Memory Leak Test Skill
 
-This skill provides a reproducible workflow to verify that the PP compiler, its unit tests, and all demos are leak-free under Valgrind.
+Reproducible check that the PP compiler, its unit tests and all demos are leak-free under Valgrind.
 
-## Scope
+## Quick start
 
-* Fresh build of `pplang` and `bin/unittest`
-* Valgrind leak check on unit tests
-* Valgrind leak check on compilation of every demo in `demo/*`
-* Valgrind leak check on execution of every demo binary
-* Demos are discovered dynamically – no hardcoded list
-
-## Workflow
-
-### 1. Fresh build
 ```bash
-cd /home/pbjk/Documents/Lab/pp
+.pi/skills/memory-leak-test/run_valgrind_validation.sh          # root inferred from the script location
+.pi/skills/memory-leak-test/run_valgrind_validation.sh /path/pp # or pass the root explicitly
+```
+
+Exit code is `0` only when everything is clean. Logs:
+
+* `$LOGDIR/pp_valgrind_summary.log` (default `LOGDIR=/tmp`) — per-step PASS/FAIL summary
+* `$LOGDIR/pp_valgrind_unittest.log`
+* `$LOGDIR/pp_valgrind_<demo>_<plain|debug>_compile.log` and `..._run.log`
+
+## What the script does
+
+1. **Fresh build**: `make clean`, `make pplang`, `make unittest`, and `make -C lib/pp_std`.
+   The stdlib rebuild matters: root `make clean` leaves `lib/pp_std/bin/pp_std.a` alone, and a stale archive
+   fails demo linking with undefined `pp_std_*` symbols.
+2. **Unit tests under valgrind**: `valgrind --leak-check=full --error-exitcode=1 ./bin/unittest`.
+   Requires 0 definitely/indirectly lost and 0 valgrind errors, and all tests passing.
+3. **Demos, discovered dynamically** (`find demo -maxdepth 1 -mindepth 1 -type d`) — no hardcoded list. For each
+   demo, twice (plain and `-g`):
+   * `make clean`, then `make PPLANG="valgrind --leak-check=full --error-exitcode=1 <root>/bin/pplang [-g]"`.
+     Wrapping `PPLANG` reuses each demo Makefile's own sources, `.ppi` flags and stdlib archive, so nothing is
+     duplicated here.
+   * Locate the produced binary with `find <demo> -maxdepth 1 -type f -perm -u+x` (demos contain no other
+     executables) and run it under valgrind.
+   * Require `All heap blocks were freed -- no leaks are possible` in **both** the compile and run logs.
+   * Treat a missing binary as a failure. Do not trust `make`'s exit status alone: `bin/pplang` used to exit 0
+     when the system linker failed, so artifact presence is the reliable signal (the driver now propagates link
+     status, but keep artifact checks as a guard).
+
+## Manual fallback
+
+If a step fails, reproduce it by hand:
+
+```bash
+cd demo/<name>
 make clean
-make -j
-make bin/unittest
+make PPLANG="valgrind --leak-check=full --error-exitcode=1 ../../bin/pplang -g"
+valgrind --leak-check=full ./<demo_binary>
 ```
 
-### 2. Unit tests under Valgrind
-```bash
-valgrind --leak-check=full --error-exitcode=1 bin/unittest
-```
-Expected:
-```
-definitely lost: 0 bytes in 0 blocks
-indirectly lost: 0 bytes in 0 blocks
-```
-All tests must pass.
+Check the tail of the valgrind output for:
 
-### 3. Discover demos
-```bash
-find demo -maxdepth 1 -mindepth 1 -type d
-```
-For each demo directory `d`:
-* Build file is `Makefile` in that directory
-* Compilation command is `make` inside the directory
-
-### 4. Valgrind on compilation
-For each demo `d`:
-```bash
-cd "$d"
-make clean  # To remove any stale binaries
-valgrind --leak-check=full ../../bin/pplang --ppi ../../lib/pp_std/extern/pp_io.ppi main.pp [demo sources] ../../lib/pp_std/bin/pp_std.a -o <binary>
-```
-Check:
 ```
 in use at exit: 0 bytes in 0 blocks
 All heap blocks were freed -- no leaks are possible
+ERROR SUMMARY: 0 errors from 0 contexts
 ```
-If failure at any step, check Makefile for that demo.
 
-### 5. Valgrind on execution
-For each demo binary:
-```bash
-valgrind --leak-check=full ./<binary>
-```
-Check same heap summary – zero leaks.
+`1.5 KB` still reachable from gtest/LLVM statics is expected for `bin/unittest`; only
+`definitely/indirectly/possibly lost` must be zero.
 
-### 6. Valgrind on compilation with debug info
-Repeat step 4, but with `-g` flag.
+## Notes
 
-### 7. Valgrind on execution
-Repeat step 5.
-
-## Automation notes
-
-* Demos may grow. Do not hardcode names. Iterate over `demo/*` directories.
-* PPI path is always `../../lib/pp_std/extern/pp_io.ppi`.
-* Use `--error-exitcode=1` so CI fails on leaks.
-* Record summary to notebook page `valgrind-validation`.
-
-## Success criteria
-
-* `bin/unittest` passes under Valgrind with 0 definitely lost.
-* Every demo compiles under Valgrind with 0 leaks.
-* Every demo binary runs under Valgrind with 0 leaks.
+* Demos may grow or be renamed; the script never hardcodes names, binaries or source lists.
+* Per-step timeouts (600 s compile, 300 s run, 1800 s unit tests) keep CI from hanging.
+* `pp_std_input_char` / `pp_std_abort` undefined at link time almost always means a stale
+  `lib/pp_std/bin/pp_std.a`; rebuild it with `make -C lib/pp_std`.
+* Record the outcome in the notebook page `valgrind-validation`.
