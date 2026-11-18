@@ -239,42 +239,55 @@ Verification (semantic stage via `bin/pplang`, codegen still pending Phase 7/8):
 
 ---
 
-## Phase 6 — Semantic checks
+## Phase 6 — Semantic checks  — DONE
 
-- [ ] Variable declaration (`pp_semantic_analyzer_full_analyze_variable_declaration`):
-  - [ ] require an initializer when the type is callable (no null function value);
-  - [ ] confirm const/reference-initializer rules still hold;
-  - [ ] require exact type match after decay; no implicit lambda → func widening.
-- [ ] Assignment statement:
-  - [ ] decay handles callable types (Phase 4);
-  - [ ] exact type match; no implicit lambda → func widening.
-- [ ] Return statement: exact type match; no implicit widening.
-- [ ] Function-call argument checking: exact type match; no implicit widening.
-- [ ] Function-call callee checking (`pp_semantic_analyzer_check_function_call`):
-  - [ ] decay the callee type before checking `kind`;
-  - [ ] support `const func[...]` and `func[...]&` callees;
-  - [ ] use decayed parameter/return types;
-  - [ ] preserve lambda purity restrictions based on the decayed kind.
-- [ ] Struct initializer checks:
-  - [ ] require an initializer for callable-typed fields (same as const/reference fields);
-  - [ ] exact type match; no implicit widening.
-- [ ] Struct field default initializers:
-  - [ ] allow a function/lambda name as a global default initializer for a callable-typed field;
-  - [ ] apply the same constexpr exception for callable names;
-  - [ ] still require the initializer when the field is used in a global-scope struct instance.
-- [ ] Global variable declaration:
-  - [ ] allow function-typed globals with a mandatory initializer that is a function or lambda name;
-  - [ ] add a narrow constexpr exception for callable declaration names (link-time constants);
-  - [ ] verify codegen ordering supports the initializer (see Phase 8);
-  - [ ] fall back to an explicit ban if declaration-order handling is not simple.
-- [ ] Cast expression: allow **only** explicit `lambda[...]` → `func[...]` with an identical signature. Reject
-      every other cast involving a callable type (func → lambda, lambda → lambda, func → func, callable ↔
-      non-callable).
-- [ ] Array/list element validation: keep the ban; error text unchanged.
-- [ ] Pointer validation: reject `ptr[func[...]]` / `ptr[lambda[...]]` and any pointer whose pointee is
-      callable. Do not affect references to function-typed variables.
-- [ ] `nullptr[func[...]]` is therefore rejected because it would build `ptr[func[...]]`.
-- [ ] Comparisons and all binary/unary operators: explicitly reject callable operands in v1.
+New helpers in `src/pp_semantic_analyzer.c`:
+- `pp_type_is_callable(type)` — `PP_TK_Function / PP_TK_Lambda / PP_TK_Operator` on an already-decayed type.
+- `pp_semantic_callable_signature_equal(a, b)` — signature identity ignoring the callable kind, used by the
+  widening cast.
+
+- [x] Variable declaration (`pp_semantic_analyzer_full_analyze_variable_declaration`):
+  - [x] initializer is mandatory for callable types: "Variable \"%s\" has a callable type, but initializer does
+        not exist.";
+  - [x] const/reference-initializer rules unchanged;
+  - [x] exact type match after decay (existing `pp_type_equal` on decayed types), so no implicit
+        lambda → func widening.
+- [x] Assignment statement: decay handles callables (Phase 4), `pp_type_can_assign` requires the same kind and
+      signature, so no implicit widening; compound assignment operators still reject callables.
+- [x] Return statement: existing decayed `pp_type_equal` already gives exact match / no widening.
+- [x] Function-call argument checking: existing decayed `pp_type_equal` already gives exact match / no widening.
+- [x] Function-call callee checking (`pp_semantic_analyzer_check_function_call`):
+  - [x] callee type is decayed first (`callee_type`), so `const func[...]` and `func[...]&` callees work;
+  - [x] kind check, purity restriction, param counts, parameter types and return type all use the decayed type.
+- [x] Struct initializer checks: callable fields now require an entry when no default exists ("No initializer given
+      for const, reference, or callable field \"%s\""), with exact type matching afterward.
+- [x] Struct field default initializers: allowed for callable fields; constexpr requirement satisfied because
+      callable declaration names are constexpr (see below).
+- [x] Global variable declaration: callable-typed globals require an initializer ("Global variable \"%s\" has a
+      callable type, but initializer does not exist."); the narrow constexpr exception is implemented by marking
+      identifier decorations of callable declaration names as constexpr, which also covers struct defaults and
+      global struct instances containing callable fields. No special-casing needed in the global/struct constexpr
+      checks. Codegen ordering is still open (Phase 8).
+- [x] Cast expression: only `lambda[...]` → `func[...]` with an identical signature is allowed (decayed, via
+      `pp_semantic_callable_signature_equal`). Everything else involving a callable is rejected with "Only a
+      lambda[...] value can be cast to an identical func[...] signature." — func → lambda, lambda → lambda,
+      func → func, callable ↔ non-callable, mismatched signature.
+- [x] Array/list element validation: ban kept, message unchanged.
+- [x] Pointer validation: `ptr[T]` rejects a callable pointee ("Pointer cannot point to a callable type"), and
+      `nullptr[T]` rejects a callable pointee too. References to function-typed variables are unaffected.
+- [x] Callable operands rejected explicitly: binary ("Callable values do not support binary operators in v1.",
+      covers `==`/`!=`/arithmetic/bitwise) and unary ("Callable values do not support unary operators in v1.",
+      checked before custom-operator lookup, so `@f` is included).
+
+Verification (semantic stage; codegen failures below are Phase 7/8 work):
+- Rejected: uninitialized callable local; uninitialized callable global; struct instance missing a callable field;
+  implicit lambda → func in initialization, argument and return; func → lambda cast; func → func cast; mismatched
+  signature cast; callable ↔ non-callable cast; `==` on two callable variables; `@callable_variable`;
+  `ptr[func[...]]`; `nullptr[func[...]]`.
+- Accepted: `let g :: func[...] = named_func;` at global scope; struct field with `= named_func` default; global
+  struct instance initialized with `.f = named_func`; call through `const func[...]` and `func[...]&` parameters;
+  exact-signature `lambda[...]` argument/return values; `doubler as func[(int32) -> int32]`.
+- `make pplang` builds; `./bin/unittest` 381/381 pass.
 
 ---
 
