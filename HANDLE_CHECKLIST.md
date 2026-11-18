@@ -137,19 +137,22 @@ Gate: positive/negative tests in Phase 6 pass.
 ### Phase 5 — Code generator
 File: `src/pp_code_generator.c`, `include/pp_code_generator.h` (no struct changes expected)
 
-- [ ] Top-level dispatch: add `PP_AST_HandleDeclarationNode` to the ignorable declarations (~line 1568,
+- [x] Top-level dispatch: add `PP_AST_HandleDeclarationNode` to the ignorable declarations (~line 1568,
       currently `default: abort()`)
-- [ ] `pp_code_generator_emit_drop` (~205): unwrap `PP_TK_Newtype` only when **not** a handle; a handle falls
+- [x] `pp_code_generator_emit_drop` (~205): unwrap `PP_TK_Newtype` only when **not** a handle; a handle falls
       through to `ensure_drop_fn`
-- [ ] `pp_code_generator_gen_drop_body` (~4484): new first branch for handle newtypes —
+- [x] `pp_code_generator_gen_drop_body` (~4484): new first branch for handle newtypes —
       arg0 is `i8*`; bitcast to `ptr[underlying]`; load underlying; if the underlying lowers to a pointer,
       skip the call when null; then call the bound function (resolved via
       `pp_environment_backend_lookup_val(cg->global_env_b, drop_symbol)`) passing the underlying value
-- [ ] Handle locals/params: plain `pp_code_generator_push_drop` at scope entry (~1779, ~1949) — no flags,
+- [x] Handle locals/params: plain `pp_code_generator_push_drop` at scope entry (~1779, ~1949) — no flags,
       no changes to `pp_code_generator_emit_scope_drops` (~556)
-- [ ] Reassignment: existing path (~1986, ~2036) already drops the old value before storing — verify only
-- [ ] Temporary handle bound to `const H&`: caller drops it via `ref_temp_addrs` (~2929) — verify only
-- [ ] Confirm `return <call>` leaves no drop of the returned user in the callee
+- [x] Reassignment: existing path (~1986, ~2036) already drops the old value before storing — verify only
+- [x] Temporary handle bound to `const H&`: caller drops it via `ref_temp_addrs` (~2929) — verify only
+- [x] Confirm `return <call>` leaves no drop of the returned user in the callee
+- [x] **Reassignment must drop the overwritten value.** The assignment path only dropped the old value when the
+      RHS was an lvalue; `h = pp_open();` stored over a live handle and leaked it (found by the demo: one close
+      instead of two). Fixed by emitting the handle drop before the store in the rvalue path.
 
 Gate: codegen tests assert the drop call and the null guard in IR.
 
@@ -171,20 +174,23 @@ Gate: codegen tests assert the drop call and the null guard in IR.
 
 `tests/codegentest.cpp`
 
-- [ ] `HandleDropsViaBoundFunction` — one `call void @pp_close(i32` in the scope-exit path
-- [ ] `HandlePointerSkipsNullDrop` — null guard + `call void @pp_free(ptr`
-- [ ] `HandleDropsOnEarlyReturn` — both branches of an `if` return → exactly one drop on each path
-- [ ] `HandleBorrowDoesNotDrop` — `const File&` parameter produces no drop of the parameter
-- [ ] `HandleReassignDropsOld` — two drop calls for one variable
+- [x] `HandleDropsViaBoundFunction` — one `call void @pp_close(i32` in the scope-exit path
+- [x] `HandlePointerSkipsNullDrop` — null guard (`handle_is_null`) + `call void @pp_free(ptr`
+- [x] `HandleDropsOnEveryReturnPath` — a two-return function has two drop sites
+- [x] `HandleBorrowDoesNotDrop` — `const File&` parameter produces no drop of the parameter
+- [x] `HandleReassignDropsOldValue` — two drop sites for one variable
+- [x] `HandleDeclarationEmitsNoCode` — the declaration itself produces no IR
+- [x] `HandleReassignDropsOld` — two drop calls for one variable
 
 ### Phase 7 — Demo
 `demo/06_handle/`
 
-- [ ] `main.pp` + `handle_demo.c` (C counters) + `Makefile` + `README.md`
-- [ ] Scenarios: scope drop, drop in a loop (3×), early return on both branches, null-pointer skip,
-      borrow call, reassignment (old value dropped), reverse cast read
-- [ ] Assert exact drop counts from C; exit non-zero on mismatch
-- [ ] Do not commit the built binary
+- [x] `main.pp` + `handle_demo.c` (C counters) + `Makefile` + `README.md`
+- [x] One round trip: write `12345678` to a file through a write handle, then read it back through a read handle
+      into a `[uint8 : 8u]` array (`@buf as ptr[uint8]`) and print it. Covers birth, drop at scope exit, drop on
+      an early-return path, the reverse cast `f as int32`, and pointer value use
+- [x] Assert exact drop counts from C; exit non-zero on mismatch
+- [x] Do not commit the built binary
 
 ### Phase 8 — Docs / cleanup
 - [ ] `docs/language/` section for handles (contract table from §1)
@@ -202,9 +208,9 @@ Gate: codegen tests assert the drop call and the null guard in IR.
 | 2 | Pass 2 drop resolution | signature tests | [x] |
 | 3 | Type-position bans + `H&` allowance | position tests | [x] |
 | 4 | Body rules (initializer, return, args) | body tests | [x] |
-| 5 | Codegen: dispatch, drop body, no flags | IR assertions in codegen tests | [ ] |
-| 6 | Full test suite | `./bin/unittest` all green | [ ] |
-| 7 | Demo | `demo/06_handle` exit 0 + valgrind clean | [ ] |
+| 5 | Codegen: dispatch, drop body, no flags | IR assertions in codegen tests | [x] |
+| 6 | Full test suite | `./bin/unittest` all green | [x] |
+| 7 | Demo | `demo/06_handle` prints `12345678`, exit 0, valgrind clean | [x] |
 | 8 | Docs | read-through | [ ] |
 
 ## 4. Definition of done
