@@ -32,9 +32,9 @@ Type-introducing declaration, same family as `newtype` and `typedef`.
 - [ ] Document `.ppi` requirements for handle + free_func extern
 
 ### Lexer / Tokens
-- [ ] Add `handle` keyword token
-- [ ] Decide `drop` handling: reserved vs contextual
-- [ ] Update keyword table in `src/pp_lexer.c`
+- [x] Add `handle` keyword token
+- [x] Add `drop` keyword token
+- [x] Update keyword table in `src/pp_lexer.c`
 
 ### Parser / AST
 - [ ] Add AST node enum for `AST_HANDLE_DECL` in `include/pp_ast.h`
