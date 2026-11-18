@@ -189,17 +189,26 @@ Known gap (later phases): a callable-typed struct field passes semantic analysis
 
 ---
 
-## Phase 4 — Type-system predicates (hard blocker)
+## Phase 4 — Type-system predicates  — DONE
 
-- [ ] `pp_type_decay` (`src/pp_type_table.c`): return Function/Lambda/Operator unchanged. Do **not** recurse into
-      signature parameters/return; const/ref inside a signature is part of type identity.
-- [ ] `pp_type_decay_cg` (`src/pp_type_table.c`): same.
-- [ ] `pp_type_is_trivially_copyable_impl` (`src/pp_type.c`): return `true` for Function/Lambda/Operator.
-- [ ] `pp_type_contains_reference_impl` (`src/pp_semantic_analyzer.c`): return `false` for Function/Lambda
-      instead of traversing the signature. A function value does not store a reference.
-- [ ] Keep the Function/Lambda ban in `pp_type_validate_collection_element` (arrays/lists) for v1.
-- [ ] Confirm `pp_type_needs_drop` remains `false` for callable types.
-- [ ] Confirm `pp_type_equal` requires no change.
+- [x] `pp_type_decay` (`src/pp_type_table.c`): returns Function/Lambda/Operator unchanged (no recursion into the
+      signature).
+- [x] `pp_type_decay_cg` (`src/pp_type_table.c`): same.
+- [x] `pp_type_is_trivially_copyable_impl` (`src/pp_type.c`): returns `true` for Function/Lambda/Operator
+      (grouped with the scalar/pointer cases, so `pp_type_is_copyable` also short-circuits to true).
+- [x] `pp_type_contains_reference_impl` (`src/pp_semantic_analyzer.c`): returns `false` for
+      Function/Lambda/Operator instead of traversing the signature. A function value is a code pointer;
+      references inside the signature are type identity only.
+- [x] Function/Lambda ban in `pp_type_validate_collection_element` unchanged (arrays/lists still rejected, same
+      message).
+- [x] `pp_type_needs_drop` unchanged: callable kinds fall into `default: return false`.
+- [x] `pp_type_equal` unchanged (already compares signature recursively).
+
+Verification: `make pplang` clean (pre-existing warnings only), `./bin/unittest` 381/381 pass.
+Smoke (semantic stage): `let f :: func[(int32, int32) -> int32] = add;` is accepted;
+`let a :: [func[(int32) -> int32]: 2];` still rejected with "Array/List element type cannot be function/lambda";
+`typedef func[(int32&) -> int32] WithRef;` accepted (signature references no longer leak containment).
+Note: `ptr[func[...]]` is still accepted by the type layer — Phase 6 item, not a Phase 4 regression.
 
 ---
 

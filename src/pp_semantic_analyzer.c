@@ -493,28 +493,12 @@ static bool pp_type_contains_reference_impl(const PPType* t, const PPType** stac
             }
             break;
         case PP_TK_Function:
-            if (pp_type_contains_reference_impl(t->type.pp_type_function.return_type, stack, depth + 1))
-                result = true;
-            else {
-                for (size_t i = 0; i < t->type.pp_type_function.param_count; i++) {
-                    if (pp_type_contains_reference_impl(t->type.pp_type_function.param_types[i], stack, depth + 1)) {
-                        result = true;
-                        break;
-                    }
-                }
-            }
-            break;
         case PP_TK_Lambda:
-            if (pp_type_contains_reference_impl(t->type.pp_type_lambda.return_type, stack, depth + 1))
-                result = true;
-            else {
-                for (size_t i = 0; i < t->type.pp_type_lambda.param_count; i++) {
-                    if (pp_type_contains_reference_impl(t->type.pp_type_lambda.param_types[i], stack, depth + 1)) {
-                        result = true;
-                        break;
-                    }
-                }
-            }
+        case PP_TK_Operator:
+            /* A callable value is a code pointer; its signature is part of the
+             * type identity only. References inside the signature are not
+             * stored in the value. */
+            result = false;
             break;
         default:
             result = false;
