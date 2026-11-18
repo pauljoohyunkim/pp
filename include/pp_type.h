@@ -10,6 +10,7 @@ extern "C" {
 
 // Forward declare PP_AST_Node for PPStructField
 struct PP_AST_Node;
+struct PPSymbol;
 struct PPType;
 
 typedef struct {
@@ -82,6 +83,11 @@ typedef struct PPType {
         struct {
             const char* name;
             const struct PPType* underlying;
+            /* Non-NULL drop_func_name marks this newtype as a handle: the nominal
+             * type owns a resource that the named function releases. The symbol
+             * is bound in semantic Pass 2. */
+            const char* drop_func_name;
+            struct PPSymbol* drop_symbol;
         } pp_type_newtype;
 
         struct {
@@ -137,6 +143,9 @@ int pp_type_push_param(PPType* type, const PPType* param_type);
 
 bool pp_type_is_const(const PPType* type);
 bool pp_type_is_reference(const PPType* type);
+/** @brief A handle is a newtype with a bound drop function. Handles are
+ * non-copyable, non-trivially-copyable and always need drop. */
+bool pp_type_is_handle(const PPType* type);
 bool pp_type_is_pointer(const PPType* type);
 bool pp_type_contains_pointer(const PPType* type);
 bool pp_type_is_numerical(const PPType* type);

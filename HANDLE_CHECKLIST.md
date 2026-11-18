@@ -3,8 +3,12 @@
 Feature: `handle HANDLE :: underlying drop free_func;`
 Type-introducing declaration, same family as `newtype` and `typedef`.
 
-Baseline: tree reset to `716fbc3` (parser/AST/tokens/BNF only). Semantic analyzer and code generator start
-fresh. `bin/unittest` → 424 pass.
+Baseline: tree reset to `716fbc3` (parser/AST/tokens/BNF only).
+
+**Status:** Phases 0-4 (type representation + semantic analyzer) are implemented and green.
+`bin/unittest` → **455 pass** (424 baseline + 31 handle tests). Phase 5 (code generator) is intentionally not
+started yet: a handle declaration currently reaches `pp_code_generator_emit` and hits the 
+`default: abort()` branch, so no handle program can be built into a binary until Phase 5 lands.
 
 ---
 
@@ -51,12 +55,12 @@ Each phase ends with a gate: `make -j && ./bin/unittest` green before continuing
 ### Phase 0 — Type representation
 Files: `include/pp_type.h`, `src/pp_type.c`
 
-- [ ] Add to `pp_type_newtype`: `const char* drop_func_name;` and `struct PPSymbol* drop_symbol;`
+- [x] Add to `pp_type_newtype`: `const char* drop_func_name;` and `struct PPSymbol* drop_symbol;`
       (forward-declare `struct PPSymbol`)
-- [ ] `bool pp_type_is_handle(const PPType* t)` — `PP_TK_Newtype && drop_func_name != NULL`
-- [ ] `pp_type_needs_drop_impl` → true for handle
-- [ ] `pp_type_is_copyable_impl` → false for handle
-- [ ] `pp_type_is_trivially_copyable_impl` → false for handle
+- [x] `bool pp_type_is_handle(const PPType* t)` — `PP_TK_Newtype && drop_func_name != NULL`
+- [x] `pp_type_needs_drop_impl` → true for handle
+- [x] `pp_type_is_copyable_impl` → false for handle
+- [x] `pp_type_is_trivially_copyable_impl` → false for handle
 
 Note: cast/decay/DI machinery already walks `PP_TK_Newtype`, so handle↔underlying needs no extra work in
 `pp_type_resolve_machine_type`, `pp_type_decay`, `pp_environment_backend_lookup_type`.
@@ -64,15 +68,15 @@ Note: cast/decay/DI machinery already walks `PP_TK_Newtype`, so handle↔underly
 ### Phase 1 — Semantic Pass 1: registration
 File: `src/pp_semantic_analyzer.c` (model: `..._build_global_table_newtype_decl`, ~line 1975)
 
-- [ ] Prototype `pp_semantic_analyzer_build_global_table_handle_decl`; dispatch in
+- [x] Prototype `pp_semantic_analyzer_build_global_table_handle_decl`; dispatch in
       `pp_semantic_analyzer_build_global_table` next to `PP_AST_NewtypeDeclarationNode` (~line 1038)
-- [ ] Reject duplicate name (alias + named-type lookup)
-- [ ] Resolve underlying via `pp_type_from_type_node`
-- [ ] Guards: reject top-level const/reference; reject `PP_TK_Function` / `PP_TK_Lambda`
-- [ ] New helpers `pp_type_contains_handle` / `_impl` (mirror `pp_type_contains_reference`, cycle/depth guard):
+- [x] Reject duplicate name (alias + named-type lookup)
+- [x] Resolve underlying via `pp_type_from_type_node`
+- [x] Guards: reject top-level const/reference; reject `PP_TK_Function` / `PP_TK_Lambda`
+- [x] New helpers `pp_type_contains_handle` / `_impl` (mirror `pp_type_contains_reference`, cycle/depth guard):
       reject underlying containing a **reference** or another **handle**, recursive through
       newtype/const/array/list/struct
-- [ ] Create `PP_TK_Newtype`, set `name`, `underlying`, `drop_func_name` (string), intern, then
+- [x] Create `PP_TK_Newtype`, set `name`, `underlying`, `drop_func_name` (string), intern, then
       `pp_global_type_table_register_named`
 
 Gate: guard-error semantic tests pass.
@@ -80,14 +84,20 @@ Gate: guard-error semantic tests pass.
 ### Phase 2 — Semantic Pass 2: drop-function resolution
 File: `src/pp_semantic_analyzer.c`
 
-- [ ] Prototype `pp_semantic_analyzer_full_analyze_handle_decl`; dispatch in Pass 2 next to
+- [x] Prototype `pp_semantic_analyzer_full_analyze_handle_decl`; dispatch in Pass 2 next to
       `PP_AST_NewtypeDeclarationNode` (~line 2188, currently "Nothing to do")
-- [ ] Re-run the recursive underlying guards here too — struct layouts are only complete after Pass 2 step 1,
+- [x] Re-run the recursive underlying guards here too — struct layouts are only complete after Pass 2 step 1,
       so a handle over a struct that contains a reference is only detectable now
-- [ ] Look up `drop_func_name` in the value namespace
-- [ ] Require a callable **declaration** (not lambda, not operator, not a func-typed variable)
-- [ ] Require signature `func[(underlying) -> void]`: exactly 1 param, param type == underlying, void return
-- [ ] Store the resolved symbol on the interned type via
+- [x] Look up `drop_func_name` in the value namespace
+- [x] Require a callable **declaration** (not lambda, not operator, not a func-typed variable). Concretely the
+      drop function must be either `func name :: (underlying) -> void { ... }` (PP bodies are mandatory, so a
+      `func` is always a definition) or `extern func name :: (underlying) -> void;` (implementation resolved by
+      the linker). Those are the only two shapes that pass `is_callable_decl && PP_TK_Function`.
+- [x] The drop parameter must be the **underlying value**, never a handle: `pp_type_mentions_handle(drop_param)`
+      is rejected. Without this, the machine-type comparison in `pp_type_same_for_drop` let a drop taking a
+      *different* handle over the same underlying type through.
+- [x] Require signature `func[(underlying) -> void]`: exactly 1 param, param type == underlying, void return
+- [x] Store the resolved symbol on the interned type via
       `pp_global_type_table_find_by_name_mut` → `type.pp_type_newtype.drop_symbol`
 
 Gate: drop-signature semantic tests pass.
@@ -95,27 +105,32 @@ Gate: drop-signature semantic tests pass.
 ### Phase 3 — Type-position rules
 File: `src/pp_semantic_analyzer.c`
 
-- [ ] **Relax** the signature guard: a handle **behind a reference** is legal in a signature
+- [x] **Relax** the signature guard: a handle **behind a reference** is legal in a signature
       (`File&`, `const File&`); a bare handle in a parameter or return type is an error.
       Basis: `pp_type_contains_handle` must distinguish "bare" from "behind `PP_TK_Reference`".
-- [ ] Ban by-value handle parameters in function, extern function, operator, lambda declarations
+- [x] Ban by-value handle parameters in function, extern function, operator, lambda declarations
       (`..._function_decl` ~1067, `..._extern_function_decl` ~1530, `..._lambda_decl` ~1442)
-- [ ] Ban handle-typed globals (`..._build_global_table_variable_decl` ~1875)
-- [ ] Ban handle-containing struct fields (`..._full_analyze_struct_decl_fields` ~2479)
-- [ ] Ban handle-containing collection elements (`pp_type_validate_collection_element` ~685)
-- [ ] Ban casts **to** a handle (`pp_semantic_analyzer_check_cast_expression` ~4969)
+- [x] Ban handle-typed globals (`..._build_global_table_variable_decl` ~1875)
+- [x] Ban handle-containing struct fields (`..._full_analyze_struct_decl_fields` ~2479)
+- [x] Ban handle-containing collection elements (`pp_type_validate_collection_element` ~685)
+- [x] Ban casts **to** a handle (`pp_semantic_analyzer_check_cast_expression` ~4969)
 
 Gate: each new negative test fails with the intended message.
 
 ### Phase 4 — Body-level rules
 File: `src/pp_semantic_analyzer.c`
 
-- [ ] Handle variable requires an initializer (`..._full_analyze_variable_declaration` ~2859)
-- [ ] Ban `return <handle local>;`; allow `return <call returning handle>;`
+- [x] Handle variable requires an initializer (`..._full_analyze_variable_declaration` ~2859)
+- [x] Ban `return <handle local>;`; allow `return <call returning handle>;`
       (`..._full_analyze_return_statement` ~3001) — accept `PP_AST_FunctionCallNode` (and calls) only
-- [ ] Ban by-value handle **arguments** in the call checker (where `PP_AST_FunctionCallNode` args are
-      verified against parameter types)
-- [ ] Confirm reassignment is accepted unchanged (`..._full_analyze_assignment_statement` ~3084)
+- [x] By-value handle **arguments**: no separate call-site check. Phase 3 already forbids any bare handle
+      parameter, so a parameter that could accept a handle by value cannot be declared. Passing a handle is only
+      possible through `H&` / `const H&`, which is the borrow case.
+- [x] Confirm reassignment is accepted unchanged (`..._full_analyze_assignment_statement` ~3084)
+- [x] **The bound drop function is not callable from source.** `pp_is_handle_drop_function` scans the type table
+      for a newtype whose `drop_func_name` matches; `check_function_call` rejects a direct call
+      (`pp_close(1)`), and the identifier checker rejects every other use, including storing it in a
+      `func[...]` variable that could then be called. Only the compiler's scope-exit drop may call it.
 
 Gate: positive/negative tests in Phase 6 pass.
 
@@ -141,13 +156,18 @@ Gate: codegen tests assert the drop call and the null guard in IR.
 ### Phase 6 — Tests
 `tests/semantictest.cpp` (naming: `Handle*`)
 
-- [ ] Negative: duplicate name; handle-of-handle; underlying ref; underlying struct containing ref;
-      underlying func/lambda; missing drop fn; wrong param type; two params; non-void return; lambda as drop;
-      func-typed variable as drop
-- [ ] Negative: by-value param; by-value argument; handle global; struct field; list element;
-      cast to handle; missing initializer; `return h;`; handle local inside a lambda
-- [ ] Positive: `const File&` / `File&` param and borrow call; `return pp_open();`; reassignment;
-      `h as int32`; handle over `ptr[void]`; extern declared after handle
+- [x] Negative: duplicate name (`HandleDuplicateNameError`, `HandleCollidesWithNewtypeError`); handle-of-handle;
+      underlying ref; underlying struct containing ref; underlying func; missing drop fn; wrong param type;
+      two params; non-void return; lambda as drop; func-typed variable as drop; const underlying
+- [x] Negative: by-value param; handle global; struct field; list element; cast to handle; missing initializer;
+      `return h;`; handle local inside a lambda; lambda param/return
+- [x] Positive: `const File&` / `File&` param and borrow call; `return pp_open();`; reassignment; `h as int32`;
+      handle over `ptr[void]`; handle local in a nested block; extern declared after handle
+- [x] Negative: direct call of the drop function (`HandleDropFunctionDirectCallError`); the drop function used as
+      a value / stored in a `func[...]` variable (`HandleDropFunctionAsValueError`); drop taking another handle
+      (`HandleDropTakingAnotherHandleError`)
+- [x] Positive: drop declared as `extern func` (`HandleDropAsExternIsAccepted`) and as a defined `func`
+      (`HandleDropAsDefinedFuncIsAccepted`)
 
 `tests/codegentest.cpp`
 
@@ -177,11 +197,11 @@ Gate: codegen tests assert the drop call and the null guard in IR.
 
 | # | Step | Verified by | Done |
 |---|---|---|---|
-| 0 | Type representation changes only | build + 424 tests still green | [ ] |
-| 1 | Pass 1 registration + underlying guards | guard-negative tests | [ ] |
-| 2 | Pass 2 drop resolution | signature tests | [ ] |
-| 3 | Type-position bans + `H&` allowance | position tests | [ ] |
-| 4 | Body rules (initializer, return, args) | body tests | [ ] |
+| 0 | Type representation changes only | build + 424 tests still green | [x] |
+| 1 | Pass 1 registration + underlying guards | guard-negative tests | [x] |
+| 2 | Pass 2 drop resolution | signature tests | [x] |
+| 3 | Type-position bans + `H&` allowance | position tests | [x] |
+| 4 | Body rules (initializer, return, args) | body tests | [x] |
 | 5 | Codegen: dispatch, drop body, no flags | IR assertions in codegen tests | [ ] |
 | 6 | Full test suite | `./bin/unittest` all green | [ ] |
 | 7 | Demo | `demo/06_handle` exit 0 + valgrind clean | [ ] |
