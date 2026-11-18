@@ -1449,3 +1449,279 @@ TEST(SemanticTest, OperatorUnaryBuiltinRedefinitionRejected) {
     EXPECT_GT(semantic_errors, 0);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * First-class function / lambda values (Phase 10).
+ * ------------------------------------------------------------------------- */
+
+static void expect_semantic_accept(const char* source, const char* label) {
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0) << label << "\nsource:\n" << source;
+    EXPECT_EQ(semantic_errors, 0) << label << "\nsource:\n" << source;
+    EXPECT_EQ(analyze_result, 1) << label << "\nsource:\n" << source;
+}
+
+static void expect_semantic_reject(const char* source, const char* label) {
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0) << label << "\nsource:\n" << source;
+    EXPECT_TRUE(semantic_errors > 0 || analyze_result == 0) << label << "\nsource:\n" << source;
+}
+
+TEST(SemanticTest, CallableVariableFromNamedFunctionAndCall) {
+    expect_semantic_accept(
+        "func add :: (a :: int32, b :: int32) -> int32 { return a + b; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32, int32) -> int32] = add;\n"
+        "    return f(1, 2);\n"
+        "}\n",
+        "callable variable initialized from a function name and called");
+}
+
+TEST(SemanticTest, CallableVariableRebinding) {
+    expect_semantic_accept(
+        "func add :: (a :: int32, b :: int32) -> int32 { return a + b; }\n"
+        "func sub :: (a :: int32, b :: int32) -> int32 { return a - b; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32, int32) -> int32] = add;\n"
+        "    f = sub;\n"
+        "    return f(1, 2);\n"
+        "}\n",
+        "rebinding a mutable callable variable");
+}
+
+TEST(SemanticTest, CallableConstBindingCannotBeRebound) {
+    expect_semantic_reject(
+        "func add :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func sub :: (a :: int32) -> int32 { return a - 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let c :: const func[(int32) -> int32] = add;\n"
+        "    c = sub;\n"
+        "    return 0;\n"
+        "}\n",
+        "const callable binding must not be rebindable");
+}
+
+TEST(SemanticTest, CallableReferenceAliasRebindsOriginal) {
+    expect_semantic_accept(
+        "func add :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func sub :: (a :: int32) -> int32 { return a - 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: func[(int32) -> int32] = add;\n"
+        "    let h :: func[(int32) -> int32]& = a;\n"
+        "    h = sub;\n"
+        "    return a(3);\n"
+        "}\n",
+        "reference to a callable variable aliases and rebinds the original");
+}
+
+TEST(SemanticTest, CallableExplicitLambdaToFuncWidening) {
+    expect_semantic_accept(
+        "lambda dbl :: (a :: int32) -> int32 { return a * 2; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32) -> int32] = dbl as func[(int32) -> int32];\n"
+        "    return f(3);\n"
+        "}\n",
+        "explicit lambda -> func widening cast with an identical signature");
+}
+
+TEST(SemanticTest, CallableParameterAndReturnValue) {
+    expect_semantic_accept(
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func apply :: (g :: func[(int32) -> int32], x :: int32) -> int32 { return g(x); }\n"
+        "func pick :: () -> func[(int32) -> int32] { return inc; }\n"
+        "func main :: () -> int32 {\n"
+        "    return apply(pick(), 4);\n"
+        "}\n",
+        "callable parameter and callable return value");
+}
+
+TEST(SemanticTest, CallableStructFieldRequiresInitializer) {
+    expect_semantic_reject(
+        "struct S { f :: func[(int32) -> int32]; }\n"
+        "func main :: () -> int32 {\n"
+        "    let s :: S = S { };\n"
+        "    return 0;\n"
+        "}\n",
+        "callable struct field must be initialized");
+}
+
+TEST(SemanticTest, CallableStructFieldWithInitializer) {
+    expect_semantic_accept(
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "struct S { f :: func[(int32) -> int32]; }\n"
+        "func main :: () -> int32 {\n"
+        "    let s :: S = S { .f = inc };\n"
+        "    return s.f(10);\n"
+        "}\n",
+        "callable struct field initialized and called through the field");
+}
+
+TEST(SemanticTest, CallableGlobalFromFunctionName) {
+    expect_semantic_accept(
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "let g :: func[(int32) -> int32] = inc;\n"
+        "func main :: () -> int32 { return g(5); }\n",
+        "callable global initialized from a function name");
+}
+
+TEST(SemanticTest, CallableHigherOrderSignature) {
+    expect_semantic_accept(
+        "typedef func[(int32) -> int32] Unary;\n"
+        "typedef func[() -> Unary] Factory;\n"
+        "func main :: () -> int32 { return 0; }\n",
+        "higher-order callable signature");
+}
+
+TEST(SemanticTest, CallableFunctionNameIsNotAStorageLocation) {
+    expect_semantic_reject(
+        "func add :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let h :: func[(int32) -> int32]& = add;\n"
+        "    return 0;\n"
+        "}\n",
+        "a function name is not an l-value and cannot be bound by reference");
+}
+
+TEST(SemanticTest, CallableUninitializedVariableRejected) {
+    expect_semantic_reject(
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32) -> int32];\n"
+        "    return 0;\n"
+        "}\n",
+        "callable local variable requires an initializer");
+}
+
+TEST(SemanticTest, CallableUninitializedGlobalRejected) {
+    expect_semantic_reject(
+        "let g :: func[(int32) -> int32];\n"
+        "func main :: () -> int32 { return 0; }\n",
+        "callable global variable requires an initializer");
+}
+
+TEST(SemanticTest, CallableCollectionsRejected) {
+    expect_semantic_reject(
+        "func main :: () -> int32 {\n"
+        "    let a :: [func[(int32) -> int32]: 2];\n"
+        "    return 0;\n"
+        "}\n",
+        "arrays of callable values are rejected");
+    expect_semantic_reject(
+        "func main :: () -> int32 {\n"
+        "    let l :: [func[(int32) -> int32]];\n"
+        "    return 0;\n"
+        "}\n",
+        "lists of callable values are rejected");
+}
+
+TEST(SemanticTest, CallablePointerRejected) {
+    expect_semantic_reject(
+        "func main :: () -> int32 {\n"
+        "    let p :: ptr[func[(int32) -> int32]];\n"
+        "    return 0;\n"
+        "}\n",
+        "ptr[func[...]] is rejected");
+    expect_semantic_reject(
+        "func main :: () -> int32 {\n"
+        "    let p :: ptr[func[(int32) -> int32]] = nullptr[func[(int32) -> int32]];\n"
+        "    return 0;\n"
+        "}\n",
+        "nullptr[func[...]] is rejected");
+}
+
+TEST(SemanticTest, CallableNoImplicitLambdaWidening) {
+    expect_semantic_reject(
+        "lambda dbl :: (a :: int32) -> int32 { return a * 2; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32) -> int32] = dbl;\n"
+        "    return 0;\n"
+        "}\n",
+        "implicit lambda -> func initialization is rejected");
+    expect_semantic_reject(
+        "lambda dbl :: (a :: int32) -> int32 { return a * 2; }\n"
+        "func apply :: (g :: func[(int32) -> int32], x :: int32) -> int32 { return g(x); }\n"
+        "func main :: () -> int32 { return apply(dbl, 1); }\n",
+        "implicit lambda -> func argument passing is rejected");
+    expect_semantic_reject(
+        "lambda dbl :: (a :: int32) -> int32 { return a * 2; }\n"
+        "func make :: () -> func[(int32) -> int32] { return dbl; }\n"
+        "func main :: () -> int32 { return 0; }\n",
+        "implicit lambda -> func return is rejected");
+}
+
+TEST(SemanticTest, CallableMismatchedSignatureRejected) {
+    expect_semantic_reject(
+        "func add :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32, int32) -> int32] = add;\n"
+        "    return 0;\n"
+        "}\n",
+        "callable with a mismatched signature is rejected");
+}
+
+TEST(SemanticTest, CallableCastRestrictions) {
+    expect_semantic_reject(
+        "func add :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let l :: lambda[(int32) -> int32] = add as lambda[(int32) -> int32];\n"
+        "    return 0;\n"
+        "}\n",
+        "func -> lambda cast is rejected");
+    expect_semantic_reject(
+        "func add :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let n :: int32 = add as int32;\n"
+        "    return 0;\n"
+        "}\n",
+        "callable -> non-callable cast is rejected");
+    expect_semantic_reject(
+        "lambda dbl :: (a :: int32) -> int32 { return a * 2; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32, int32) -> int32] = dbl as func[(int32, int32) -> int32];\n"
+        "    return 0;\n"
+        "}\n",
+        "widening cast with a mismatched signature is rejected");
+}
+
+TEST(SemanticTest, CallableInsideLambdaPurityRules) {
+    expect_semantic_accept(
+        "lambda dbl :: (a :: int32) -> int32 { return a * 2; }\n"
+        "lambda applyL :: (g :: lambda[(int32) -> int32], x :: int32) -> int32 { return g(x); }\n"
+        "func main :: () -> int32 { return 0; }\n",
+        "calling a lambda-typed value inside a lambda is allowed");
+    expect_semantic_reject(
+        "lambda applyF :: (g :: func[(int32) -> int32], x :: int32) -> int32 {\n"
+        "    return g(x);\n"
+        "}\n"
+        "func main :: () -> int32 { return 0; }\n",
+        "calling a func-typed value inside a lambda is rejected");
+}
+
+TEST(SemanticTest, CallableOperatorsRejected) {
+    expect_semantic_reject(
+        "func add :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func other :: (a :: int32) -> int32 { return a + 2; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: func[(int32) -> int32] = add;\n"
+        "    let b :: func[(int32) -> int32] = other;\n"
+        "    let c :: bool = a == b;\n"
+        "    return 0;\n"
+        "}\n",
+        "comparison of callable values is rejected");
+    expect_semantic_reject(
+        "func add :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: func[(int32) -> int32] = add;\n"
+        "    @a;\n"
+        "    return 0;\n"
+        "}\n",
+        "address-of a callable value is rejected");
+}
+
+TEST(SemanticTest, CallableVoidParameterRejected) {
+    expect_semantic_reject(
+        "typedef func[(void) -> int32] Bad;\n"
+        "func main :: () -> int32 { return 0; }\n",
+        "void callable parameter is rejected");
+}

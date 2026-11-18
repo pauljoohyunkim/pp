@@ -349,59 +349,81 @@ Note: IR can be emitted with `-S --emit-llvm` together.
 
 ---
 
-## Phase 9 — Extern and `.ppi`
+## Phase 9 — Extern and `.ppi`  — DONE
 
-- [ ] Confirm `extern func ...` signatures parse and type-check unchanged.
-- [ ] Confirm extern emission uses the subroutine-type helper.
-- [ ] Confirm a `lambda[...]` in an extern signature still carries the purity claim under the existing trust
-      model.
-- [ ] Add at least one extern test with a callable-typed parameter or return, or explicitly document the
-      limitation.
+- [x] `extern func` signatures parse and type-check unchanged; callable parameter and return types are accepted
+      (`extern func twice :: (f :: func[(int32) -> int32], x :: int32) -> int32;`,
+      `extern func get_inc :: () -> func[(int32) -> int32];`).
+- [x] Extern emission uses `pp_code_generator_llvm_subroutine_type` (pre-declaration loop in
+      `pp_code_generator_generate`): emitted IR is `declare i32 @twice(ptr, i32)` — the callable parameter lowers
+      to `ptr` while the outer signature stays an `LLVMFunctionType`.
+- [x] A `lambda[...]` in an extern signature keeps the purity claim under the existing trust model: an extern
+      `lambda` may be used/called inside a lambda body, while an extern `func` used inside a lambda is still
+      rejected ("\"%s\" is a regular function used inside lambda" / "Lambda/operator function cannot call regular
+      function").
+
+Verification (compiled and linked across translation units, then executed):
+- callable parameter through an extern: `twice(inc, 3)` → 5.
+- callable return through an extern: `get_inc()(41)` → 42.
+- extern declared in a `.ppi` and included with `--ppi`, implementation in another source file → 6, and the IR
+  shows `declare i32 @twice(ptr, i32)`.
+- extern `lambda` called from a lambda body: semantic analysis accepts it (link fails only because no definition
+  was provided in that test).
+- `./bin/unittest` 381/381 pass.
 
 ---
 
-## Phase 10 — Tests
+## Phase 10 — Tests  — DONE
 
 ### Parser
-- [ ] all syntax cases from Phase 2
+- [x] All Phase 2 syntax cases (`tests/parsertest.cpp`): `GoodCallableTypeFunctionSyntax`, `…LambdaSyntax`,
+      `…ConstAndReference`, `…HigherOrder`, `…EmptyParamList`, `…AsParamAndReturn`,
+      `BadCallableTypeWithParamNames`, `BadCallableTypeMissingArrow`.
 
-### Semantic (accept)
-- [ ] `let f :: func[(int32) -> int32] = named_func;`
-- [ ] `f(...);`
-- [ ] rebinding `f = other_func;`
-- [ ] `const func[...]` binding cannot be rebound
-- [ ] `func[...]&` aliases and rebinds the original variable
-- [ ] explicit widening: `let f :: func[...] = some_lambda as func[...];`
-- [ ] callable parameter and return value
-- [ ] callable struct field with mandatory initializer
-- [ ] callable global with a function/lambda name initializer (if Phase 0.3 keeps globals)
-- [ ] higher-order signature
+### Semantic (accept) — `tests/semantictest.cpp`
+Two helpers added: `expect_semantic_accept` / `expect_semantic_reject` (assert no lexer/parser errors, then the
+semantic outcome). 21 tests, prefixed `Callable*`:
+- [x] `CallableVariableFromNamedFunctionAndCall`
+- [x] `CallableVariableRebinding`
+- [x] `CallableReferenceAliasRebindsOriginal`
+- [x] `CallableExplicitLambdaToFuncWidening`
+- [x] `CallableParameterAndReturnValue`
+- [x] `CallableStructFieldWithInitializer`
+- [x] `CallableGlobalFromFunctionName`
+- [x] `CallableHigherOrderSignature`
+- [x] `CallableInsideLambdaPurityRules` (lambda-typed call allowed)
 
-### Semantic (reject)
-- [ ] assignment of a function name to a reference (`func_name` is not a storage location)
-- [ ] uninitialized function-typed variable
-- [ ] uninitialized function-typed struct field
-- [ ] arrays/lists of callable values
-- [ ] `ptr[func[...]]` and `nullptr[func[...]]`
-- [ ] implicit `lambda[...]` → `func[...]` initialization
-- [ ] implicit `lambda[...]` → `func[...]` assignment, argument, and return
-- [ ] mismatched signature
-- [ ] func → lambda assignment or cast
-- [ ] casting between callable and non-callable types
-- [ ] calling a `func[...]` value inside a lambda
-- [ ] `==` / `!=` and all other operators on callable values
-- [ ] uninitialized function-typed global (if globals are allowed)
+### Semantic (reject) — same file
+- [x] `CallableConstBindingCannotBeRebound`
+- [x] `CallableFunctionNameIsNotAStorageLocation`
+- [x] `CallableUninitializedVariableRejected`
+- [x] `CallableUninitializedGlobalRejected`
+- [x] `CallableStructFieldRequiresInitializer`
+- [x] `CallableCollectionsRejected` (array and list)
+- [x] `CallablePointerRejected` (`ptr[func[...]]` and `nullptr[func[...]]`)
+- [x] `CallableNoImplicitLambdaWidening` (init, argument, return)
+- [x] `CallableMismatchedSignatureRejected`
+- [x] `CallableCastRestrictions` (func → lambda, callable → non-callable, mismatched widening)
+- [x] `CallableInsideLambdaPurityRules` (func-typed call inside a lambda)
+- [x] `CallableOperatorsRejected` (`==`, unary `@`)
+- [x] `CallableVoidParameterRejected`
 
-### Codegen
-- [ ] `let f :: func[...] = named_func; f(args);`
-- [ ] rebinding and calling again
-- [ ] function value passed as an argument and called in the callee
-- [ ] function value returned from a function and called
-- [ ] reference to a function-typed variable
-- [ ] explicit `lambda[...] as func[...]` cast and call
-- [ ] function-typed global initialized from a function name (if globals are allowed)
-- [ ] `-g` build emits valid debug info
-- [ ] valgrind smoke test
+### Codegen — `tests/codegentest.cpp`
+`run_codegen` was split into `run_codegen_impl(..., bool debug)` plus a thin `run_codegen` wrapper, and a
+`compile_and_verify` helper (asserts `LLVMVerifyModule`) was added. 8 tests, prefixed `Callable*`:
+- [x] `CallableCallThroughVariable` (`alloca ptr`, `store ptr @add`, `call i32 %`)
+- [x] `CallableRebindAndCallAgain` (`store ptr @add` and `store ptr @sub`)
+- [x] `CallableArgumentAndCalleeCall` (`define i32 @apply(ptr %0, i32 %1)`, `call i32 @apply(ptr @inc, i32 7)`)
+- [x] `CallableReturnValue` (`define ptr @pick(i1 %0)`, `ret ptr`)
+- [x] `CallableReferenceAlias` (`ref_deref`)
+- [x] `CallableLambdaCastAndCall` (`store ptr @dbl`, indirect call)
+- [x] `CallableGlobalFromFunctionName` (`@g = global ptr @inc`, declaration before definition)
+- [x] `CallableDebugInfoValid` (`-g`: `!DICompileUnit`, `!DILocalVariable`, `!DISubroutineType`)
+- [x] Valgrind smoke test: `valgrind --leak-check=yes ./bin/unittest --gtest_filter='SemanticTest.Callable*:…'`
+      reports 0 errors and 0 definitely/indirectly/possibly lost bytes (1.5 KB still reachable from test/LLVM
+      statics).
+
+Full suite: **410 tests, all passing** (381 before, +21 semantic, +8 codegen).
 
 ---
 

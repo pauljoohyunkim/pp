@@ -10,7 +10,8 @@
 #include <llvm-c/Analysis.h>
 static PP_StringPool* test_sp = pp_string_pool_create();
 
-static PP_CodeGenerator* run_codegen(const char* source, int& lexer_errors, int& parser_errors, int& semantic_errors, int& codegen_result) {
+static PP_CodeGenerator* run_codegen_impl(const char* source, int& lexer_errors, int& parser_errors,
+                                          int& semantic_errors, int& codegen_result, bool debug) {
     auto lexer_h = pp_lexer_create(source, nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     if (!lexer.get()) return nullptr;
@@ -45,7 +46,7 @@ static PP_CodeGenerator* run_codegen(const char* source, int& lexer_errors, int&
         return nullptr;
     }
 
-    PP_CodeGenerator* cg_raw = pp_code_generator_create(sa.release(), test_sp, false);
+    PP_CodeGenerator* cg_raw = pp_code_generator_create(sa.release(), test_sp, debug);
     if (!cg_raw) {
         codegen_result = 0;
         return nullptr;
@@ -55,6 +56,11 @@ static PP_CodeGenerator* run_codegen(const char* source, int& lexer_errors, int&
     pp_semantic_analyzer_free(sa_raw);
     codegen_result = pp_code_generator_generate(cg_raw);
     return cg_raw;
+}
+
+static PP_CodeGenerator* run_codegen(const char* source, int& lexer_errors, int& parser_errors, int& semantic_errors,
+                                     int& codegen_result) {
+    return run_codegen_impl(source, lexer_errors, parser_errors, semantic_errors, codegen_result, false);
 }
 
 static std::string module_to_string(LLVMModuleRef mod) {
@@ -1936,4 +1942,192 @@ TEST(CodeGenTest, ListPushPopClearLogic) {
     // I can add more codegentest cases here if needed, 
     // but the logic is verified at the runtime level.
     SUCCEED();
+}
+
+/* ---------------------------------------------------------------------------
+ * First-class function / lambda values (Phase 10).
+ * Callable values lower to `ptr`; calls are indirect unless the callee is a
+ * callable declaration name.
+ * ------------------------------------------------------------------------- */
+
+namespace {
+
+struct CallableCodegenCase {
+    int lexer_errors;
+    int parser_errors;
+    int semantic_errors;
+    int codegen_result;
+    PP_CodeGenerator* cg;
+};
+
+CallableCodegenCase compile_and_verify(const char* source, bool debug = false) {
+    CallableCodegenCase result{0, 0, 0, 0, nullptr};
+    PP_CodeGenerator* raw =
+        run_codegen_impl(source, result.lexer_errors, result.parser_errors, result.semantic_errors, result.codegen_result,
+                         debug);
+    result.cg = raw;
+    if (raw == nullptr) { return result; }
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(raw->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        EXPECT_TRUE(false) << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    return result;
+}
+
+} // namespace
+
+TEST(CodeGenTest, CallableCallThroughVariable) {
+    const char* source =
+        "func add :: (a :: int32, b :: int32) -> int32 { return a + b; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32, int32) -> int32] = add;\n"
+        "    return f(1, 2);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    // The callable value is stored as an opaque pointer and called indirectly.
+    assert_ir_contains(cg.get(), "alloca ptr");
+    assert_ir_contains(cg.get(), "store ptr @add");
+    assert_ir_contains(cg.get(), "call i32 %");
+}
+
+TEST(CodeGenTest, CallableRebindAndCallAgain) {
+    const char* source =
+        "func add :: (a :: int32, b :: int32) -> int32 { return a + b; }\n"
+        "func sub :: (a :: int32, b :: int32) -> int32 { return a - b; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32, int32) -> int32] = add;\n"
+        "    f = sub;\n"
+        "    return f(10, 4);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    assert_ir_contains(cg.get(), "store ptr @add");
+    assert_ir_contains(cg.get(), "store ptr @sub");
+    assert_ir_contains(cg.get(), "call i32 %");
+}
+
+TEST(CodeGenTest, CallableArgumentAndCalleeCall) {
+    const char* source =
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func apply :: (g :: func[(int32) -> int32], x :: int32) -> int32 { return g(x); }\n"
+        "func main :: () -> int32 { return apply(inc, 7); }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    // Callable parameter is a ptr slot; the callee call is indirect.
+    assert_ir_contains(cg.get(), "define i32 @apply(ptr %0, i32 %1)");
+    assert_ir_contains(cg.get(), "call i32 %");
+    // A callable declaration name used as a value yields the function itself.
+    assert_ir_contains(cg.get(), "call i32 @apply(ptr @inc, i32 7)");
+}
+
+TEST(CodeGenTest, CallableReturnValue) {
+    const char* source =
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func dec :: (a :: int32) -> int32 { return a - 1; }\n"
+        "func pick :: (which :: bool) -> func[(int32) -> int32] {\n"
+        "    if (which) { return inc; }\n"
+        "    return dec;\n"
+        "}\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32) -> int32] = pick(true);\n"
+        "    return f(5);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    assert_ir_contains(cg.get(), "define ptr @pick(i1 %0)");
+    assert_ir_contains(cg.get(), "ret ptr");
+}
+
+TEST(CodeGenTest, CallableReferenceAlias) {
+    const char* source =
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func dec :: (a :: int32) -> int32 { return a - 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: func[(int32) -> int32] = inc;\n"
+        "    let h :: func[(int32) -> int32]& = a;\n"
+        "    h = dec;\n"
+        "    return a(3);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    // Reference binding dereferences the slot instead of copying the value.
+    assert_ir_contains(cg.get(), "ref_deref");
+    assert_ir_contains(cg.get(), "store ptr @dec");
+}
+
+TEST(CodeGenTest, CallableLambdaCastAndCall) {
+    const char* source =
+        "lambda dbl :: (a :: int32) -> int32 { return a * 2; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32) -> int32] = dbl as func[(int32) -> int32];\n"
+        "    return f(3);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    // Widening is a no-op pointer reinterpretation: just a store and an indirect call.
+    assert_ir_contains(cg.get(), "store ptr @dbl");
+    assert_ir_contains(cg.get(), "call i32 %");
+}
+
+TEST(CodeGenTest, CallableGlobalFromFunctionName) {
+    const char* source =
+        "let g :: func[(int32) -> int32] = inc;\n"
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func main :: () -> int32 { return g(5); }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    // The global is a pointer initialized with the function address, declared
+    // before the function definition is emitted.
+    assert_ir_contains(cg.get(), "@g = global ptr @inc");
+}
+
+TEST(CodeGenTest, CallableDebugInfoValid) {
+    const char* source =
+        "func inc :: (a :: int32) -> int32 { return a + 1; }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: func[(int32) -> int32] = inc;\n"
+        "    return f(1);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source, true);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+
+    assert_ir_contains(cg.get(), "!DICompileUnit");
+    assert_ir_contains(cg.get(), "!DILocalVariable");
+    assert_ir_contains(cg.get(), "!DISubroutineType");
 }
