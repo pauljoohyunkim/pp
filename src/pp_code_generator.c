@@ -135,6 +135,7 @@ static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbol
                                                   PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 
 static const LLVMTypeRef pp_environment_backend_lookup_type(const PP_CodeGenerator* cg, const PPType* type);
+static LLVMTypeRef pp_code_generator_llvm_subroutine_type(PP_CodeGenerator* cg, const PPType* callable_type);
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
@@ -805,6 +806,10 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
         case PP_TK_Function:
         case PP_TK_Lambda:
         case PP_TK_Operator:
+            /* A callable VALUE is an opaque code pointer; the signature is kept in
+             * the PPType and materialized on demand via
+             * pp_code_generator_llvm_subroutine_type. */
+            return LLVMPointerTypeInContext(cg->ctx, 0);
 
         default:
             break;
@@ -812,6 +817,67 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
 
     return NULL;
 error_cleanup:
+    return NULL;
+}
+
+/* Build the true LLVM subroutine type of a callable signature on demand.
+ * Callable VALUES lower to an opaque `ptr`, so this is the only place where the
+ * signature becomes an LLVMFunctionType. Parameter and return types are resolved
+ * through the type map, so nested callable types correctly appear as `ptr`. */
+static LLVMTypeRef pp_code_generator_llvm_subroutine_type(PP_CodeGenerator* cg, const PPType* callable_type) {
+    LLVMTypeRef llvm_return_type = NULL;
+    LLVMTypeRef* llvm_param_types = NULL;
+    LLVMTypeRef llvm_func_type = NULL;
+    const PPType* return_type = NULL;
+    const PPType* const* param_types = NULL;
+    size_t param_count = 0;
+
+    assert(cg);
+    assert(callable_type);
+
+    switch (callable_type->kind) {
+        case PP_TK_Function:
+            return_type = callable_type->type.pp_type_function.return_type;
+            param_types = callable_type->type.pp_type_function.param_types;
+            param_count = callable_type->type.pp_type_function.param_count;
+            break;
+        case PP_TK_Operator:
+            return_type = callable_type->type.pp_type_operator.return_type;
+            param_types = callable_type->type.pp_type_operator.param_types;
+            param_count = callable_type->type.pp_type_operator.param_count;
+            break;
+        case PP_TK_Lambda:
+            return_type = callable_type->type.pp_type_lambda.return_type;
+            param_types = callable_type->type.pp_type_lambda.param_types;
+            param_count = callable_type->type.pp_type_lambda.param_count;
+            break;
+        default:
+            assert(0 && "pp_code_generator_llvm_subroutine_type: not a callable type");
+            return NULL;
+    }
+
+    assert(return_type);
+    llvm_return_type = pp_environment_backend_lookup_type(cg, return_type);
+    assert(llvm_return_type);
+
+    if (param_count > 0) {
+        llvm_param_types = (LLVMTypeRef*)calloc(param_count, sizeof(LLVMTypeRef));
+        NULL_POINTER_ERROR_HANDLE(llvm_param_types);
+        for (size_t i = 0; i < param_count; i++) {
+            assert(param_types[i]);
+            llvm_param_types[i] = pp_environment_backend_lookup_type(cg, param_types[i]);
+            assert(llvm_param_types[i]);
+        }
+    }
+
+    llvm_func_type = LLVMFunctionType(llvm_return_type, llvm_param_types, (unsigned)param_count, 0);
+    free(llvm_param_types);
+    llvm_param_types = NULL;
+    assert(llvm_func_type);
+    return llvm_func_type;
+
+error_cleanup:
+    free(llvm_param_types);
     return NULL;
 }
 
@@ -1058,12 +1124,25 @@ error_cleanup:
 }
 
 static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const PPType* t) {
+    bool guard_pushed = false;
     if (!cg->debug || !t) return NULL;
     if (cg->di_type_cache != NULL) {
         for (size_t i = 0; i < cg->di_type_cache_count; i++) {
             if (cg->di_type_cache[i].type == t) { return cg->di_type_cache[i].di; }
         }
     }
+    // Recursion guard: callable signatures and struct layouts can refer back to a
+    // type that is currently being constructed. Returning NULL lets the caller fall
+    // back to an opaque (void) member type instead of recursing forever.
+    for (size_t i = 0; i < cg->di_type_in_progress_count; i++) {
+        if (cg->di_type_in_progress[i] == t) return NULL;
+    }
+    if (cg->di_type_in_progress_count < 32) {
+        cg->di_type_in_progress[cg->di_type_in_progress_count] = t;
+        cg->di_type_in_progress_count++;
+        guard_pushed = true;
+    }
+
     LLVMMetadataRef result = NULL;
     LLVMMetadataRef* members = NULL;
     switch (t->kind) {
@@ -1208,10 +1287,19 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
                                                    32, 64, LLVMDIFlagZero, NULL, elems_stack, 4, 0, NULL, NULL, 0);
             break;
         }
+        case PP_TK_Function:
+        case PP_TK_Lambda:
+        case PP_TK_Operator: {
+            // A callable value is a code pointer: describe it as pointer-to-subroutine.
+            LLVMMetadataRef subroutine = pp_code_generator_di_subroutine_type(cg, t);
+            if (subroutine) { result = LLVMDIBuilderCreatePointerType(cg->di_builder, subroutine, 64, 64, 0, NULL, 0); }
+            break;
+        }
         default:
             result = NULL;
             break;
     }
+    if (guard_pushed) { cg->di_type_in_progress_count--; }
     if (result) {
         if (cg->di_type_cache_count >= cg->di_type_cache_capacity) {
             cg->di_type_cache_capacity *= 2;
@@ -1225,6 +1313,7 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
     return result;
 
 error_cleanup:
+    if (guard_pushed) { cg->di_type_in_progress_count--; }
     free(members);
     return NULL;
 }
@@ -1237,9 +1326,6 @@ static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenera
     for (size_t i = 0; i < cg->gtt->type_count; i++) {
         const PPType* type = cg->gtt->types[i];
         assert(type);
-
-        // Skip function, lambda, and operator here.
-        if (type->kind == PP_TK_Function || type->kind == PP_TK_Lambda || type->kind == PP_TK_Operator) { continue; }
 
         // Look up environment backend.
         if (pp_environment_backend_lookup_type(cg, type)) continue;
@@ -1287,50 +1373,6 @@ static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg) {
 
                 // 0 is for "packed" or not
                 LLVMStructSetBody(llvm_struct_type, llvm_types, field_count, 0);
-                free(llvm_types);
-                llvm_types = NULL;
-            } break;
-            case PP_TK_Function:
-            case PP_TK_Lambda:
-            case PP_TK_Operator: {
-                bool is_lambda = type->kind == PP_TK_Lambda;
-                bool is_operator = type->kind == PP_TK_Operator;
-                const PPType* return_type =
-                    is_lambda ? type->type.pp_type_lambda.return_type :
-                    is_operator ? type->type.pp_type_operator.return_type :
-                                  type->type.pp_type_function.return_type;
-                assert(return_type);
-                LLVMTypeRef llvm_return_type = pp_environment_backend_lookup_type(cg, return_type);
-
-                size_t param_count =
-                    is_lambda ? type->type.pp_type_lambda.param_count :
-                    is_operator ? type->type.pp_type_operator.param_count :
-                                  type->type.pp_type_function.param_count;
-                if (param_count > 0) {
-                    llvm_types = (LLVMTypeRef*)calloc(param_count, sizeof(LLVMTypeRef));
-                    NULL_POINTER_ERROR_HANDLE(llvm_types);
-
-                    for (size_t j = 0; j < param_count; j++) {
-                        const PPType* param_type =
-                            is_lambda ? type->type.pp_type_lambda.param_types[j] :
-                            is_operator ? type->type.pp_type_operator.param_types[j] :
-                                          type->type.pp_type_function.param_types[j];
-                        assert(param_type);
-
-                        LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
-                        NULL_POINTER_ERROR_HANDLE(llvm_param_type);
-
-                        llvm_types[j] = llvm_param_type;
-                    }
-                }
-
-                LLVMTypeRef llvm_func_type = LLVMFunctionType(llvm_return_type, llvm_types, param_count, 0);
-                assert(llvm_func_type);
-
-                if (!pp_environment_backend_push_type_map(cg->global_env_b, type, llvm_func_type)) {
-                    goto error_cleanup;
-                }
-
                 free(llvm_types);
                 llvm_types = NULL;
             } break;
@@ -1391,20 +1433,24 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
     // Pass 2 to build type map. (Struct Body & Function)
     if (pp_code_generator_fill_type_map_complex(cg) != 1) { goto error_cleanup; }
 
-    // Emit extern declarations for symbols that are not definitions
+    // Pre-declare every callable symbol (definitions and externs alike) so that a
+    // callable value can be referenced before its definition is emitted: global
+    // function-typed initializers, or a call appearing textually earlier.
     for (size_t i = 0; i < cg->gst->count; i++) {
         const char* name = cg->gst->names[i];
         const PPSymbol* sym = cg->gst->symbols[i];
-        if (!sym) continue;
-        if (sym->is_definition) continue;
-        // Only emit for functions/lambdas
+        if (!sym || !sym->is_callable_decl) continue;
         if (sym->type->kind != PP_TK_Function && sym->type->kind != PP_TK_Lambda && sym->type->kind != PP_TK_Operator)
             continue;
-        LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, sym->type);
-        if (!llvm_type) continue;
-        LLVMValueRef fn = LLVMAddFunction(cg->mod, name, llvm_type);
-        if (!fn) continue;
-        LLVMSetLinkage(fn, LLVMExternalLinkage);
+        LLVMValueRef fn = LLVMGetNamedFunction(cg->mod, name);
+        if (!fn) {
+            LLVMTypeRef llvm_type = pp_code_generator_llvm_subroutine_type(cg, sym->type);
+            if (!llvm_type) continue;
+            fn = LLVMAddFunction(cg->mod, name, llvm_type);
+            if (!fn) continue;
+            if (!sym->is_definition) { LLVMSetLinkage(fn, LLVMExternalLinkage); }
+        }
+        if (pp_environment_backend_lookup_val(cg->global_env_b, sym, false)) continue;
         if (!pp_environment_backend_push_val_map(cg->global_env_b, sym, fn)) { goto error_cleanup; }
     }
 
@@ -1436,7 +1482,8 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
     //     const PP_AST_Node* stmt = cg->program->program.decls[i];
     //     assert(stmt);
     //
-    //     if (stmt->node_type != PP_AST_FunctionCallNode && stmt->node_type != PP_AST_CallableDeclarationNode) continue;
+    //     if (stmt->node_type != PP_AST_FunctionCallNode && stmt->node_type != PP_AST_CallableDeclarationNode)
+    //     continue;
     //
     //     const char* func_name = stmt->callable_declaration.name;
     //     assert(func_name);
@@ -1590,9 +1637,9 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
     NULL_POINTER_ERROR_HANDLE(body_env_b);
 
     // Fill environment with parameters by getting parameter's value ref and registering to backend.
-    size_t param_count = is_lambda ? func_symbol->type->type.pp_type_lambda.param_count :
-                         is_operator ? func_symbol->type->type.pp_type_operator.param_count :
-                                       func_symbol->type->type.pp_type_function.param_count;
+    size_t param_count = is_lambda     ? func_symbol->type->type.pp_type_lambda.param_count
+                         : is_operator ? func_symbol->type->type.pp_type_operator.param_count
+                                       : func_symbol->type->type.pp_type_function.param_count;
     for (size_t i = 0; i < param_count; i++) {
         LLVMValueRef llvm_param_val = LLVMGetParam(llvm_func, i);
         assert(llvm_param_val);
@@ -1994,11 +2041,10 @@ static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPS
 
     bool is_lambda = cg->current_function_type->kind == PP_TK_Lambda;
     bool is_operator = cg->current_function_type->kind == PP_TK_Operator;
-    const PPType* current_function_return_type = is_lambda
-                                                     ? cg->current_function_type->type.pp_type_lambda.return_type
-                                                     : is_operator
-                                                       ? cg->current_function_type->type.pp_type_operator.return_type
-                                                       : cg->current_function_type->type.pp_type_function.return_type;
+    const PPType* current_function_return_type = is_lambda ? cg->current_function_type->type.pp_type_lambda.return_type
+                                                 : is_operator
+                                                     ? cg->current_function_type->type.pp_type_operator.return_type
+                                                     : cg->current_function_type->type.pp_type_function.return_type;
     assert(current_function_return_type);
 
     if (current_function_return_type->kind == PP_TK_Void) {
@@ -2303,8 +2349,8 @@ static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* 
     const PPType* func_type = func_symbol->type;
     assert(func_type);
 
-    // Look up backend type
-    LLVMTypeRef llvm_func_type = pp_environment_backend_lookup_type(cg, func_type);
+    // Build the subroutine type on demand (the value type of a callable is `ptr`)
+    LLVMTypeRef llvm_func_type = pp_code_generator_llvm_subroutine_type(cg, func_type);
     assert(llvm_func_type);
 
     // In the case of external function declaration has been done for the function defined in the module, use that.
@@ -2327,7 +2373,9 @@ static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* 
         }
     }
 
-    if (!pp_environment_backend_push_val_map(env_b, func_symbol, llvm_func_val)) goto error_cleanup;
+    if (!pp_environment_backend_lookup_val(env_b, func_symbol, false)) {
+        if (!pp_environment_backend_push_val_map(env_b, func_symbol, llvm_func_val)) goto error_cleanup;
+    }
 
     /* Generate function body */
     if (!pp_code_generator_generate_function_body(cg, symbol_table, env_b, stmt)) { goto error_cleanup; }
@@ -2640,23 +2688,26 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
     const PP_AST_Decoration* callee_decoration = pp_ast_get_decoration(node->function_call.callee);
     assert(callee_decoration);
     assert(callee_decoration->resolved_type);
-    assert(callee_decoration->resolved_type->kind == PP_TK_Function ||
-           callee_decoration->resolved_type->kind == PP_TK_Lambda ||
-           callee_decoration->resolved_type->kind == PP_TK_Operator);
 
-    bool is_lambda = callee_decoration->resolved_type->kind == PP_TK_Lambda;
-    bool is_operator = callee_decoration->resolved_type->kind == PP_TK_Operator;
+    // The callee may be a `const func[...]` or `func[...]&` value, so decay first.
+    const PPType* callee_type = pp_type_decay_cg(cg->gtt, callee_decoration->resolved_type);
+    assert(callee_type);
+    assert(callee_type->kind == PP_TK_Function || callee_type->kind == PP_TK_Lambda ||
+           callee_type->kind == PP_TK_Operator);
+
+    bool is_lambda = callee_type->kind == PP_TK_Lambda;
+    bool is_operator = callee_type->kind == PP_TK_Operator;
 
     LLVMValueRef llvm_callee_func =
         pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->function_call.callee);
     assert(llvm_callee_func);
 
-    LLVMTypeRef llvm_callee_func_type = pp_environment_backend_lookup_type(cg, callee_decoration->resolved_type);
+    LLVMTypeRef llvm_callee_func_type = pp_code_generator_llvm_subroutine_type(cg, callee_type);
     assert(llvm_callee_func_type);
 
-    size_t param_count = is_lambda ? callee_decoration->resolved_type->type.pp_type_lambda.param_count :
-                         is_operator ? callee_decoration->resolved_type->type.pp_type_operator.param_count :
-                                       callee_decoration->resolved_type->type.pp_type_function.param_count;
+    size_t param_count = is_lambda     ? callee_type->type.pp_type_lambda.param_count
+                         : is_operator ? callee_type->type.pp_type_operator.param_count
+                                       : callee_type->type.pp_type_function.param_count;
     LLVMValueRef* ref_temp_addrs = NULL;
     const PPType** ref_temp_types = NULL;
     LLVMValueRef* owning_temp_addrs = NULL;
@@ -2675,11 +2726,9 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
         NULL_POINTER_ERROR_HANDLE(owning_temp_types);
 
         for (unsigned int i = 0; i < param_count; i++) {
-            const PPType* param_type = is_lambda
-                                           ? callee_decoration->resolved_type->type.pp_type_lambda.param_types[i]
-                                           : is_operator
-                                             ? callee_decoration->resolved_type->type.pp_type_operator.param_types[i]
-                                             : callee_decoration->resolved_type->type.pp_type_function.param_types[i];
+            const PPType* param_type = is_lambda     ? callee_type->type.pp_type_lambda.param_types[i]
+                                       : is_operator ? callee_type->type.pp_type_operator.param_types[i]
+                                                     : callee_type->type.pp_type_function.param_types[i];
             assert(param_type);
 
             if (pp_type_is_reference(param_type)) {
@@ -2854,7 +2903,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
 
         LLVMValueRef llvm_func = pp_environment_backend_lookup_val(env_b, oc, true);
         assert(llvm_func);
-        LLVMTypeRef llvm_func_type = pp_environment_backend_lookup_type(cg, op_type);
+        LLVMTypeRef llvm_func_type = pp_code_generator_llvm_subroutine_type(cg, op_type);
         assert(llvm_func_type);
 
         size_t param_count = op_type->type.pp_type_operator.param_count;
@@ -3217,7 +3266,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
         assert(op_type && op_type->kind == PP_TK_Operator);
         LLVMValueRef llvm_func = pp_environment_backend_lookup_val(env_b, oc, true);
         assert(llvm_func);
-        LLVMTypeRef llvm_func_type = pp_environment_backend_lookup_type(cg, op_type);
+        LLVMTypeRef llvm_func_type = pp_code_generator_llvm_subroutine_type(cg, op_type);
         assert(llvm_func_type);
         size_t param_count = op_type->type.pp_type_operator.param_count;
         const PP_AST_Node* args_nodes[1] = {node->unary_expression.operand};
@@ -3962,26 +4011,32 @@ static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerato
                                                                  PP_Environment_Backend* env_b,
                                                                  const PP_AST_Node* node) {
     LLVMValueRef llvm_val = NULL;
+    LLVMValueRef llvm_identifier_ref = NULL;
     assert(cg);
     assert(symbol_table);
     assert(env_b);
     assert(node);
     assert(node->node_type == PP_AST_IdentifierNode);
 
-    LLVMValueRef llvm_identifier_ref = pp_code_generator_generate_lvalue_identifier(cg, symbol_table, env_b, node);
-    assert(llvm_identifier_ref);
+    const PPSymbol* identifier_symbol = pp_symbol_table_lookup(symbol_table, node->identifier.identifier, true);
+    assert(identifier_symbol);
 
     const PP_AST_Decoration* identifier_decoration = pp_ast_get_decoration(node);
     assert(identifier_decoration);
     assert(identifier_decoration->resolved_type);
 
-    if (identifier_decoration->resolved_type->kind == PP_TK_Function ||
-        identifier_decoration->resolved_type->kind == PP_TK_Lambda ||
-        identifier_decoration->resolved_type->kind == PP_TK_Operator) {
-        llvm_val = llvm_identifier_ref;
-    } else {
-        llvm_val = pp_code_generator_l_value_to_r_value(cg, identifier_decoration->resolved_type, llvm_identifier_ref);
+    if (identifier_symbol->is_callable_decl) {
+        /* Declaration name: the symbol value IS the code, there is no slot to load. */
+        llvm_val = pp_environment_backend_lookup_val(env_b, identifier_symbol, true);
+        assert(llvm_val);
+        return llvm_val;
     }
+
+    /* Everything else, including callable-typed variables, parameters and fields,
+     * is storage: take the address and load the value out of it. */
+    llvm_identifier_ref = pp_code_generator_generate_lvalue_identifier(cg, symbol_table, env_b, node);
+    assert(llvm_identifier_ref);
+    llvm_val = pp_code_generator_l_value_to_r_value(cg, identifier_decoration->resolved_type, llvm_identifier_ref);
 
     return llvm_val;
 }

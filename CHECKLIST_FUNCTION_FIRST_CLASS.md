@@ -291,55 +291,61 @@ Verification (semantic stage; codegen failures below are Phase 7/8 work):
 
 ---
 
-## Phase 7 — Code generation: lowering split
+## Phase 7 — Code generation: lowering split  — DONE
 
-Core idea: **value representation = opaque pointer; callable signature = `LLVMFunctionType` built on demand.**
+Core idea (unchanged): **value representation = opaque pointer; callable signature = `LLVMFunctionType` built on
+demand.**
 
-- [ ] `pp_backend_lower_type` (`src/pp_code_generator.c`): lower Function/Lambda/Operator to
-      `LLVMPointerTypeInContext(cg->ctx, 0)`.
-- [ ] `pp_code_generator_fill_type_map_complex`: stop mapping callable kinds to `LLVMFunctionType`; ensure the
-      pointer type is registered in the type map instead.
-- [ ] Add `pp_code_generator_llvm_subroutine_type(cg, callable_type)` that builds `LLVMFunctionType` using
-      `lookup_type` for each parameter and the return type. Because nested callable types now lower to `ptr`,
-      function-typed parameters/returns are correct.
-- [ ] Use the helper at every site that needs the true subroutine type:
-  - [ ] `pp_code_generator_emit_function`
-  - [ ] extern declaration emission (`pp_code_generator_generate`)
-  - [ ] `pp_code_generator_generate_lvalue_function_call`
-  - [ ] operator call sites in `pp_code_generator_generate_rvalue_binary`
-  - [ ] operator call sites in `pp_code_generator_generate_rvalue_unary`
-- [ ] Verify struct fields of callable type get `ptr` in `fill_type_map_complex` struct-body construction.
-- [ ] Verify array/list element paths do not encounter callable kinds (they are banned).
+- [x] `pp_backend_lower_type`: Function/Lambda/Operator return `LLVMPointerTypeInContext(cg->ctx, 0)`.
+- [x] `pp_code_generator_fill_type_map_primitive_opaque_struct`: no longer skips callable kinds, so every callable
+      type in the GTT is registered as `ptr` in pass 1.
+- [x] `pp_code_generator_fill_type_map_complex`: callable case removed; it no longer builds `LLVMFunctionType`.
+- [x] Added `pp_code_generator_llvm_subroutine_type(cg, callable_type)` — builds `LLVMFunctionType` on demand from
+      the signature, resolving parameter/return types through the type map (so nested callables appear as `ptr`).
+- [x] Used at every site that needs the true subroutine type:
+  - [x] `pp_code_generator_emit_function`
+  - [x] pre-declaration loop in `pp_code_generator_generate` (see Phase 8)
+  - [x] `pp_code_generator_generate_lvalue_function_call`
+  - [x] operator call sites in `pp_code_generator_generate_rvalue_binary`
+  - [x] operator call sites in `pp_code_generator_generate_rvalue_unary`
+- [x] Callable struct fields lower to `ptr` in `fill_type_map_complex` struct bodies (verified by struct tests).
+- [x] Array/list element paths cannot see callable kinds (banned in Phase 6).
 
 ---
 
-## Phase 8 — Code generation: values, calls, copies, debug info
+## Phase 8 — Code generation: values, calls, copies, debug info  — DONE
 
-- [ ] `pp_code_generator_generate_rvalue_identifier`:
-  - [ ] return the LLVM function value for callable declaration names;
-  - [ ] load the pointer from the slot for function-typed variables/parameters.
-  Use `is_callable_decl` or the decoration value category to distinguish.
-- [ ] `pp_code_generator_generate_lvalue_identifier`: confirm reference dereference and slot addressing work for
-      function-typed variables after the lowering change.
-- [ ] `pp_code_generator_l_value_to_r_value`: confirm it loads a `ptr` for callable values.
-- [ ] Variable declaration / assignment codegen: use `ptr`; trivial store/load path; no drop.
-- [ ] Function parameter setup: allocate `ptr` slots for callable-typed parameters.
-- [ ] Function call codegen: callee value is `ptr`; use `LLVMBuildCall2` with the subroutine type from the helper.
-- [ ] Return of a callable value: return the `ptr` directly.
-- [ ] Copy/drop: callable types are trivially copyable and drop-free; ensure fallback bitwise copy is used.
-- [ ] Struct containing callable fields: copy/drop of the struct must treat those fields as trivial.
-- [ ] Cast codegen: explicit `lambda[...] as func[...]` is a no-op pointer reinterpretation; ensure the cast path
-      accepts callable source/target lowering to `ptr`.
-- [ ] Global function-typed variable emission:
-  - [ ] emit the initializer as a function/lambda pointer constant;
-  - [ ] ensure the named callable is already available as an LLVM function (declaration or definition) before the
-        global initializer is emitted;
-  - [ ] if ordering is not trivial, pre-create LLVM declarations for named callables or ban function-typed
-        globals per Phase 0.3.
-- [ ] Debug info (`pp_code_generator_get_di_type`): add Function/Lambda as
-      `LLVMDIBuilderCreatePointerType(pp_code_generator_di_subroutine_type(...), 64, 64, ...)`.
-- [ ] Watch for recursive DI construction if a callable type is reachable from its own parameter types through a
-      typedef; add/verify a recursion guard in the DI cache.
+- [x] `pp_code_generator_generate_rvalue_identifier`: `symbol->is_callable_decl` → the symbol value is the LLVM
+      function itself; otherwise take the lvalue and load (`l_value_to_r_value`, which loads `ptr` for callables).
+      The old "type is callable ⇒ use the lvalue ref" shortcut conflated both cases and was replaced.
+- [x] `pp_code_generator_generate_lvalue_identifier`: unchanged; still handles reference deref and slot addressing.
+- [x] `pp_code_generator_l_value_to_r_value`: unchanged; loads `ptr` because the type map maps callables to `ptr`.
+- [x] Variable declaration / assignment codegen: `alloca ptr` + trivial store/load; no drop.
+- [x] Function parameter setup: callable parameters get `ptr` slots (uses the type map).
+- [x] Function call codegen: `LLVMBuildCall2` with the subroutine type from the helper; callee type is decayed
+      first, so `const func[...]` / `func[...]&` callees work.
+- [x] Return of a callable value: returns the `ptr` directly.
+- [x] Copy/drop: callable types are trivially copyable and drop-free, so the fallback bitwise path is used. Struct
+      containing callable fields copies fine (verified by a struct-copy test).
+- [x] Struct containing callable fields: initialization, member call and copy verified.
+- [x] Cast codegen: `lambda[...] as func[...]` is a no-op pointer reinterpretation (both lower to `ptr`).
+- [x] Global function-typed variable emission: initializer generated as the function pointer constant.
+  - [x] Ordering solved by pre-declaring **every** callable symbol (definitions and externs) before the declaration
+        loop: `LLVMGetNamedFunction` is reused if present, externs get external linkage, and the symbol→value
+        mapping is pushed once. `pp_code_generator_emit_function` no longer pushes a duplicate mapping.
+  - [x] Verified with a global declared *before* the function it names.
+- [x] Debug info (`pp_code_generator_get_di_type`): callable kinds become
+      `LLVMDIBuilderCreatePointerType(di_subroutine_type(...), 64, 64, ...)`.
+- [x] Recursion guard for DI construction added: `di_type_in_progress[32]` in `PP_CodeGenerator`; a type currently
+      being built returns `NULL`, and callers fall back to an opaque/void member type.
+
+Verification: all seven smoke programs compile, link and run with the expected exit codes (direct call, call through
+a variable, rebinding, reference to a callable variable, callable argument and return value, `lambda[...] as
+func[...]` cast, callable struct field, callable global including declaration-before-definition). `-g` builds are
+accepted by `llvm-as` (valid debug metadata). All five demos build. `./bin/unittest` 381/381 pass. Valgrind on a
+callable-heavy compile: 0 errors, 0 bytes in use at exit.
+
+Note: IR can be emitted with `-S --emit-llvm` together.
 
 ---
 

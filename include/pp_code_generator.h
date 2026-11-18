@@ -6,9 +6,9 @@ extern "C" {
 #endif
 
 #include <llvm-c/Core.h>
+#include <llvm-c/DebugInfo.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
-#include <llvm-c/DebugInfo.h>
 #include <stdbool.h>
 
 #include "pp_ast.h"
@@ -87,6 +87,11 @@ typedef struct {
     PP_DITypeCacheEntry* di_type_cache;
     size_t di_type_cache_count;
     size_t di_type_cache_capacity;
+
+    /* Recursion guard for DI type construction: callable signatures and struct
+     * layouts may refer back to a type currently being built. */
+    const struct PPType* di_type_in_progress[32];
+    size_t di_type_in_progress_count;
 
     /* Debug info */
     bool debug;
