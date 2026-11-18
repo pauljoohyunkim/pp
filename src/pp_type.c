@@ -145,12 +145,6 @@ bool pp_type_is_pointer(const PPType* type) {
     return type->kind == PP_TK_Pointer;
 }
 
-bool pp_type_is_handle(const PPType* type) {
-    if (type == NULL) return false;
-    if (type->kind != PP_TK_Newtype) return false;
-    return type->type.pp_type_newtype.drop_func_name != NULL;
-}
-
 bool pp_type_contains_pointer(const PPType* type) {
     if (type == NULL) return false;
     if (type->kind == PP_TK_Pointer) return true;
@@ -244,8 +238,6 @@ static bool pp_type_needs_drop_impl(const PPType* type, const PPType** stack, in
         case PP_TK_Array:
             return pp_type_needs_drop_impl(type->type.pp_type_array.element_type, stack, depth + 1);
         case PP_TK_Newtype:
-            /* A handle always owns its resource and must be dropped. */
-            if (type->type.pp_type_newtype.drop_func_name) return true;
             return pp_type_needs_drop_impl(type->type.pp_type_newtype.underlying, stack, depth + 1);
         case PP_TK_Struct: {
             const PP_StructLayout* layout = type->type.pp_type_struct.layout;
@@ -314,8 +306,6 @@ static bool pp_type_is_copyable_impl(const PPType* type, const PPType** stack, i
             return true;
         }
         case PP_TK_Newtype:
-            /* A handle is move-only: copying would drop the resource twice. */
-            if (type->type.pp_type_newtype.drop_func_name) return false;
             return pp_type_is_copyable_impl(type->type.pp_type_newtype.underlying, stack, depth + 1);
         case PP_TK_Const:
             return pp_type_is_copyable_impl(type->type.pp_type_const.const_of, stack, depth + 1);
@@ -362,9 +352,6 @@ static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType*
         case PP_TK_Const:
             return pp_type_is_trivially_copyable_impl(type->type.pp_type_const.const_of, stack, depth + 1);
         case PP_TK_Newtype:
-            /* A handle is never trivially copyable, even over a trivially copyable
-             * underlying: a bitwise copy would double-drop. */
-            if (type->type.pp_type_newtype.drop_func_name) return false;
             return pp_type_is_trivially_copyable_impl(type->type.pp_type_newtype.underlying, stack, depth + 1);
         case PP_TK_Array:
             return pp_type_is_trivially_copyable_impl(type->type.pp_type_array.element_type, stack, depth + 1);

@@ -44,11 +44,6 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
 static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, const PPType* type);
 static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg);
 static void pp_code_generator_push_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type);
-static void pp_code_generator_push_drop_flagged(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type,
-                                                LLVMValueRef flag);
-static LLVMValueRef pp_code_generator_create_ownership_flag(PP_CodeGenerator* cg, const char* name);
-static LLVMValueRef pp_code_generator_find_ownership_flag(PP_CodeGenerator* cg, LLVMValueRef address);
-static void pp_code_generator_relinquish_ownership(PP_CodeGenerator* cg, LLVMValueRef address);
 static int pp_environment_backend_push_val_map(PP_Environment_Backend* env_b, const PPSymbol* symbol,
                                                LLVMValueRef llvmval);
 static int pp_environment_backend_push_type_map(PP_Environment_Backend* env_b, const PPType* type,
@@ -216,9 +211,7 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
         pp_code_generator_emit_drop(cg, address, type->type.pp_type_const.const_of);
         return;
     }
-    // Plain newtypes are transparent for drop. A handle (newtype with a bound drop
-    // function) is not: it must call its own drop function.
-    if (type->kind == PP_TK_Newtype && !type->type.pp_type_newtype.drop_func_name) {
+    if (type->kind == PP_TK_Newtype) {
         pp_code_generator_emit_drop(cg, address, type->type.pp_type_newtype.underlying);
         return;
     }
@@ -567,31 +560,14 @@ static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg) {
         size_t idx = cg->drop_stack_count - 1;
         LLVMValueRef addr = cg->drop_stack_addresses[idx];
         const PPType* typ = cg->drop_stack_types[idx];
-        LLVMValueRef flag = cg->drop_stack_flags ? cg->drop_stack_flags[idx] : NULL;
         if (typ && pp_type_needs_drop(typ) && !pp_type_is_reference(typ)) {
-            if (flag) {
-                // Move-only owning value: drop only if ownership is still with this variable.
-                LLVMValueRef owned = LLVMBuildLoad2(cg->builder, LLVMInt1TypeInContext(cg->ctx), flag, "drop_owned");
-                LLVMBasicBlockRef cur_bb = LLVMGetInsertBlock(cg->builder);
-                LLVMBasicBlockRef drop_bb =
-                    LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(cur_bb), "drop.flag.then");
-                LLVMBasicBlockRef merge_bb =
-                    LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(cur_bb), "drop.flag.end");
-                LLVMBuildCondBr(cg->builder, owned, drop_bb, merge_bb);
-                LLVMPositionBuilderAtEnd(cg->builder, drop_bb);
-                pp_code_generator_emit_drop(cg, addr, typ);
-                LLVMBuildBr(cg->builder, merge_bb);
-                LLVMPositionBuilderAtEnd(cg->builder, merge_bb);
-            } else {
-                pp_code_generator_emit_drop(cg, addr, typ);
-            }
+            pp_code_generator_emit_drop(cg, addr, typ);
         }
         cg->drop_stack_count--;
     }
 }
 
-static void pp_code_generator_push_drop_flagged(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type,
-                                                LLVMValueRef flag) {
+static void pp_code_generator_push_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
     if (cg == NULL || address == NULL || type == NULL) return;
     if (!pp_type_needs_drop(type)) return;
     if (pp_type_is_reference(type)) return;
@@ -600,48 +576,15 @@ static void pp_code_generator_push_drop_flagged(PP_CodeGenerator* cg, LLVMValueR
         cg->drop_stack_capacity = 16;
         cg->drop_stack_addresses = (LLVMValueRef*)calloc(cg->drop_stack_capacity, sizeof(LLVMValueRef));
         cg->drop_stack_types = (PPType**)calloc(cg->drop_stack_capacity, sizeof(PPType*));
-        cg->drop_stack_flags = (LLVMValueRef*)calloc(cg->drop_stack_capacity, sizeof(LLVMValueRef));
     } else if (cg->drop_stack_count >= cg->drop_stack_capacity) {
         cg->drop_stack_capacity *= 2;
         cg->drop_stack_addresses =
             (LLVMValueRef*)realloc(cg->drop_stack_addresses, cg->drop_stack_capacity * sizeof(LLVMValueRef));
         cg->drop_stack_types = (PPType**)realloc(cg->drop_stack_types, cg->drop_stack_capacity * sizeof(PPType*));
-        cg->drop_stack_flags =
-            (LLVMValueRef*)realloc(cg->drop_stack_flags, cg->drop_stack_capacity * sizeof(LLVMValueRef));
     }
     cg->drop_stack_addresses[cg->drop_stack_count] = address;
     cg->drop_stack_types[cg->drop_stack_count] = (PPType*)type;
-    cg->drop_stack_flags[cg->drop_stack_count] = flag;
     cg->drop_stack_count++;
-}
-
-static void pp_code_generator_push_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
-    pp_code_generator_push_drop_flagged(cg, address, type, NULL);
-}
-
-/* Create an i1 alloca initialized to true in the function entry block. */
-static LLVMValueRef pp_code_generator_create_ownership_flag(PP_CodeGenerator* cg, const char* name) {
-    if (!cg) return NULL;
-    LLVMValueRef flag = pp_code_generator_entry_alloca(cg, LLVMInt1TypeInContext(cg->ctx), name);
-    if (!flag) return NULL;
-    LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 1, 0), flag);
-    return flag;
-}
-
-/* Find the ownership flag registered for a variable alloca, or NULL. */
-static LLVMValueRef pp_code_generator_find_ownership_flag(PP_CodeGenerator* cg, LLVMValueRef address) {
-    if (!cg || !address || !cg->drop_stack_flags) return NULL;
-    for (size_t i = 0; i < cg->drop_stack_count; i++) {
-        if (cg->drop_stack_addresses[i] == address) { return cg->drop_stack_flags[i]; }
-    }
-    return NULL;
-}
-
-/* Transfer ownership away from a variable: subsequent scope drops skip it. */
-static void pp_code_generator_relinquish_ownership(PP_CodeGenerator* cg, LLVMValueRef address) {
-    LLVMValueRef flag = pp_code_generator_find_ownership_flag(cg, address);
-    if (!flag) return;
-    LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 0, 0), flag);
 }
 
 PP_Environment_Backend* pp_environment_backend_create(void) {
@@ -1125,7 +1068,6 @@ void pp_code_generator_free(PP_CodeGenerator* cg) {
         /* String pool is not owned by code generator; do not free */
         free(cg->drop_stack_addresses);
         free(cg->drop_stack_types);
-        free(cg->drop_stack_flags);
         free(cg->type_cache);
         free(cg->di_type_cache);
         free(cg->loop_context_stack);
@@ -1625,7 +1567,6 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
                 break;
             case PP_AST_TypedefDeclarationNode:
             case PP_AST_NewtypeDeclarationNode:
-            case PP_AST_HandleDeclarationNode:
             case PP_AST_ExternCallableDeclarationNode:
                 break;
             default:
@@ -1835,14 +1776,7 @@ static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymb
         if (!pp_environment_backend_push_val_map(body_env_b, param_symbol, llvm_alloca_slot)) { goto error_cleanup; }
 
         if (!pp_type_is_reference(param_type) && pp_type_needs_drop(param_type)) {
-            // Move-only owning values (handles) can be moved out of the parameter,
-            // so their scope drop is guarded by an ownership flag.
-            if (!pp_type_is_copyable(param_type)) {
-                LLVMValueRef flag = pp_code_generator_create_ownership_flag(cg, "param_owned");
-                pp_code_generator_push_drop_flagged(cg, llvm_alloca_slot, param_type, flag);
-            } else {
-                pp_code_generator_push_drop(cg, llvm_alloca_slot, param_type);
-            }
+            pp_code_generator_push_drop(cg, llvm_alloca_slot, param_type);
         }
     }
 
@@ -2012,14 +1946,7 @@ static int pp_code_generator_generate_variable_declaration_statement(PP_CodeGene
 
     // Push onto scope drop stack if needed
     if (!pp_type_is_reference(var_type) && pp_type_needs_drop(var_type)) {
-        // Move-only owning values (handles) can be moved out before the scope ends,
-        // so their scope drop is guarded by an ownership flag.
-        if (!pp_type_is_copyable(var_type)) {
-            LLVMValueRef flag = pp_code_generator_create_ownership_flag(cg, "var_owned");
-            pp_code_generator_push_drop_flagged(cg, llvm_var_alloca, var_type, flag);
-        } else {
-            pp_code_generator_push_drop(cg, llvm_var_alloca, var_type);
-        }
+        pp_code_generator_push_drop(cg, llvm_var_alloca, var_type);
     }
 
     return 1;
@@ -2063,26 +1990,7 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
         // Normal rvalue or trivial copy
         LLVMValueRef llvm_rhs = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->assignment.rhs);
         assert(llvm_rhs);
-        LLVMValueRef lhs_flag = pp_code_generator_find_ownership_flag(cg, llvm_lhs);
-        if (lhs_flag) {
-            // Move-only owning value: drop the previous value if we still own one,
-            // then store the new one and re-arm ownership.
-            LLVMValueRef owned = LLVMBuildLoad2(cg->builder, LLVMInt1TypeInContext(cg->ctx), lhs_flag, "assign_owned");
-            LLVMBasicBlockRef cur_bb = LLVMGetInsertBlock(cg->builder);
-            LLVMBasicBlockRef drop_bb =
-                LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(cur_bb), "assign.drop");
-            LLVMBasicBlockRef merge_bb =
-                LLVMAppendBasicBlockInContext(cg->ctx, LLVMGetBasicBlockParent(cur_bb), "assign.store");
-            LLVMBuildCondBr(cg->builder, owned, drop_bb, merge_bb);
-            LLVMPositionBuilderAtEnd(cg->builder, drop_bb);
-            pp_code_generator_emit_drop(cg, llvm_lhs, lhs_type);
-            LLVMBuildBr(cg->builder, merge_bb);
-            LLVMPositionBuilderAtEnd(cg->builder, merge_bb);
-            LLVMBuildStore(cg->builder, llvm_rhs, llvm_lhs);
-            LLVMBuildStore(cg->builder, LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 1, 0), lhs_flag);
-        } else {
-            LLVMBuildStore(cg->builder, llvm_rhs, llvm_lhs);
-        }
+        LLVMBuildStore(cg->builder, llvm_rhs, llvm_lhs);
         return 1;
     }
 
@@ -2258,11 +2166,10 @@ static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPS
     } else {
         LLVMValueRef llvm_return_val_ref =
             pp_code_generator_generate_rvalue(cg, symbol_table, env_b, stmt->return_statement.expr);
-        /* Return-as-move for owning values.
-           When a local is returned by value, ownership leaves this frame. For copyable
-           owning types (lists, strings) the source is cleared to its empty value so the
-           later scope drop is a no-op. For move-only owning types (handles) the source's
-           ownership flag is cleared instead, which does not depend on the representation. */
+        /* Move semantics for returning a local List by value.
+           If the return expression is an identifier of a List-owning type, clear the
+           source variable to {null,0,0} so the later scope drop is a no-op. This implements
+           return-as-move and avoids double-free of the heap buffer. */
         if (stmt->return_statement.expr && stmt->return_statement.expr->node_type == PP_AST_IdentifierNode) {
             const char* name = stmt->return_statement.expr->identifier.identifier;
             assert(name);
@@ -2273,27 +2180,21 @@ static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPS
             if (pp_type_needs_drop(ret_type) && !pp_type_is_reference(ret_type)) {
                 const PPSymbol* sym = pp_symbol_table_lookup(symbol_table, name, true);
                 assert(sym);
-                if (!pp_type_is_copyable(ret_type)) {
-                    LLVMValueRef src_addr =
-                        pp_code_generator_generate_lvalue(cg, symbol_table, env_b, stmt->return_statement.expr);
-                    if (src_addr) { pp_code_generator_relinquish_ownership(cg, src_addr); }
-                } else {
-                    for (size_t i = 0; i < cg->drop_stack_count; i++) {
-                        if (cg->drop_stack_types[i] == ret_type) {
-                            LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, ret_type);
-                            assert(llvm_list_type);
-                            LLVMValueRef empty = LLVMGetUndef(llvm_list_type);
-                            LLVMValueRef null_ptr = LLVMConstNull(LLVMPointerTypeInContext(cg->ctx, 0));
-                            empty = LLVMBuildInsertValue(cg->builder, empty, null_ptr, 0, "moved_data");
-                            empty = LLVMBuildInsertValue(cg->builder, empty,
-                                                         LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), 1,
-                                                         "moved_len");
-                            empty = LLVMBuildInsertValue(cg->builder, empty,
-                                                         LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), 2,
-                                                         "moved_cap");
-                            LLVMBuildStore(cg->builder, empty, cg->drop_stack_addresses[i]);
-                            break;
-                        }
+                for (size_t i = 0; i < cg->drop_stack_count; i++) {
+                    if (cg->drop_stack_types[i] == ret_type) {
+                        LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, ret_type);
+                        assert(llvm_list_type);
+                        LLVMValueRef empty = LLVMGetUndef(llvm_list_type);
+                        LLVMValueRef null_ptr = LLVMConstNull(LLVMPointerTypeInContext(cg->ctx, 0));
+                        empty = LLVMBuildInsertValue(cg->builder, empty, null_ptr, 0, "moved_data");
+                        empty =
+                            LLVMBuildInsertValue(cg->builder, empty,
+                                                 LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), 1, "moved_len");
+                        empty =
+                            LLVMBuildInsertValue(cg->builder, empty,
+                                                 LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), 0, 0), 2, "moved_cap");
+                        LLVMBuildStore(cg->builder, empty, cg->drop_stack_addresses[i]);
+                        break;
                     }
                 }
             }
@@ -2941,6 +2842,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                                        : callee_type->type.pp_type_function.param_count;
     LLVMValueRef* ref_temp_addrs = NULL;
     const PPType** ref_temp_types = NULL;
+    LLVMValueRef* owning_temp_addrs = NULL;
+    const PPType** owning_temp_types = NULL;
     if (param_count > 0) {
         llvm_args = (LLVMValueRef*)calloc(param_count, sizeof(LLVMValueRef));
         NULL_POINTER_ERROR_HANDLE(llvm_args);
@@ -2949,6 +2852,10 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
         ref_temp_types = calloc(param_count, sizeof(const PPType*));
         NULL_POINTER_ERROR_HANDLE(ref_temp_addrs);
         NULL_POINTER_ERROR_HANDLE(ref_temp_types);
+        owning_temp_addrs = calloc(param_count, sizeof(LLVMValueRef));
+        owning_temp_types = calloc(param_count, sizeof(const PPType*));
+        NULL_POINTER_ERROR_HANDLE(owning_temp_addrs);
+        NULL_POINTER_ERROR_HANDLE(owning_temp_types);
 
         for (unsigned int i = 0; i < param_count; i++) {
             const PPType* param_type = is_lambda     ? callee_type->type.pp_type_lambda.param_types[i]
@@ -2982,28 +2889,18 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                 const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(node->function_call.arguments[i]);
                 bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
                 if (arg_is_lvalue) {
+                    // Copy lvalue argument for owning param
+                    // Create a temporary alloca for the param value
                     LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
                     assert(llvm_param_type);
+                    LLVMValueRef tmp_alloca = pp_code_generator_entry_alloca(cg, llvm_param_type, "param_tmp");
                     LLVMValueRef src_ptr =
                         pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
-                    assert(src_ptr);
-                    if (!pp_type_is_copyable(param_type)) {
-                        // Move-only owning value: passing it by value transfers ownership.
-                        // Pass the value and clear the source's ownership flag.
-                        llvm_args[i] = LLVMBuildLoad2(cg->builder, llvm_param_type, src_ptr, "move_arg_val");
-                        pp_code_generator_relinquish_ownership(cg, src_ptr);
-                    } else {
-                        // Copy lvalue argument for owning param
-                        LLVMValueRef tmp_alloca = pp_code_generator_entry_alloca(cg, llvm_param_type, "param_tmp");
-                        pp_code_generator_emit_copy(cg, tmp_alloca, src_ptr, param_type);
-                        LLVMValueRef tmp_val =
-                            LLVMBuildLoad2(cg->builder, llvm_param_type, tmp_alloca, "param_tmp_val");
-                        llvm_args[i] = tmp_val;
-                    }
+                    pp_code_generator_emit_copy(cg, tmp_alloca, src_ptr, param_type);
+                    LLVMValueRef tmp_val = LLVMBuildLoad2(cg->builder, llvm_param_type, tmp_alloca, "param_tmp_val");
+                    llvm_args[i] = tmp_val;
                 } else {
-                    // Rvalue owning argument → materialise and pass by value.
-                    // The callee owns a by-value parameter and drops it at its own scope exit,
-                    // so the caller must NOT drop this temporary (that would double free).
+                    // Rvalue owning argument → materialise, use, drop after call
                     LLVMTypeRef llvm_param_type = pp_environment_backend_lookup_type(cg, param_type);
                     assert(llvm_param_type);
                     LLVMValueRef tmp_alloca = pp_code_generator_entry_alloca(cg, llvm_param_type, "arg_tmp");
@@ -3012,6 +2909,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                     LLVMBuildStore(cg->builder, init, tmp_alloca);
                     LLVMValueRef tmp_val = LLVMBuildLoad2(cg->builder, llvm_param_type, tmp_alloca, "arg_tmp_val");
                     llvm_args[i] = tmp_val;
+                    owning_temp_addrs[i] = tmp_alloca;
+                    owning_temp_types[i] = param_type;
                 }
             } else {
                 llvm_args[i] =
@@ -3026,9 +2925,12 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                        LLVMGetReturnType(llvm_callee_func_type) == LLVMVoidTypeInContext(cg->ctx) ? "" : "func_call");
 
     // Drop owning temporaries materialized for const reference parameters.
-    // By-value owning parameters are dropped by the callee, never here.
     for (unsigned int i = 0; i < param_count; i++) {
         if (ref_temp_addrs[i]) { pp_code_generator_emit_drop(cg, ref_temp_addrs[i], ref_temp_types[i]); }
+    }
+    // Drop owning rvalue temporaries used as call arguments
+    for (unsigned int i = 0; i < param_count; i++) {
+        if (owning_temp_addrs[i]) { pp_code_generator_emit_drop(cg, owning_temp_addrs[i], owning_temp_types[i]); }
     }
 
     free(llvm_args);
@@ -3037,13 +2939,18 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
     ref_temp_addrs = NULL;
     free(ref_temp_types);
     ref_temp_types = NULL;
+    free(owning_temp_addrs);
+    owning_temp_addrs = NULL;
+    free(owning_temp_types);
+    owning_temp_types = NULL;
     return llvm_val;
 
 error_cleanup:
     free(llvm_args);
     free(ref_temp_addrs);
     free(ref_temp_types);
-
+    free(owning_temp_addrs);
+    free(owning_temp_types);
     return NULL;
 }
 
@@ -4596,36 +4503,7 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
         pp_code_generator_restore_builder_insert_block(cg, saved_bb);
         return;
     }
-
-    if (type->kind == PP_TK_Newtype && type->type.pp_type_newtype.drop_func_name) {
-        // Handle: load the underlying value and hand it to the bound drop function.
-        const PPType* underlying = type->type.pp_type_newtype.underlying;
-        const PPSymbol* drop_symbol = type->type.pp_type_newtype.drop_symbol;
-        LLVMTypeRef llvm_underlying = pp_environment_backend_lookup_type(cg, underlying);
-        LLVMValueRef drop_fn =
-            drop_symbol ? pp_environment_backend_lookup_val(cg->global_env_b, drop_symbol, false) : NULL;
-        if (llvm_underlying && drop_fn) {
-            LLVMValueRef value_ptr =
-                LLVMBuildBitCast(cg->builder, arg0, LLVMPointerType(llvm_underlying, 0), "handle_ptr");
-            LLVMValueRef value = LLVMBuildLoad2(cg->builder, llvm_underlying, value_ptr, "handle_value");
-            LLVMTypeRef drop_fn_type = LLVMGlobalGetValueType(drop_fn);
-
-            // Pointer-backed handles skip the drop when the value is null.
-            if (LLVMGetTypeKind(llvm_underlying) == LLVMPointerTypeKind) {
-                LLVMValueRef is_null =
-                    LLVMBuildICmp(cg->builder, LLVMIntEQ, value, LLVMConstNull(llvm_underlying), "handle_is_null");
-                LLVMBasicBlockRef call_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "handle_drop_call");
-                LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "handle_drop_end");
-                LLVMBuildCondBr(cg->builder, is_null, merge_bb, call_bb);
-                LLVMPositionBuilderAtEnd(cg->builder, call_bb);
-                LLVMBuildCall2(cg->builder, drop_fn_type, drop_fn, &value, 1, "");
-                LLVMBuildBr(cg->builder, merge_bb);
-                LLVMPositionBuilderAtEnd(cg->builder, merge_bb);
-            } else {
-                LLVMBuildCall2(cg->builder, drop_fn_type, drop_fn, &value, 1, "");
-            }
-        }
-    } else if (type->kind == PP_TK_List) {
+    if (type->kind == PP_TK_List) {
         const PPType* elem_type = type->type.pp_type_list.element_type;
         LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, type);
         if (llvm_list_type) {

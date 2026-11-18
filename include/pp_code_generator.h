@@ -80,10 +80,6 @@ typedef struct {
     /* Scope exit drop stack for owned list variables */
     LLVMValueRef* drop_stack_addresses;
     PPType** drop_stack_types;
-    /* Optional per-entry i1 alloca: when non-NULL, the drop only runs if the flag is true.
-     * Flags exist for move-only owning values (handle types), whose ownership can leave a
-     * variable before its scope ends. NULL entries are always dropped. */
-    LLVMValueRef* drop_stack_flags;
     size_t drop_stack_count;
     size_t drop_stack_capacity;
 

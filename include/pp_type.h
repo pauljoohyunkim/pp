@@ -11,7 +11,6 @@ extern "C" {
 // Forward declare PP_AST_Node for PPStructField
 struct PP_AST_Node;
 struct PPType;
-struct PPSymbol;
 
 typedef struct {
     const char* field_name;
@@ -83,11 +82,6 @@ typedef struct PPType {
         struct {
             const char* name;
             const struct PPType* underlying;
-            /* Set only for `handle` declarations: name of the bound drop function.
-             * A newtype with a non-NULL drop_func_name is a handle type.
-             * drop_symbol is filled in by semantic pass 2 (functions are not known in pass 1). */
-            const char* drop_func_name;
-            const struct PPSymbol* drop_symbol;
         } pp_type_newtype;
 
         struct {
@@ -144,8 +138,6 @@ int pp_type_push_param(PPType* type, const PPType* param_type);
 bool pp_type_is_const(const PPType* type);
 bool pp_type_is_reference(const PPType* type);
 bool pp_type_is_pointer(const PPType* type);
-/** @brief True if type is a `handle` type (a newtype with a bound drop function). */
-bool pp_type_is_handle(const PPType* type);
 bool pp_type_contains_pointer(const PPType* type);
 bool pp_type_is_numerical(const PPType* type);
 bool pp_type_is_unsigned_integer(const PPType* type);
