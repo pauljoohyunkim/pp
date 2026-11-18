@@ -5,7 +5,9 @@
 extern "C" {
 #endif
 
+/* Unused: pplang links through pp_linker_offload_multi. Definition is commented out as well.
 int pp_linker_offload(const char* input_object_filename, const char* output_filename, char optimization_mode);
+*/
 
 int pp_linker_offload_multi(const char** object_filenames, unsigned int count, const char* output_filename,
                             char optimization_mode);

@@ -31,6 +31,7 @@ Precedence from lowest to highest:
 * Bitshift: `<< >>`
   * Shift amount is unsigned. If the shift amount is ≥ the bit-width of the unsigned integer type, the result is defined to be zero. This applies to both binary shifts and compound assignment shifts. Signed integer shifts are not guarded.
 * Comparison: `== != < > <= >=`
+  Callable values support no comparison, arithmetic, or bitwise operators in v1.
 * Logical: `&& ||`
 * Cast: `expr as type`
 * Member access: `obj.field`
@@ -54,6 +55,9 @@ Rules:
 * Casts are explicit; implicit conversions are not performed except for default zero-initialization.
 * Casting to/from `string` is not supported yet.
 * Casting to/from reference types is rejected by the semantic analyzer.
+* Casting involving callable types is restricted to `lambda[...] as func[...]` with an identical signature.
+  `func[...] as lambda[...]`, `func[...] as func[...]`, `lambda[...] as lambda[...]`, and callable ↔ non-callable
+  casts are all rejected.
 
 
 

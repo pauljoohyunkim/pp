@@ -5,15 +5,20 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/* Single-file linking variant is currently unused: pplang always links through
+ * pp_linker_offload_multi. Kept for reference; commented out to avoid dead code.
 int pp_linker_offload(const char* input_object_filename, const char* output_filename, char optimization_mode) {
     // Subprocess
     pid_t pid = fork();
+    int status = 0;
 
     if (pid < 0) return 0;
 
     if (pid > 0) {
-        // Parent
-        wait(NULL);
+        // Parent: propagate the linker's exit status to the caller.
+        if (waitpid(pid, &status, 0) < 0) return 0;
+        if (!WIFEXITED(status)) return 0;
+        return WEXITSTATUS(status) == 0;
     } else {
         // Child
 
@@ -31,20 +36,24 @@ int pp_linker_offload(const char* input_object_filename, const char* output_file
         argv[idx++] = NULL;
         execvp("cc", argv);
 
-        return 0;
+        // exec failed: never fall through into the parent's flow.
+        _exit(127);
     }
-
-    return 1;
 }
+*/
 
 int pp_linker_offload_multi(const char** object_filenames, unsigned int count, const char* output_filename,
                             char optimization_mode) {
     if (!object_filenames || count == 0 || !output_filename) return 0;
 
     pid_t pid = fork();
+    int status = 0;
     if (pid < 0) return 0;
     if (pid > 0) {
-        wait(NULL);
+        // Parent: propagate the linker's exit status to the caller.
+        if (waitpid(pid, &status, 0) < 0) return 0;
+        if (!WIFEXITED(status)) return 0;
+        return WEXITSTATUS(status) == 0;
     } else {
         // Build argv for cc: cc obj1 obj2 ... [-O<opt>] -o out
         unsigned int argc = count + 4 + 1;
@@ -54,7 +63,7 @@ int pp_linker_offload_multi(const char** object_filenames, unsigned int count, c
         for (unsigned int i = 0; i < count; i++) { argv[i + 1] = (char*)object_filenames[i]; }
         unsigned int idx = count + 1;
         if (optimization_mode != '\0') {
-            char opt_flag[4];
+            char opt_flag[4] = { 0 };
             snprintf(opt_flag, sizeof(opt_flag), "-O%c", optimization_mode);
             argv[idx++] = opt_flag;
         }
@@ -63,7 +72,6 @@ int pp_linker_offload_multi(const char** object_filenames, unsigned int count, c
         argv[idx] = NULL;
         execvp("cc", argv);
         free(argv);
-        _exit(1);
+        _exit(127);
     }
-    return 1;
 }

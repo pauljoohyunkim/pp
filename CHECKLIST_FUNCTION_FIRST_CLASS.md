@@ -427,28 +427,44 @@ Full suite: **410 tests, all passing** (381 before, +21 semantic, +8 codegen).
 
 ---
 
-## Phase 11 — Validation and cleanup
+## Phase 11 — Validation and cleanup  — DONE
 
-- [ ] `make pplang` succeeds with no new warnings.
-- [ ] `make unittest` passes.
-- [ ] `./bin/unittest` passes.
-- [ ] Run demo programs to check for regressions.
-- [ ] Run `valgrind --leak-check=yes ./bin/pplang <test.pp>` on new smoke cases.
-- [ ] Run `clang-format -i` on touched C/H files.
-- [ ] Update documentation:
-  - [ ] Verify the implemented grammar matches the already-updated `notes/bnf.md` from Phase 0.4.
-  - [ ] `docs/language/01-types.md`
-  - [ ] `docs/language/03-declarations.md`
-  - [ ] `docs/language/04-expressions.md`
-  - [ ] `docs/language/07-functions-and-lambdas.md`
-  - [ ] `docs/reference/grammar.md`
-  - [ ] `docs/reference/known-limitations.md` (arrays/lists, `ptr[func[...]]`, comparisons, explicit-only
-        lambda → func widening)
-  - [ ] `dev-docs/parser-ast-mapping.md`
-  - [ ] `notes/type_system.md` if callable identity rules belong there
-- [ ] Re-check the recorded Phase 0.3 decisions against the implementation; update if the global fallback was
-      taken.
-- [ ] Review the final diff for scope and consistency.
+- [x] `make pplang` (clean build) succeeds. Warnings are the 9 pre-existing ones (unused variable `di_current_scope`,
+      unused label `error_cleanup`, three `-W#warning` notes, four const-qualifier discards in pre-existing code);
+      none are in the callable code paths.
+- [x] `make unittest` builds and `./bin/unittest` passes: **410 tests**.
+- [x] Demos: all five build and run (`01_fibo`, `02_pi`, `03_eigenvector`, `04_pointers`, `05_bf`).
+- [x] Valgrind validation automated with the `memory-leak-test` skill (`/tmp/phase11_valgrind.sh`), adapted to this
+      root and extended to also build `lib/pp_std`:
+  - unit tests under `valgrind --leak-check=full`: 410 ok, 0 definitely/indirectly/possibly lost, 0 errors.
+  - every demo compiled under valgrind (plain and `-g`) and every demo binary run under valgrind: all
+    `All heap blocks were freed -- no leaks are possible`, 0 errors.
+  - `bin/pplang` on callable smoke programs: 0 leaks, 0 errors.
+- [x] `clang-format -i src/*.c include/*.h` applied (unrelated reformat in `src/pplang.c` reverted to keep the diff
+      scoped).
+- [x] Documentation updated:
+  - [x] `notes/bnf.md` already matched the implementation (grammar written in Phase 0.4; the list of notes matches
+        the v1 restrictions verbatim).
+  - [x] `docs/language/01-types.md` — new "Callable types" section.
+  - [x] `docs/language/03-declarations.md` — callable variable initialization, globals, struct fields.
+  - [x] `docs/language/04-expressions.md` — cast restriction and operator ban.
+  - [x] `docs/language/07-functions-and-lambdas.md` — "Function values (callable types)" with a worked example.
+  - [x] `docs/reference/grammar.md` — `ptr`/`func_type`/`lambda_type` productions and notes.
+  - [x] `docs/reference/known-limitations.md` — pointers/collections/operators/widening/closure/global restrictions.
+  - [x] `dev-docs/parser-ast-mapping.md` — `TypePointer`/`TypeCallable` mapping and parser entry points.
+  - [x] `notes/type_system.md` — new "Callable Values" section (identity, decay, symbol-vs-value, v1 limits).
+- [x] Phase 0.3 decisions re-checked against the implementation:
+  - lambda → func widening: explicit-only, identical signature (implemented, tested);
+  - function-typed globals: **supported**, no fallback ban needed — pre-declaration of all callables makes the
+    initializer ordering a non-issue;
+  - function-typed struct fields: supported with the usual initializer/default rules;
+  - `ptr[func[...]]`: rejected (type construction, `@`, and `nullptr[...]` all covered);
+  - comparisons/operators on callables: rejected explicitly.
+- [x] Final diff reviewed for scope.
+
+Note (pre-existing, unrelated to callables, found during validation): `bin/pplang` exits with status 0 when the
+system linker fails (e.g. an unresolved extern), so scripted builds must check for the produced binary rather than
+the exit code. Left unchanged.
 
 ---
 

@@ -317,15 +317,18 @@ int main(int argc, char** argv) {
                     inp->obj_buf = NULL;
                 }
             }
-            pp_linker_offload_multi(obj_names, obj_count, output_filename, optimization_mode);
+            if (!pp_linker_offload_multi(obj_names, obj_count, output_filename, optimization_mode)) {
+                fprintf(stderr, "Linker failed\n");
+                free(obj_names);
+                exit_code = 1;
+                goto error_cleanup;
+            }
             free(obj_names);
         }
         goto exit_success;
     }
 
-    if (to_object || to_assembly || emit_ir) {
-        goto exit_success;
-    }
+    if (to_object || to_assembly || emit_ir) { goto exit_success; }
 
 exit_success:
     pplang_input_list_free(input_list);

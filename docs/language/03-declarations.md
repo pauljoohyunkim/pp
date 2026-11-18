@@ -10,6 +10,21 @@ let r :: int32& = x;
 
 See [Variables & Const](02-variables-and-const.md) for initialization rules and global restrictions.
 
+Callable-typed variables must be initialized, because a callable value has no null representation:
+
+```pp
+func inc :: (a :: int32) -> int32 { return a + 1; }
+
+func main :: () -> int32 {
+    let f :: func[(int32) -> int32] = inc;   // function name -> callable value
+    f = other_inc;                           // mutable bindings can be rebound
+    return f(1);
+}
+```
+
+At global scope the initializer must be the name of a `func` or `lambda` (a link-time constant). Callable struct
+fields behave like const/reference fields: they need an initializer unless the field declares a default.
+
 ## Functions
 
 ```pp
