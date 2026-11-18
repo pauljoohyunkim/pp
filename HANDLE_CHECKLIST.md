@@ -156,6 +156,12 @@ File: `src/pp_code_generator.c`, `include/pp_code_generator.h` (no struct change
       whenever the LHS type needs a drop. That also fixes the same leak for `s = "..."` (verified: 8 bytes
       definitely lost before, clean after) and for `l = [T; ...]`. Safe because an uninitialized owning local is
       zero-filled at declaration, so the old value is always either null or live.
+- [x] Field (`s.name = ...`) and element (`l[0u] = ...`) assignment both go through the same path and get the
+      drop for free — verified leak-free.
+- [x] **List drop loop used the wrong stride** (found while checking element assignment): the element GEP was
+      built with a pointer-to-element type, so a `[string]` (16-byte element) was walked in 8-byte steps and the
+      len field was read as a pointer. Fixed in both `pp_code_generator_emit_drop` and
+      `pp_code_generator_gen_drop_body`; `[string]`, `[[string]]` and struct-of-list now valgrind clean.
 
 Gate: codegen tests assert the drop call and the null guard in IR.
 

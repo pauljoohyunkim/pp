@@ -281,9 +281,11 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
                 LLVMBuildCondBr(cg->builder, cond, loop_body_bb, loop_after_bb);
                 LLVMPositionBuilderAtEnd(cg->builder, loop_body_bb);
                 // elem_ptr = data_ptr + i
+                // `data_ptr` is the array base, so the GEP element type is the element type itself
+                // (using a pointer-to-element here would advance by sizeof(ptr) instead of sizeof(elem)).
+                LLVMTypeRef elem_llvm_ty = pp_environment_backend_lookup_type(cg, elem_type);
                 LLVMValueRef elem_ptr =
-                    LLVMBuildGEP2(cg->builder, LLVMPointerType(pp_environment_backend_lookup_type(cg, elem_type), 0),
-                                  data_ptr, &i_val, 1, "list_drop_elem_ptr");
+                    LLVMBuildGEP2(cg->builder, elem_llvm_ty, data_ptr, &i_val, 1, "list_drop_elem_ptr");
                 // Drop element
                 pp_code_generator_emit_drop(cg, elem_ptr, elem_type);
                 // i++
@@ -4578,8 +4580,8 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
                     LLVMValueRef cond = LLVMBuildICmp(cg->builder, LLVMIntSLT, i_val, len, "list_drop_loop_cond");
                     LLVMBuildCondBr(cg->builder, cond, loop_body_bb, loop_after_bb);
                     LLVMPositionBuilderAtEnd(cg->builder, loop_body_bb);
-                    LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, LLVMPointerType(elem_llvm_type, 0), data_ptr,
-                                                          &i_val, 1, "list_drop_elem_ptr");
+                    LLVMValueRef elem_ptr =
+                        LLVMBuildGEP2(cg->builder, elem_llvm_type, data_ptr, &i_val, 1, "list_drop_elem_ptr");
                     LLVMValueRef elem_i8 =
                         LLVMBuildBitCast(cg->builder, elem_ptr, LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0),
                                          "elem_i8");

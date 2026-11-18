@@ -2390,3 +2390,52 @@ TEST(CodeGenTest, ListReassignDropsOldValue) {
     EXPECT_EQ(codegen_result, 1);
     EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
 }
+
+TEST(CodeGenTest, ListOfStringsDropUsesElementStride) {
+    // The list drop loop must walk the backing array with the element type's size, not sizeof(ptr).
+    const char* source =
+        "func work :: () -> void {\n"
+        "    let l :: [string] = [string; \"aaaaaaaa\", \"bbbbbbbb\"];\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "getelementptr %pp.string, ptr %data_ptr, i64 %list_drop_i_val");
+}
+
+TEST(CodeGenTest, ListElementAssignmentDropsOldValue) {
+    const char* source =
+        "func work :: () -> void {\n"
+        "    let l :: [string] = [string; \"aaaaaaaa\", \"bbbbbbbb\"];\n"
+        "    l[0u] = \"cccccccc\";\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // In work(): one drop for the overwritten element, one list drop at scope exit. The list drop helper body
+    // itself calls the element drop helper, which is the third occurrence.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 3u);
+}
+
+TEST(CodeGenTest, StructFieldAssignmentDropsOldValue) {
+    const char* source =
+        "struct S { name :: string; }\n"
+        "func work :: () -> void {\n"
+        "    let s :: S = S{ .name = \"aaaaaaaa\" };\n"
+        "    s.name = \"bbbbbbbb\";\n"
+        "    return;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    EXPECT_GE(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
