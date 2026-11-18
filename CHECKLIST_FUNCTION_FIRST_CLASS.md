@@ -133,26 +133,28 @@ No captures, no closures: a function value is a code pointer only. No null funct
 
 ---
 
-## Phase 2 — Parser
+## Phase 2 — Parser  — DONE
 
-- [ ] In `pp_parser_parse_collection_type` (`src/pp_parser.c`), add branches for `PP_TT_FUNC` and `PP_TT_LAMBDA`.
-- [ ] Consume the keyword, require `[`, parse parameter **types** (not declarations) separated by commas, require
-      `)`, require `->`, parse the return type with `pp_parser_create_type`, require `]`.
-- [ ] Support an empty parameter list `()`.
-- [ ] Support higher-order signatures recursively, e.g. `func[(func[(int32) -> float]) -> int32]`.
-- [ ] Parameter names are not allowed in a function type; add an error if one is found, or simply fail type
-      parsing as today.
-- [ ] Verify no ambiguity with declaration-position `func name :: ...`: type parsing only runs in type positions,
-      but add parser tests for both forms.
-- [ ] Verify `const func[...]` and `func[...]&` work through the existing prefix/suffix handling in
-      `pp_parser_create_type`.
-- [ ] Add parser tests:
-  - [ ] `let f :: func[(int32, float) -> float] = predef_func;`
-  - [ ] `let f :: lambda[(int32) -> int32] = some_lambda;`
-  - [ ] `let f :: const func[(int32) -> int32] = predef_func;`
-  - [ ] `let f :: func[(int32) -> int32]& = other;`
-  - [ ] nested/higher-order type
-  - [ ] malformed type cases and diagnostics
+- [x] In `pp_parser_parse_collection_type` (`src/pp_parser.c`), added a branch for `PP_TT_FUNC` / `PP_TT_LAMBDA`
+      that delegates to the new `pp_parser_parse_callable_type`.
+- [x] Consumes keyword, `[`, parameter **types** separated by commas, `)`, `->`, return type via
+      `pp_parser_create_type`, `]`. Token failures rely on `pp_parser_consume_token`'s own diagnostic.
+- [x] Empty parameter list `()` supported (pre-checked before the loop).
+- [x] Higher-order signatures work recursively (parameter/return types are parsed with `pp_parser_create_type`).
+- [x] Parameter names rejected: after parsing a parameter type, a following `::` yields
+      "Parameter names are not allowed in a callable type".
+- [x] No ambiguity with declaration-position `func name :: ...`: declarations are routed by
+      `pp_parser_create_program_node` before any type parsing; both forms are covered by tests.
+- [x] `const func[...]` and `func[...]&` work through the existing prefix/suffix handling in
+      `pp_parser_create_type` (verified by test).
+- [x] Parser tests added in `tests/parsertest.cpp`: `GoodCallableTypeFunctionSyntax`, `…LambdaSyntax`,
+      `…ConstAndReference`, `…HigherOrder`, `…EmptyParamList`, `…AsParamAndReturn`,
+      `BadCallableTypeWithParamNames`, `BadCallableTypeMissingArrow`. All 8 pass.
+
+Note: malformed callable types at global scope recover with `parse_result == 1` and `parser_errors > 0`, matching
+other `Bad*` tests in this suite.
+Note: until Phase 3 lands, semantic analysis reports "Unsupported type node" for any `func[...]`/`lambda[...]`
+— expected.
 
 ---
 

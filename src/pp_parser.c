@@ -272,7 +272,8 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
 
     NULL_POINTER_ERROR_HANDLE(parser);
 
-    program = pp_ast_node_create(PP_AST_ProgramNode, (PP_SourceLoc){.filename = parser->filename, .line = 0, .column = 0});
+    program =
+        pp_ast_node_create(PP_AST_ProgramNode, (PP_SourceLoc){.filename = parser->filename, .line = 0, .column = 0});
     NULL_POINTER_ERROR_HANDLE(program);
 
     capacity = AST_VECTOR_INIT_CAP;
@@ -499,6 +500,128 @@ error_cleanup:
     return NULL;
 }
 
+/*
+ * Parse a callable type: `func[(T1, T2) -> R]` or `lambda[(T1, T2) -> R]`.
+ * Parameter names are not part of a callable type; only parameter types are parsed.
+ * An empty parameter list `()` is allowed.
+ */
+static PP_AST_Node* pp_parser_parse_callable_type(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node** param_types = NULL;
+    PP_AST_Node* param_type = NULL;
+    PP_AST_Node* return_type = NULL;
+    PP_AST_CallableKind kind = PP_CK_Function;
+    PP_TokenType keyword_tt = PP_TT_EOF;
+    unsigned int param_count = 0;
+    unsigned int param_capacity = 0;
+    unsigned int new_capacity = 0;
+    PP_Token* keyword_tok = NULL;
+    PP_Token* l_bracket_tok = NULL;
+    PP_Token* l_paren_tok = NULL;
+    PP_Token* r_paren_tok = NULL;
+    PP_Token* arrow_tok = NULL;
+    PP_Token* r_bracket_tok = NULL;
+
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    keyword_tt = pp_parser_peek_token_type(parser, 0);
+    if (keyword_tt != PP_TT_FUNC && keyword_tt != PP_TT_LAMBDA) {
+        pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser), "Expected 'func' or 'lambda'");
+        goto error_cleanup;
+    }
+    {
+        keyword_tok = pp_parser_consume_token(parser, keyword_tt);
+        NULL_POINTER_ERROR_HANDLE(keyword_tok);
+    }
+    kind = (keyword_tt == PP_TT_LAMBDA) ? PP_CK_Lambda : PP_CK_Function;
+
+    {
+        l_bracket_tok = pp_parser_consume_token(parser, PP_TT_LEFT_SQUARE_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(l_bracket_tok);
+    }
+    {
+        l_paren_tok = pp_parser_consume_token(parser, PP_TT_LEFT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(l_paren_tok);
+    }
+
+    param_capacity = AST_VECTOR_INIT_CAP;
+    param_types = (PP_AST_Node**)calloc(param_capacity, sizeof(PP_AST_Node*));
+    NULL_POINTER_ERROR_HANDLE(param_types);
+
+    if (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_PARENTHESIS) {
+        while (1) {
+            param_type = pp_parser_create_type(parser);
+            NULL_POINTER_ERROR_HANDLE(param_type);
+
+            if (pp_parser_peek_token_type(parser, 0) == PP_TT_COLON_COLON) {
+                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),
+                                         "Parameter names are not allowed in a callable type");
+                goto error_cleanup;
+            }
+
+            if (param_count >= param_capacity) {
+                PP_AST_Node** tmp = NULL;
+                new_capacity = param_capacity * 2;
+                tmp = (PP_AST_Node**)realloc(param_types, new_capacity * sizeof(PP_AST_Node*));
+                NULL_POINTER_ERROR_HANDLE(tmp);
+                param_types = tmp;
+                param_capacity = new_capacity;
+            }
+            param_types[param_count] = param_type;
+            param_count++;
+            param_type = NULL;
+
+            if (pp_parser_peek_token_type(parser, 0) == PP_TT_COMMA) {
+                {
+                    PP_Token* comma_tok = pp_parser_consume_token(parser, PP_TT_COMMA);
+                    NULL_POINTER_ERROR_HANDLE(comma_tok);
+                }
+                continue;
+            }
+            break;
+        }
+    }
+
+    {
+        r_paren_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_PARENTHESIS);
+        NULL_POINTER_ERROR_HANDLE(r_paren_tok);
+    }
+    {
+        arrow_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_ARROW);
+        NULL_POINTER_ERROR_HANDLE(arrow_tok);
+    }
+
+    return_type = pp_parser_create_type(parser);
+    NULL_POINTER_ERROR_HANDLE(return_type);
+
+    {
+        r_bracket_tok = pp_parser_consume_token(parser, PP_TT_RIGHT_SQUARE_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(r_bracket_tok);
+    }
+
+    node = pp_ast_node_create(PP_AST_TypeCallableNode, keyword_tok->loc);
+    NULL_POINTER_ERROR_HANDLE(node);
+    node->type_callable.kind = kind;
+    node->type_callable.param_types = param_types;
+    param_types = NULL;
+    node->type_callable.param_count = param_count;
+    node->type_callable.param_capacity = param_capacity;
+    node->type_callable.return_type = return_type;
+    return_type = NULL;
+
+    return node;
+
+error_cleanup:
+    if (param_types) {
+        for (unsigned int i = 0; i < param_count; i++) { pp_ast_root_free(param_types[i]); }
+    }
+    free(param_types);
+    pp_ast_root_free(param_type);
+    pp_ast_root_free(return_type);
+    pp_ast_root_free(node);
+    return NULL;
+}
+
 static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
     PP_AST_Node* node = NULL;
     PP_AST_Node* inner_type = NULL;
@@ -565,6 +688,10 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
         NULL_POINTER_ERROR_HANDLE(node);
         node->type_pointer.pointee_type = inner_type;
         inner_type = NULL;
+    } else if (pp_parser_peek_token_type(parser, 0) == PP_TT_FUNC ||
+               pp_parser_peek_token_type(parser, 0) == PP_TT_LAMBDA) {
+        node = pp_parser_parse_callable_type(parser);
+        NULL_POINTER_ERROR_HANDLE(node);
     } else {
         PP_TokenType tt = pp_parser_peek_token_type(parser, 0);
         int kind = PP_AST_TYPE_KIND_IDENTIFIER;
