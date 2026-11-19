@@ -24,6 +24,6 @@ $(TARGET): $(PPLANG) $(SRCS) $(PPIS) $(PP_STD)/bin/pp_std.a
 	$(PPLANG) $(BASE_PPI) $(PPI_FLAGS) $(PPCFLAGSEXTRA) $(SRCS) $(PP_STD)/bin/pp_std.a -o $@
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) *.txt
 
 .PHONY: all clean
