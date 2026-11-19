@@ -3580,6 +3580,37 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
     return llvm_val;
 }
 
+/* Widen/narrow an integer value preserving the signedness of the PP source type (enums and flags use the
+ * signedness of their underlying type). LLVMBuildIntCast would sign-extend unsigned sources. */
+static LLVMValueRef pp_code_generator_build_int_cast(PP_CodeGenerator* cg, LLVMValueRef value, LLVMTypeRef dest_type,
+                                                     const PPType* src_type) {
+    assert(cg);
+    assert(value);
+    assert(dest_type);
+    assert(src_type);
+
+    const PPType* integer_type = src_type;
+    if (integer_type->kind == PP_TK_Newtype) {
+        integer_type = integer_type->type.pp_type_newtype.underlying;
+        assert(integer_type);
+    }
+
+    LLVMTypeRef src_llvm_type = LLVMTypeOf(value);
+    const unsigned int src_bits = LLVMGetIntTypeWidth(src_llvm_type);
+    const unsigned int dest_bits = LLVMGetIntTypeWidth(dest_type);
+
+    if (dest_bits < src_bits) {
+        return LLVMBuildTrunc(cg->builder, value, dest_type, "intcast_trunc");
+    }
+    if (dest_bits > src_bits) {
+        if (pp_type_kind_is_unsigned(integer_type->kind)) {
+            return LLVMBuildZExt(cg->builder, value, dest_type, "intcast_zext");
+        }
+        return LLVMBuildSExt(cg->builder, value, dest_type, "intcast_sext");
+    }
+    return value;
+}
+
 static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                            PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     assert(cg);
@@ -3637,7 +3668,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
             if (src_kind == LLVMFloatTypeKind) {
                 val = LLVMBuildFPToSI(cg->builder, val, i64_type, "num_to_i64_fp");
             } else if (llvm_src_type != i64_type) {
-                val = LLVMBuildIntCast(cg->builder, val, i64_type, "num_to_i64");
+                val = pp_code_generator_build_int_cast(cg, val, i64_type, src_type);
             }
             llvm_val = LLVMBuildIntToPtr(cg->builder, val, llvm_dest_type, "inttoptr_tmp");
         } else if (src_type->kind == PP_TK_Pointer && pp_type_is_numerical(dest_type)) {
@@ -3666,7 +3697,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
             } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMIntegerTypeKind) {
                 llvm_val = LLVMBuildFPToSI(cg->builder, llvm_val_to_cast, llvm_dest_type, "fptosi_tmp");
             } else if (src_kind == LLVMIntegerTypeKind && dest_kind == LLVMIntegerTypeKind) {
-                llvm_val = LLVMBuildIntCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "intcast_tmp");
+                llvm_val = pp_code_generator_build_int_cast(cg, llvm_val_to_cast, llvm_dest_type, src_type);
             } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMFloatTypeKind) {
                 llvm_val = LLVMBuildFPCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "fpcast_tmp");
             } else {

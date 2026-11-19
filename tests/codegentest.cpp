@@ -2506,7 +2506,7 @@ TEST(CodeGenTest, EnumReturnTypeAndEquality) {
     assert_ir_contains(cg.get(), "define i8 @pick()");
     assert_ir_contains(cg.get(), "ret i8 5");
     assert_ir_contains(cg.get(), "icmp eq i8");
-    assert_ir_contains(cg.get(), "sext i8");
+    assert_ir_contains(cg.get(), "zext i8");
 }
 
 TEST(CodeGenTest, FlagBinaryOrAndXor) {
@@ -2618,10 +2618,30 @@ TEST(CodeGenTest, EnumFlagIntegerCasts) {
     EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
     EXPECT_EQ(r.codegen_result, 1);
     // Widening enum cast and integer->flag cast keep the underlying layout.
-    // Note: integer widening uses LLVMBuildIntCast (sign-extending) for all
-    // unsigned sources too; that is pre-existing behaviour unrelated to enums.
     assert_ir_contains(cg.get(), "to i32");
     assert_ir_contains(cg.get(), "store i32 7");
+}
+
+TEST(CodeGenTest, UnsignedWideningZeroExtends) {
+    const char* source =
+        "enum Mode :: uint8 { A = 200 }\n"
+        "func main :: () -> int32 {\n"
+        "    let m :: Mode = Mode::A;\n"
+        "    let b :: uint8 = 200 as uint8;\n"
+        "    let s :: int8 = -1 as int8;\n"
+        "    let w1 :: uint32 = m as uint32;\n"
+        "    let w2 :: uint32 = b as uint32;\n"
+        "    let w3 :: int32 = s as int32;\n"
+        "    return (w1 + w2 + (w3 as uint32)) as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Unsigned sources (uint8 and an enum over uint8) widen with zext, signed sources with sext.
+    assert_ir_contains(cg.get(), "zext i8");
+    assert_ir_contains(cg.get(), "sext i8");
 }
 
 TEST(CodeGenTest, EnumFlagDebugInfo) {
