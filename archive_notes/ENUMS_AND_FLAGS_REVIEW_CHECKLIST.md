@@ -13,13 +13,13 @@ git diff dev...HEAD -- src/pp_code_generator.c
 
 ## 0. Hygiene before you start
 
-- [ ] `git status`: the standalone `demo/07_enums_and_flags` was **removed** on purpose (enums are now
+- [x] `git status`: the standalone `demo/07_enums_and_flags` was **removed** on purpose (enums are now
       demonstrated by `demo/05_bf`, which dispatches on an `enum BFCommand` declared in `brainfuck.ppi`).
       The two checklist files were moved to `archive_notes/` (`D HEX_CHAR_LITERAL_CHECKLIST.md`,
       `MD ENUMS_AND_FLAGS_CHECKLIST.md` are unstaged) — decide whether those moves belong on this branch.
-- [ ] Confirm you do not want `ENUMS_AND_FLAGS_CHECKLIST.md` history preserved rather than deleted+re-added.
-- [ ] Branch has 3 commits titled `WIP:` plus later fixups. If the history matters, ask for a squash/reword before merge.
-- [ ] `notes/bnf.md` and `docs/language/10-enums-and-flags.md` describe the same rules — read them against each
+- [x] Confirm you do not want `ENUMS_AND_FLAGS_CHECKLIST.md` history preserved rather than deleted+re-added.
+- [x] Branch has 3 commits titled `WIP:` plus later fixups. If the history matters, ask for a squash/reword before merge.
+- [x] `notes/bnf.md` and `docs/language/10-enums-and-flags.md` describe the same rules — read them against each
       other; drift here is cheap to fix now and expensive later.
 
 ## 1. Design fidelity (the decisions that must not drift)

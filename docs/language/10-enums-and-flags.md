@@ -14,11 +14,15 @@ integer type, nor with any other enum or flag.
 
 ## The declaration
 
-The underlying type is mandatory and must be an integer primitive. `enum` may use a signed or an
-unsigned type; `flag` must use an unsigned one, because its values are bit positions.
+The underlying type is mandatory and must be an integer primitive.
+
+* `enum` may use a **signed or an unsigned** integer type. When the enum mirrors a C enum, pick the
+  type that matches the C declaration (`int8` vs `uint8`, and so on).
+* `flag` must use an **unsigned** integer type. A signed underlying type is rejected, because flag
+  values are bit positions and every bit of the underlying width must be usable.
 
 ```pp
-enum Status :: int32  { Idle, Running, Done }
+enum Status :: int8   { Idle, Running, Done }
 flag Bits   :: uint8  { A, B, C }
 ```
 
@@ -27,7 +31,7 @@ flag Bits   :: uint8  { A, B, C }
 
 ### Values
 
-Each member has an unsigned constant value that must fit the underlying type.
+Each member has a non-negative constant value that must fit the width of the underlying type.
 
 * An explicit value is any constant integer expression, and may refer to members declared
   **earlier** in the same body. `+ - * / % << >> | & ^` and unary `-` / `~` are supported, and
@@ -59,8 +63,10 @@ dispatches on — remember that values must still increase:
 enum BFCommand :: uint8 { Plus = '+', Comma = ',', Minus = '-', Period = '.' }
 ```
 
-Values are unsigned even when the underlying type is signed; write `-1` only as an expression such
-as `~0u`, and expect it to be rejected if it does not fit an unsigned interpretation of the width.
+Member values are always non-negative; there are no negative enum constants. With a signed
+underlying type a value is stored in the same bits, so `enum E :: int8 { A = 200 }` names the bit
+pattern `0xC8`, which reads as `-56` once widened as a signed integer. Prefer an unsigned underlying
+type unless you are matching an external declaration.
 
 ### `none`
 
