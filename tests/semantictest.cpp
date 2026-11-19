@@ -2162,3 +2162,197 @@ TEST(SemanticTest, CharLiteralTypeIsUint8) {
 TEST(SemanticTest, HexLiteralTypeInference) {
     expect_semantic_accept("func main :: () -> uint32 { let v :: uint32 = 0x41u; return v; }", "hex literal");
 }
+
+TEST(SemanticTest, EnumDeclarationAccepted) {
+    expect_semantic_accept("enum Color :: uint8 { Red, Green, Blue }\n"
+                           "func main :: () -> uint8 {\n"
+                           "    let c :: Color = Color::Green;\n"
+                           "    return c as uint8;\n"
+                           "}\n",
+                           "enum declaration");
+}
+
+TEST(SemanticTest, EnumExplicitAndAutoValuesAccepted) {
+    expect_semantic_accept("enum Status :: int32 { Ok = 10, Warn, Error = 100 }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let s :: Status = Status::Error;\n"
+                           "    return s as int32;\n"
+                           "}\n",
+                           "enum explicit and auto values");
+}
+
+TEST(SemanticTest, EnumEqualityComparisonAccepted) {
+    expect_semantic_accept("enum Mode :: int32 { A, B }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let m :: Mode = Mode::A;\n"
+                           "    if (m == Mode::B) { return 1; }\n"
+                           "    if (m != Mode::A) { return 2; }\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "enum equality");
+}
+
+TEST(SemanticTest, EnumConstantUsableInArraySizeAndGlobalInitializer) {
+    expect_semantic_accept("enum Sizes :: uint32 { Small = 4, Large = 16 }\n"
+                           "let buffer :: [uint8 : Sizes::Small];\n"
+                           "let total :: Sizes = Sizes::Large;\n"
+                           "func main :: () -> Sizes { return total; }\n",
+                           "enum constant as array size and global initializer");
+}
+
+TEST(SemanticTest, FlagDeclarationAndOperationsAccepted) {
+    expect_semantic_accept("flag Perm :: uint32 { Read = 1, Write = 2, Execute = 4 }\n"
+                           "func main :: () -> uint32 {\n"
+                           "    let p :: Perm = Perm::Read | Perm::Write;\n"
+                           "    p |= Perm::Execute;\n"
+                           "    p &= Perm::Read;\n"
+                           "    p ^= Perm::Write;\n"
+                           "    let q :: Perm = ~p;\n"
+                           "    if ((p & Perm::Read) != Perm::none) { return 1u; }\n"
+                           "    if (p == Perm::none) { return 2u; }\n"
+                           "    return q as uint32;\n"
+                           "}\n",
+                           "flag declaration and operations");
+}
+
+TEST(SemanticTest, FlagAutoValuesAccepted) {
+    expect_semantic_accept("flag F :: uint16 { A, B, C }\n"
+                           "func main :: () -> uint16 { let f :: F = F::C; return f as uint16; }\n",
+                           "flag auto values");
+}
+
+TEST(SemanticTest, FlagCompositeMemberAccepted) {
+    expect_semantic_accept("flag Acc :: uint32 { Read = 1, Write = 2, ReadWrite = Read | Write }\n"
+                           "func main :: () -> uint32 { let a :: Acc = Acc::ReadWrite; return a as uint32; }\n",
+                           "flag composite member");
+}
+
+TEST(SemanticTest, FlagHeroExplicitValueAccepted) {
+    expect_semantic_accept("flag Bits :: uint32 { Sync = 1 << 10, Next }\n"
+                           "func main :: () -> uint32 { let b :: Bits = Bits::Next; return b as uint32; }\n",
+                           "flag explicit high bit followed by auto");
+}
+
+TEST(SemanticTest, TildeOnIntegerAccepted) {
+    expect_semantic_accept("func main :: () -> uint32 { let v :: uint32 = 0u; return ~v; }\n",
+                           "tilde on integer");
+}
+
+TEST(SemanticTest, CastBetweenEnumAndIntegerAccepted) {
+    expect_semantic_accept("enum Mode :: int32 { A, B }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let m :: Mode = Mode::B;\n"
+                           "    let i :: int32 = m as int32;\n"
+                           "    return i;\n"
+                           "}\n",
+                           "enum to integer cast");
+}
+
+TEST(SemanticTest, CastIntegerToFlagAccepted) {
+    expect_semantic_accept("flag Perm :: uint32 { Read = 1, Write = 2 }\n"
+                           "func main :: () -> uint32 {\n"
+                           "    let p :: Perm = 3u as Perm;\n"
+                           "    return p as uint32;\n"
+                           "}\n",
+                           "integer to flag cast");
+}
+
+TEST(SemanticTest, EnumDuplicateMemberRejected) {
+    expect_semantic_reject("enum Mode :: int32 { A, B, A }\n", "duplicate enum member");
+}
+
+TEST(SemanticTest, EnumNonIncreasingValueRejected) {
+    expect_semantic_reject("enum Mode :: int32 { A = 5, B = 3 }\n", "enum values strictly increasing");
+}
+
+TEST(SemanticTest, EnumValueOutOfRangeRejected) {
+    expect_semantic_reject("enum Mode :: uint8 { A = 300 }\n", "enum value out of range");
+}
+
+TEST(SemanticTest, EnumUnderlyingMustBeInteger) {
+    expect_semantic_reject("enum Mode :: float { A }\n", "enum underlying must be integer");
+}
+
+TEST(SemanticTest, FlagUnderlyingMustBeUnsigned) {
+    expect_semantic_reject("flag Perm :: int32 { Read = 1 }\n", "flag underlying must be unsigned");
+}
+
+TEST(SemanticTest, FlagMemberNamedNoneRejected) {
+    expect_semantic_reject("flag Perm :: uint32 { none = 1 }\n", "flag member named none");
+}
+
+TEST(SemanticTest, FlagExplicitZeroRejected) {
+    expect_semantic_reject("flag Perm :: uint32 { Read = 0 }\n", "flag explicit zero");
+}
+
+TEST(SemanticTest, FlagArbitraryCompositeRejected) {
+    expect_semantic_reject("flag Perm :: uint32 { Read = 1, Write = 2, Bad = 5 }\n",
+                           "flag composite must be single bit or OR of earlier members");
+}
+
+TEST(SemanticTest, FlagArithmeticRejected) {
+    expect_semantic_reject("flag Perm :: uint32 { Read = 1 }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let p :: Perm = Perm::Read + Perm::Read;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "flag arithmetic rejected");
+}
+
+TEST(SemanticTest, EnumArithmeticRejected) {
+    expect_semantic_reject("enum Mode :: int32 { A, B }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let m :: Mode = Mode::A + Mode::B;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "enum arithmetic rejected");
+}
+
+TEST(SemanticTest, QualifiedConstantUnknownMemberRejected) {
+    expect_semantic_reject("enum Mode :: int32 { A }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let m :: Mode = Mode::Z;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "unknown enum member");
+}
+
+TEST(SemanticTest, QualifiedConstantOnStructRejected) {
+    expect_semantic_reject("struct S { x :: int32; }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let s :: S = S::x;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "qualified constant on non-enum type");
+}
+
+TEST(SemanticTest, CastIntegerToEnumRejected) {
+    expect_semantic_reject("enum Mode :: int32 { A, B }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let m :: Mode = 1 as Mode;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "integer to enum cast rejected");
+}
+
+TEST(SemanticTest, CastBetweenDifferentEnumsRejected) {
+    expect_semantic_reject("enum A :: int32 { X }\n"
+                           "enum B :: int32 { Y }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let b :: B = A::X as B;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "cast between different enums rejected");
+}
+
+TEST(SemanticTest, EnumAndFlagMixedOperandsRejected) {
+    expect_semantic_reject("enum A :: int32 { X }\n"
+                           "flag F :: uint32 { Y = 1 }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let a :: A = A::X;\n"
+                           "    let f :: F = F::Y;\n"
+                           "    if (a == f) { return 1; }\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "mixing enum and flag operands rejected");
+}

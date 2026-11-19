@@ -12,8 +12,8 @@
 - [x] Lexer tests
 
 ## Types
-- [ ] Add `PP_EnumKind`, `PP_EnumMember`, newtype fields, helpers in `include/pp_type.h` + `src/pp_type.c`
-- [ ] Free member table in `pp_type_free`
+- [x] Add `PP_EnumKind`, `PP_EnumMember`, newtype fields, helpers in `include/pp_type.h` + `src/pp_type.c`
+- [x] Free member table in `pp_type_free`
 
 ## Parser / AST
 - [x] Add `PP_AST_EnumDeclarationNode` and `PP_AST_FlagDeclarationNode` (fully separate, inline union structs, parallel member arrays) in `include/pp_ast.h`
@@ -23,15 +23,15 @@
 - [x] Parser tests
 
 ## Semantic Analyzer
-- [ ] Pass 1: register enum/flag type, validate underlying (integer; unsigned for flag)
-- [ ] Resolve member values; auto numbering; duplicate name/value rules; fit checks
-- [ ] `pp_array_size_from_simple_expr`: accept `Type::Member`
-- [ ] Qualified constant: `Type::Member` lookup (incl. `Flag::none`)
-- [ ] Binary operators: enum `==/!=`, flag `== != | & ^`
-- [ ] Compound assignment: flag `|= &= ^=`
-- [ ] Unary `~` for integer primitives and flag
-- [ ] Cast: reject enum/flag → different enum/flag
-- [ ] Semantic tests
+- [x] Pass 1: register enum/flag type, validate underlying (integer; unsigned for flag)
+- [x] Resolve member values; auto numbering; duplicate name/value rules; fit checks
+- [x] `pp_array_size_from_simple_expr`: accept `Type::Member`
+- [x] Qualified constant: `Type::Member` lookup (incl. `Flag::none`)
+- [x] Binary operators: enum `==/!=`, flag `== != | & ^`
+- [x] Compound assignment: flag `|= &= ^=`
+- [x] Unary `~` for integer primitives and flag
+- [x] Cast: reject enum/flag → different enum/flag
+- [x] Semantic tests
 
 ## Code Generator
 - [ ] Declaration emits nothing
@@ -41,8 +41,8 @@
 - [ ] Codegen tests
 
 ## Validation
-- [ ] `make -j`
-- [ ] `bin/unittest`
+- [x] `make -j`
+- [x] `bin/unittest`
 - [ ] Demo program
 - [ ] Valgrind leak check
 - [ ] Update notebook with results

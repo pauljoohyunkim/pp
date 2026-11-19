@@ -51,6 +51,17 @@ typedef enum {
     PP_TK_Operator,
 } PPTypeKind;
 
+typedef enum {
+    PP_ENUM_KIND_NONE = 0,
+    PP_ENUM_KIND_ENUM,
+    PP_ENUM_KIND_FLAG,
+} PP_EnumKind;
+
+typedef struct {
+    const char* name;
+    unsigned long long value;
+} PP_EnumMember;
+
 typedef struct PPType {
     PPTypeKind kind;
     union {
@@ -88,6 +99,10 @@ typedef struct PPType {
              * is bound in semantic Pass 2. */
             const char* drop_func_name;
             struct PPSymbol* drop_symbol;
+            /* Enum / flag nominal types reuse PP_TK_Newtype storage. */
+            PP_EnumKind enum_kind;
+            PP_EnumMember* members;
+            size_t member_count;
         } pp_type_newtype;
 
         struct {
@@ -119,6 +134,11 @@ PPType* pp_type_create(PPTypeKind kind);
  */
 #define PP_INT_LITERAL_NUMBUF_SIZE 64
 PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeric);
+/** @brief Return true if the type kind represents a primitive integer */
+static inline bool pp_type_kind_is_integer(PPTypeKind k) {
+    return k == PP_TK_Int8 || k == PP_TK_UInt8 || k == PP_TK_Int16 || k == PP_TK_UInt16 || k == PP_TK_Int32 ||
+           k == PP_TK_UInt32 || k == PP_TK_Int64 || k == PP_TK_UInt64 || k == PP_TK_Int128 || k == PP_TK_UInt128;
+}
 /** @brief Return true if the type kind represents an unsigned integer */
 static inline bool pp_type_kind_is_unsigned(PPTypeKind k) {
     return k == PP_TK_UInt8 || k == PP_TK_UInt16 || k == PP_TK_UInt32 || k == PP_TK_UInt64 || k == PP_TK_UInt128;
@@ -147,6 +167,11 @@ bool pp_type_is_reference(const PPType* type);
  * non-copyable, non-trivially-copyable and always need drop. */
 bool pp_type_is_handle(const PPType* type);
 bool pp_type_is_pointer(const PPType* type);
+/** @brief Enum / flag nominal type queries. */
+bool pp_type_is_enum(const PPType* type);
+bool pp_type_is_flag(const PPType* type);
+bool pp_type_is_enum_or_flag(const PPType* type);
+const PP_EnumMember* pp_type_find_enum_member(const PPType* type, const char* name);
 bool pp_type_contains_pointer(const PPType* type);
 bool pp_type_is_numerical(const PPType* type);
 bool pp_type_is_unsigned_integer(const PPType* type);

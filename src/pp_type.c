@@ -46,6 +46,9 @@ void pp_type_free(PPType* type) {
                     pp_struct_layout_free((PP_StructLayout*)type->type.pp_type_struct.layout);
                 }
                 break;
+            case PP_TK_Newtype:
+                free(type->type.pp_type_newtype.members);
+                break;
             case PP_TK_Function:
             case PP_TK_Lambda:
             case PP_TK_Operator:
@@ -143,6 +146,25 @@ bool pp_type_is_handle(const PPType* type) {
     if (type == NULL) return false;
 
     return type->kind == PP_TK_Newtype && type->type.pp_type_newtype.drop_func_name != NULL;
+}
+
+bool pp_type_is_enum(const PPType* type) {
+    return type != NULL && type->kind == PP_TK_Newtype && type->type.pp_type_newtype.enum_kind == PP_ENUM_KIND_ENUM;
+}
+
+bool pp_type_is_flag(const PPType* type) {
+    return type != NULL && type->kind == PP_TK_Newtype && type->type.pp_type_newtype.enum_kind == PP_ENUM_KIND_FLAG;
+}
+
+bool pp_type_is_enum_or_flag(const PPType* type) { return pp_type_is_enum(type) || pp_type_is_flag(type); }
+
+const PP_EnumMember* pp_type_find_enum_member(const PPType* type, const char* name) {
+    if (!pp_type_is_enum_or_flag(type) || !name) return NULL;
+    for (size_t i = 0; i < type->type.pp_type_newtype.member_count; i++) {
+        const PP_EnumMember* member = &type->type.pp_type_newtype.members[i];
+        if (member->name == name || strcmp(member->name, name) == 0) return member;
+    }
+    return NULL;
 }
 
 bool pp_type_is_pointer(const PPType* type) {
