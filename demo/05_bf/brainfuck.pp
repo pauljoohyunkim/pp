@@ -7,14 +7,14 @@ func readBFCode :: (ctx :: BFContext&) -> void {
     }
 }
 
-let GREATER :: const uint8 = 62uss;
-let LESS :: const uint8 = 60uss;
-let PLUS :: const uint8 = 43uss;
-let MINUS :: const uint8 = 45uss;
-let PERIOD :: const uint8 = 46uss;
-let COMMA :: const uint8 = 44uss;
-let LEFT_SQUARE_BRACKET :: const uint8 = 91uss;
-let RIGHT_SQUARE_BRACKET :: const uint8 = 93uss;
+let GREATER :: const uint8 = '>';
+let LESS :: const uint8 = '<';
+let PLUS :: const uint8 = '+';
+let MINUS :: const uint8 = '-';
+let PERIOD :: const uint8 = '.';
+let COMMA :: const uint8 = ',';
+let LEFT_SQUARE_BRACKET :: const uint8 = '[';
+let RIGHT_SQUARE_BRACKET :: const uint8 = ']';
 
 func runBFCode :: (ctx :: BFContext&) -> void {
     while (ctx.code_idx < #ctx.code as uint32) {
