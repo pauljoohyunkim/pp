@@ -30,7 +30,8 @@ flag Bits   :: uint8  { A, B, C }
 Each member has an unsigned constant value that must fit the underlying type.
 
 * An explicit value is any constant integer expression, and may refer to members declared
-  **earlier** in the same body. `+ - * / % << >> | & ^` and unary `-` / `~` are supported.
+  **earlier** in the same body. `+ - * / % << >> | & ^` and unary `-` / `~` are supported, and
+  character literals such as `'+'` stand for their code point (a `uint8` constant).
 * An automatic `enum` value is `0` for the first member, then the previous value plus one.
 * An automatic `flag` value is `1` for the first member, then the **next power of two strictly
   greater** than the previous member's value.
@@ -49,6 +50,13 @@ and must still be greater than the previous member's value:
 
 ```pp
 flag Access :: uint32 { Read = 1, Write = 2, ReadWrite = Read | Write, Execute = 1 << 4 }
+```
+
+Because character literals are ordinary constants, an enum can name the characters a parser
+dispatches on — remember that values must still increase:
+
+```pp
+enum BFCommand :: uint8 { Plus = '+', Comma = ',', Minus = '-', Period = '.' }
 ```
 
 Values are unsigned even when the underlying type is signed; write `-1` only as an expression such

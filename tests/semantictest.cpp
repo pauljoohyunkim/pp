@@ -2233,6 +2233,24 @@ TEST(SemanticTest, FlagHeroExplicitValueAccepted) {
                            "flag explicit high bit followed by auto");
 }
 
+TEST(SemanticTest, EnumCharLiteralValuesAccepted) {
+    expect_semantic_accept("enum Cmd :: uint8 { Plus = '+', Minus = '-', Period = '.' }\n"
+                           "func main :: () -> uint8 { return Cmd::Period as uint8; }\n",
+                           "enum member values from char literals");
+}
+
+TEST(SemanticTest, EnumCharLiteralNonIncreasingRejected) {
+    expect_semantic_reject("enum Cmd :: uint8 { Greater = '>', Less = '<' }\n"
+                           "func main :: () -> uint8 { return 0 as uint8; }\n",
+                           "enum char literal members out of order");
+}
+
+TEST(SemanticTest, FlagCharLiteralValuesAccepted) {
+    expect_semantic_accept("flag Bits :: uint8 { Space = ' ', At = '@' }\n"
+                           "func main :: () -> uint8 { return Bits::At as uint8; }\n",
+                           "flag member values from char literals (single-bit code points)");
+}
+
 TEST(SemanticTest, TildeOnIntegerAccepted) {
     expect_semantic_accept("func main :: () -> uint32 { let v :: uint32 = 0u; return ~v; }\n",
                            "tilde on integer");

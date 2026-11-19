@@ -2,8 +2,8 @@
 
 ## Grammar / Docs
 - [x] Update `notes/bnf.md` with `enum_decl` / `flag_decl` and `Type::Member` access note
-- [ ] Add `docs/language/10-enums-and-flags.md`
-- [ ] Update VS Code syntax highlighting for `enum` / `flag` / `~`
+- [x] Add `docs/language/10-enums-and-flags.md`
+- [x] Update VS Code syntax highlighting for `enum` / `flag` / `~`
 
 ## Lexer / Tokens
 - [x] Add `PP_TT_ENUM`, `PP_TT_FLAG`, `PP_TT_TILDE` to `include/pp_tokens.h`
@@ -34,15 +34,15 @@
 - [x] Semantic tests
 
 ## Code Generator
-- [ ] Declaration emits nothing
-- [ ] Enum constant member access → `LLVMConstInt` of lowered underlying type
-- [ ] `~` unary lowering
-- [ ] Debug info: `DW_TAG_enumeration_type` with enumerators
-- [ ] Codegen tests
+- [x] Declaration emits nothing
+- [x] Enum constant member access → `LLVMConstInt` of lowered underlying type
+- [x] `~` unary lowering
+- [x] Debug info: `DW_TAG_enumeration_type` with enumerators
+- [x] Codegen tests
 
 ## Validation
 - [x] `make -j`
 - [x] `bin/unittest`
-- [ ] Demo program
-- [ ] Valgrind leak check
-- [ ] Update notebook with results
+- [x] Demo program
+- [x] Valgrind leak check
+- [x] Update notebook with results

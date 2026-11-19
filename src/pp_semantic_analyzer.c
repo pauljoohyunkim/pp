@@ -2264,6 +2264,61 @@ static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_N
 
     switch (expr->node_type) {
         case PP_AST_LiteralNode: {
+            if (expr->literal.literal_type == PP_TT_CHAR_LITERAL) {
+                // Character literals are uint8 constants, so `enum ... { Plus = '+' }` is expressible.
+                const char* lexeme = expr->literal.lexeme;
+                if (!lexeme || lexeme[0] != '\'' || strlen(lexeme) < 3) {
+                    pp_error_list_push_error(sa->error_list, expr->loc, "Invalid char literal");
+                    goto error_cleanup;
+                }
+                unsigned long long char_value = 0;
+                if (lexeme[1] == '\\') {
+                    switch (lexeme[2]) {
+                        case 'n':
+                            char_value = '\n';
+                            break;
+                        case 't':
+                            char_value = '\t';
+                            break;
+                        case 'r':
+                            char_value = '\r';
+                            break;
+                        case '0':
+                            char_value = 0;
+                            break;
+                        case '\'':
+                            char_value = '\'';
+                            break;
+                        case '\\':
+                            char_value = '\\';
+                            break;
+                        case 'x': {
+                            if (strlen(lexeme) < 5) {
+                                pp_error_list_push_error(sa->error_list, expr->loc,
+                                                         "Invalid escape in char literal");
+                                goto error_cleanup;
+                            }
+                            char hex[3] = {lexeme[3], lexeme[4], 0};
+                            char* hex_end = NULL;
+                            long hex_value = strtol(hex, &hex_end, 16);
+                            if (hex_end == hex) {
+                                pp_error_list_push_error(sa->error_list, expr->loc,
+                                                         "Invalid escape in char literal");
+                                goto error_cleanup;
+                            }
+                            char_value = (unsigned long long)(unsigned char)hex_value;
+                            break;
+                        }
+                        default:
+                            char_value = (unsigned long long)(unsigned char)lexeme[2];
+                            break;
+                    }
+                } else {
+                    char_value = (unsigned long long)(unsigned char)lexeme[1];
+                }
+                *out = char_value;
+                return 1;
+            }
             if (expr->literal.literal_type != PP_TT_INTEGER_LITERAL) {
                 pp_error_list_push_error(sa->error_list, expr->loc, "Value must be a constant integer expression");
                 goto error_cleanup;
