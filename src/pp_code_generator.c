@@ -3822,8 +3822,56 @@ static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* 
             pp_type_parse_int_literal_suffix(lex, numbuf);
             LLVMTypeRef llvm_ty = pp_backend_lower_type(cg, lit_type);
             assert(llvm_ty);
-            /* LLVMConstIntOfString works for any integer width */
-            llvm_val = LLVMConstIntOfString(llvm_ty, numbuf, 10);
+            /* Detect base for LLVMConstIntOfString and strip 0x prefix if present */
+            unsigned radix = 10;
+            char* num_for_llvm = numbuf;
+            static char stripped[PP_INT_LITERAL_NUMBUF_SIZE];
+            if (numbuf[0] == '0' && (numbuf[1] == 'x' || numbuf[1] == 'X')) {
+                radix = 16;
+                /* strip 0x prefix */
+                size_t len = strlen(numbuf);
+                if (len > 2) {
+                    memcpy(stripped, numbuf + 2, len - 2);
+                    stripped[len - 2] = '\0';
+                    num_for_llvm = stripped;
+                } else {
+                    num_for_llvm = "0";
+                }
+            }
+            llvm_val = LLVMConstIntOfString(llvm_ty, num_for_llvm, radix);
+        } break;
+        case PP_TT_CHAR_LITERAL: {
+            const char* lex = node->literal.lexeme;
+            assert(lex && lex[0] == '\'' && lex[strlen(lex)-1] == '\'');
+            unsigned char ch = 0;
+            if (lex[1] == '\\') {
+                char esc = lex[2];
+                switch (esc) {
+                    case 'n': ch = '\n'; break;
+                    case 't': ch = '\t'; break;
+                    case 'r': ch = '\r'; break;
+                    case '0': ch = 0; break;
+                    case '\'': ch = '\''; break;
+                    case '\\': ch = '\\'; break;
+                    case 'x': {
+                        if (lex[3] && lex[4]) {
+                            char h1 = lex[3];
+                            char h2 = lex[4];
+                            char hex[3] = {h1, h2, 0};
+                            char* end = NULL;
+                            long v = strtol(hex, &end, 16);
+                            if (end != hex) ch = (unsigned char)v;
+                        }
+                        break;
+                    }
+                    default: ch = esc; break;
+                }
+            } else {
+                ch = (unsigned char)lex[1];
+            }
+            LLVMTypeRef llvm_ty = pp_backend_lower_type(cg, lit_type);
+            assert(llvm_ty);
+            llvm_val = LLVMConstInt(llvm_ty, ch, false);
         } break;
         case PP_TT_FLOAT_LITERAL: {
             char* endptr = NULL;

@@ -511,7 +511,7 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     size_t len = 1;
                     bool is_float = false;
                     // Hex literal detection
-                    if (c == '0' && !is_at_end(lexer) && (peek_pp(lexer, 0) == 'x' || peek_pp(lexer, 0) == 'X')) {
+                    if (c == '0' && !is_at_end(lexer) && (peek_pp(lexer, 1) == 'x' || peek_pp(lexer, 1) == 'X')) {
                         // 0x prefix
                         len = 2;
                         while (!is_at_end(lexer) && isxdigit((unsigned char)peek_pp(lexer, len))) len++;

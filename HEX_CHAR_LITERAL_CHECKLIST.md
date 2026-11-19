@@ -27,11 +27,11 @@
 - [x] Emit correct constant for hex integer literal
 
 ## Tests
-- [ ] `make unittest`
+- [x] `make unittest`
 - [x] Add specific tests for hex and char literals
 - [ ] Valgrind leak check
 
 ## Validation
-- [ ] `make -j`
-- [ ] `bin/unittest`
+- [x] `make -j`
+- [x] `bin/unittest`
 - [ ] Update notebook with results

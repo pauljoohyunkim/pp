@@ -2154,3 +2154,11 @@ TEST(SemanticTest, HandleDropAsDefinedFuncIsAccepted) {
                      "func pp_close :: (fd :: int32) -> void { pp_release(fd); }\n"
                      "handle File :: int32 drop pp_close;\n");
 }
+
+TEST(SemanticTest, CharLiteralTypeIsUint8) {
+    expect_semantic_accept("func main :: () -> uint8 { let c :: uint8 = 'A'; return c; }", "char literal");
+}
+
+TEST(SemanticTest, HexLiteralTypeInference) {
+    expect_semantic_accept("func main :: () -> uint32 { let v :: uint32 = 0x41u; return v; }", "hex literal");
+}
