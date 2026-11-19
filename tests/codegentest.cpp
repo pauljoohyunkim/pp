@@ -2439,3 +2439,31 @@ TEST(CodeGenTest, StructFieldAssignmentDropsOldValue) {
     EXPECT_GE(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
 }
 
+TEST(CodeGenTest, CharLiteralCodegen) {
+    const char* source =
+        "func main :: () -> uint8 { return 'A'; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "i8 65");
+}
+
+TEST(CodeGenTest, HexLiteralCodegen) {
+    const char* source =
+        "func main :: () -> uint32 { return 0x41u; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "i32 65");
+}
+

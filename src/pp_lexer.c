@@ -16,6 +16,7 @@ static inline char peek_pp(PP_Lexer* lexer, unsigned int n);
 static int pp_lexer_push_token_helper(PP_Lexer* lexer, PP_TokenType type, size_t length);
 static bool pp_lexer_exactly_match_keyword(PP_Lexer* lexer, const char* keyword);
 static size_t pp_lexer_scan_until_quote(PP_Lexer* lexer, size_t start_offset);
+static size_t pp_lexer_scan_until_single_quote(PP_Lexer* lexer, size_t start_offset);
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
@@ -25,6 +26,24 @@ static size_t pp_lexer_scan_until_quote(PP_Lexer* lexer, size_t start_offset);
 static size_t pp_lexer_scan_until_quote(PP_Lexer* lexer, size_t start_offset) {
     size_t pos = start_offset;
     while (lexer->idx + pos < lexer->code_length && peek_pp(lexer, pos) != '"') {
+        char ch = peek_pp(lexer, pos);
+        if (ch == '\n' || ch == '\r') {
+            break;  // forbid multiline
+        }
+        if (ch == '\\')
+            pos += 2;
+        else
+            pos++;
+    }
+    if (lexer->idx + pos < lexer->code_length) {
+        pos += 1;  // include closing quote if present
+    }
+    return pos;
+}
+
+static size_t pp_lexer_scan_until_single_quote(PP_Lexer* lexer, size_t start_offset) {
+    size_t pos = start_offset;
+    while (lexer->idx + pos < lexer->code_length && peek_pp(lexer, pos) != '\'') {
         char ch = peek_pp(lexer, pos);
         if (ch == '\n' || ch == '\r') {
             break;  // forbid multiline
@@ -491,7 +510,14 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 } else if (isdigit((unsigned char)c)) {
                     size_t len = 1;
                     bool is_float = false;
-                    while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer, len))) len++;
+                    // Hex literal detection
+                    if (c == '0' && !is_at_end(lexer) && (peek_pp(lexer, 1) == 'x' || peek_pp(lexer, 1) == 'X')) {
+                        // 0x prefix
+                        len = 2;
+                        while (!is_at_end(lexer) && isxdigit((unsigned char)peek_pp(lexer, len))) len++;
+                    } else {
+                        while (!is_at_end(lexer) && isdigit((unsigned char)peek_pp(lexer, len))) len++;
+                    }
                     if (!is_at_end(lexer) && peek_pp(lexer, len) == '.') {
                         is_float = true;
                         len++;
@@ -515,6 +541,11 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     } else {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_INTEGER_LITERAL, len)) return 0;
                     }
+                    advance_pp(lexer, len);
+                } else if (c == '\'') {
+                    // character literal
+                    size_t len = pp_lexer_scan_until_single_quote(lexer, 1);
+                    if (!pp_lexer_push_token_helper(lexer, PP_TT_CHAR_LITERAL, len)) return 0;
                     advance_pp(lexer, len);
                 } else if (c == '"') {
                     // simple string literal: skip until closing quote

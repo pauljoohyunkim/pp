@@ -151,6 +151,7 @@
 ;; --- Primary Values ---
 <primary>                   ::= <identifier>
                               | "NUMERICAL_LITERAL"
+                              | "CHAR_LITERAL"
                               | "STRING_LITERAL"        ;; Not yet implemented.
                               | "TRUE"
                               | "FALSE"

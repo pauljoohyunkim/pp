@@ -4823,6 +4823,61 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
             }
             break;
         }
+        case PP_TT_CHAR_LITERAL: {
+            resolved_type = pp_global_type_table_find_alias(sa->gtt, "uint8");
+            assert(resolved_type);
+            /* Validate char literal content */
+            const char* lex = expr->literal.lexeme;
+            assert(lex);
+            size_t len = strlen(lex);
+            if (len < 3 || lex[0] != '\'' || lex[len - 1] != '\'') {
+                pp_error_list_push_error(sa->error_list, expr->loc, "Invalid char literal");
+                goto error_cleanup;
+            }
+            size_t inner_len = len - 2;
+            size_t i = 1;
+            size_t decoded_len = 0;
+            while (i < len - 1) {
+                char c = lex[i];
+                if (c == '\\') {
+                    if (i + 1 >= len - 1) {
+                        pp_error_list_push_error(sa->error_list, expr->loc, "Invalid escape in char literal");
+                        goto error_cleanup;
+                    }
+                    char esc = lex[i + 1];
+                    if (esc == 'n' || esc == 't' || esc == 'r' || esc == '0' || esc == '\'' || esc == '\\') {
+                        decoded_len++;
+                        i += 2;
+                        continue;
+                    } else if (esc == 'x') {
+                        if (i + 3 >= len - 1) {
+                            pp_error_list_push_error(sa->error_list, expr->loc, "Invalid hex escape in char literal");
+                            goto error_cleanup;
+                        }
+                        char h1 = lex[i + 2];
+                        char h2 = lex[i + 3];
+                        if (!isxdigit((unsigned char)h1) || !isxdigit((unsigned char)h2)) {
+                            pp_error_list_push_error(sa->error_list, expr->loc, "Invalid hex digits in char literal");
+                            goto error_cleanup;
+                        }
+                        decoded_len++;
+                        i += 4;
+                        continue;
+                    } else {
+                        pp_error_list_push_error(sa->error_list, expr->loc, "Invalid escape in char literal");
+                        goto error_cleanup;
+                    }
+                } else {
+                    decoded_len++;
+                    i++;
+                }
+            }
+            if (decoded_len != 1) {
+                pp_error_list_push_error(sa->error_list, expr->loc, "Char literal must represent a single character");
+                goto error_cleanup;
+            }
+            break;
+        }
         case PP_TT_TRUE:
         case PP_TT_FALSE:
             resolved_type = pp_global_type_table_find_alias(sa->gtt, "bool");
