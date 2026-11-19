@@ -18,6 +18,8 @@ PP_AST_Decoration* pp_ast_decoration_create(const void* resolved_type, PP_ValueC
     d->value_category = value_category;
     d->is_constexpr = is_constexpr;
     d->is_escapable_ref = is_escapable_ref;
+    d->is_enum_constant = false;
+    d->enum_constant_value = 0;
     return d;
 }
 
@@ -62,6 +64,8 @@ const PP_AST_Decoration* pp_ast_get_decoration(const PP_AST_Node* node) {
             return node->list_pop.decoration;
         case PP_AST_ListClearNode:
             return node->list_clear.decoration;
+        case PP_AST_QualifiedConstantNode:
+            return node->qualified_constant.decoration;
         default:
             return NULL;
     }
@@ -249,6 +253,30 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_root_free_internal(node->handle_declaration.underlying_type);
             break;
         }
+        case PP_AST_EnumDeclarationNode: {
+            /* enum_declaration.identifier and member_names are pool-owned – do not free */
+            pp_ast_root_free_internal(node->enum_declaration.underlying_type);
+            if (node->enum_declaration.member_value_exprs) {
+                for (unsigned int i = 0; i < node->enum_declaration.member_count; i++) {
+                    pp_ast_root_free_internal(node->enum_declaration.member_value_exprs[i]);
+                }
+                free(node->enum_declaration.member_value_exprs);
+            }
+            free(node->enum_declaration.member_names);
+            break;
+        }
+        case PP_AST_FlagDeclarationNode: {
+            /* flag_declaration.identifier and member_names are pool-owned – do not free */
+            pp_ast_root_free_internal(node->flag_declaration.underlying_type);
+            if (node->flag_declaration.member_value_exprs) {
+                for (unsigned int i = 0; i < node->flag_declaration.member_count; i++) {
+                    pp_ast_root_free_internal(node->flag_declaration.member_value_exprs[i]);
+                }
+                free(node->flag_declaration.member_value_exprs);
+            }
+            free(node->flag_declaration.member_names);
+            break;
+        }
         case PP_AST_StructDeclarationNode: {
             /* struct_declaration.name is pool-owned const char* – do not free */
             if (node->struct_declaration.fields) {
@@ -298,6 +326,11 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
         case PP_AST_ListClearNode: {
             pp_ast_root_free_internal(node->list_clear.list);
             pp_ast_decoration_free(node->list_clear.decoration);
+            break;
+        }
+        case PP_AST_QualifiedConstantNode: {
+            /* type_name and member are pool-owned const char* – do not free */
+            pp_ast_decoration_free(node->qualified_constant.decoration);
             break;
         }
         case PP_AST_BreakStatementNode:
@@ -477,15 +510,19 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             if (node->type_callable.return_type) pp_ast_root_print(node->type_callable.return_type, depth + 1);
             break;
         case PP_AST_TypedefDeclarationNode:
-            printf("TypedefDeclaration %s\n", node->typedef_declaration.identifier ? node->typedef_declaration.identifier : "");
+            printf("TypedefDeclaration %s\n",
+                   node->typedef_declaration.identifier ? node->typedef_declaration.identifier : "");
             pp_ast_root_print(node->typedef_declaration.base_type, depth + 1);
             break;
         case PP_AST_NewtypeDeclarationNode:
-            printf("NewtypeDeclaration %s\n", node->newtype_declaration.identifier ? node->newtype_declaration.identifier : "");
+            printf("NewtypeDeclaration %s\n",
+                   node->newtype_declaration.identifier ? node->newtype_declaration.identifier : "");
             pp_ast_root_print(node->newtype_declaration.base_type, depth + 1);
             break;
         case PP_AST_HandleDeclarationNode:
-            printf("HandleDeclaration %s drop %s\n", node->handle_declaration.identifier ? node->handle_declaration.identifier : "", node->handle_declaration.drop_func_name ? node->handle_declaration.drop_func_name : "");
+            printf("HandleDeclaration %s drop %s\n",
+                   node->handle_declaration.identifier ? node->handle_declaration.identifier : "",
+                   node->handle_declaration.drop_func_name ? node->handle_declaration.drop_func_name : "");
             pp_ast_root_print(node->handle_declaration.underlying_type, depth + 1);
             break;
         case PP_AST_StructInitializerNode:
@@ -517,6 +554,33 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
         case PP_AST_ListClearNode:
             printf("ListClear\n");
             pp_ast_root_print(node->list_clear.list, depth + 1);
+            break;
+        case PP_AST_EnumDeclarationNode:
+            printf("EnumDeclaration %s\n", node->enum_declaration.identifier ? node->enum_declaration.identifier : "");
+            pp_ast_root_print(node->enum_declaration.underlying_type, depth + 1);
+            for (unsigned int i = 0; i < node->enum_declaration.member_count; i++) {
+                for (unsigned int k = 0; k < depth + 1; k++) printf("\t");
+                printf("Member %s\n",
+                       node->enum_declaration.member_names[i] ? node->enum_declaration.member_names[i] : "");
+                if (node->enum_declaration.member_value_exprs[i])
+                    pp_ast_root_print(node->enum_declaration.member_value_exprs[i], depth + 2);
+            }
+            break;
+        case PP_AST_FlagDeclarationNode:
+            printf("FlagDeclaration %s\n", node->flag_declaration.identifier ? node->flag_declaration.identifier : "");
+            pp_ast_root_print(node->flag_declaration.underlying_type, depth + 1);
+            for (unsigned int i = 0; i < node->flag_declaration.member_count; i++) {
+                for (unsigned int k = 0; k < depth + 1; k++) printf("\t");
+                printf("Member %s\n",
+                       node->flag_declaration.member_names[i] ? node->flag_declaration.member_names[i] : "");
+                if (node->flag_declaration.member_value_exprs[i])
+                    pp_ast_root_print(node->flag_declaration.member_value_exprs[i], depth + 2);
+            }
+            break;
+        case PP_AST_QualifiedConstantNode:
+            printf("QualifiedConstant %s::%s\n",
+                   node->qualified_constant.type_name ? node->qualified_constant.type_name : "",
+                   node->qualified_constant.member ? node->qualified_constant.member : "");
             break;
         default:
             printf("NodeType %d\n", node->node_type);

@@ -68,6 +68,8 @@ static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_typedef_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_handle_declaration(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_enum_declaration(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_flag_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_global_variable_declaration(PP_Parser* parser);
 static int pp_parser_parse_param_list(PP_Parser* parser, PP_AST_Node*** out_params, unsigned int* out_count,
                                       unsigned int* out_capacity);
@@ -194,6 +196,7 @@ static int pp_parser_infix_binding_power(PP_TokenType token_type, unsigned char*
             rb = PP_PRECEDENCE_CAST + 1;
             break;
         case PP_TT_PERIOD:
+        case PP_TT_COLON_COLON:
         case PP_TT_LEFT_PARENTHESIS:
         case PP_TT_LEFT_SQUARE_BRACKET:
             lb = PP_PRECEDENCE_CALL_ACCESS;
@@ -239,6 +242,8 @@ static bool pp_parser_is_sync_token(PP_TokenType token_type) {
         case PP_TT_WHILE:
         case PP_TT_TYPEDEF:
         case PP_TT_NEWTYPE:
+        case PP_TT_ENUM:
+        case PP_TT_FLAG:
         case PP_TT_SEMICOLON:
         case PP_TT_RIGHT_CURLY_BRACKET:
             return true;
@@ -328,6 +333,12 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                 break;
             case PP_TT_HANDLE:
                 decl = pp_parser_create_handle_declaration(parser);
+                break;
+            case PP_TT_ENUM:
+                decl = pp_parser_create_enum_declaration(parser);
+                break;
+            case PP_TT_FLAG:
+                decl = pp_parser_create_flag_declaration(parser);
                 break;
             case PP_TT_LET:
                 decl = pp_parser_create_global_variable_declaration(parser);
@@ -484,7 +495,8 @@ static PP_AST_Node* pp_parser_create_unary(PP_Parser* parser) {
     NULL_POINTER_ERROR_HANDLE(parser);
 
     tt = pp_parser_peek_token_type(parser, 0);
-    if (tt == PP_TT_MINUS || tt == PP_TT_EXCLAMATION || tt == PP_TT_HASH || tt == PP_TT_AT || tt == PP_TT_DOLLAR) {
+    if (tt == PP_TT_MINUS || tt == PP_TT_EXCLAMATION || tt == PP_TT_HASH || tt == PP_TT_AT || tt == PP_TT_DOLLAR ||
+        tt == PP_TT_TILDE) {
         {
             op_tok = pp_parser_consume_token(parser, tt);
             NULL_POINTER_ERROR_HANDLE(op_tok);
@@ -960,7 +972,8 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
         }
 
         /* Handle postfix call / index / member */
-        if (op_type == PP_TT_LEFT_PARENTHESIS || op_type == PP_TT_LEFT_SQUARE_BRACKET || op_type == PP_TT_PERIOD) {
+        if (op_type == PP_TT_LEFT_PARENTHESIS || op_type == PP_TT_LEFT_SQUARE_BRACKET || op_type == PP_TT_PERIOD ||
+            op_type == PP_TT_COLON_COLON) {
             if (op_type == PP_TT_LEFT_PARENTHESIS) {
                 arg_count = 0;
                 arg_capacity = AST_VECTOR_INIT_CAP;
@@ -1093,6 +1106,27 @@ static PP_AST_Node* pp_parser_create_expression_ext(PP_Parser* parser, unsigned 
                 node->member_access.member = member_tok->lexeme;
                 node->member_access.decoration = NULL;
                 lhs = node;
+                node = NULL;
+                member_tok = NULL;
+            } else if (op_type == PP_TT_COLON_COLON) {
+                /* Type::Member constant access. The left side must be a bare identifier; the semantic
+                 * analyzer verifies that it names an enum or flag type. */
+                if (!lhs || lhs->node_type != PP_AST_IdentifierNode) {
+                    pp_error_list_push_error(parser->error_list, op_tok->loc, "'::' must be preceded by a type name");
+                    goto error_cleanup;
+                }
+                {
+                    member_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+                    NULL_POINTER_ERROR_HANDLE(member_tok);
+                }
+                node = pp_ast_node_create(PP_AST_QualifiedConstantNode, op_tok->loc);
+                NULL_POINTER_ERROR_HANDLE(node);
+                node->qualified_constant.type_name = lhs->identifier.identifier;
+                node->qualified_constant.member = member_tok->lexeme;
+                node->qualified_constant.decoration = NULL;
+                pp_ast_root_free(lhs);
+                lhs = node;
+                node = NULL;
                 member_tok = NULL;
             }
             continue;
@@ -2069,6 +2103,246 @@ static PP_AST_Node* pp_parser_create_handle_declaration(PP_Parser* parser) {
 error_cleanup:
     pp_ast_root_free(node);
     pp_ast_root_free(underlying_type);
+    return NULL;
+}
+
+/*
+ * Parse an `enum` declaration:
+ *   enum Name :: underlying { Member, Member = expr, }
+ * The body closes with `}` (like a struct declaration, no trailing semicolon).
+ * A trailing comma is allowed and the member list may be empty.
+ */
+static PP_AST_Node* pp_parser_create_enum_declaration(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* underlying_type = NULL;
+    PP_AST_Node* value_expr = NULL;
+    const char** member_names = NULL;
+    PP_AST_Node** member_value_exprs = NULL;
+    PP_Token* keyword_tok = NULL;
+    PP_Token* name_tok = NULL;
+    PP_Token* member_tok = NULL;
+    unsigned int member_count = 0;
+    unsigned int member_capacity = 0;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    {
+        keyword_tok = pp_parser_consume_token(parser, PP_TT_ENUM);
+        NULL_POINTER_ERROR_HANDLE(keyword_tok);
+    }
+    {
+        name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(name_tok);
+    }
+    {
+        PP_Token* coloncolon_tok = pp_parser_consume_token(parser, PP_TT_COLON_COLON);
+        NULL_POINTER_ERROR_HANDLE(coloncolon_tok);
+    }
+
+    underlying_type = pp_parser_create_type(parser);
+    NULL_POINTER_ERROR_HANDLE(underlying_type);
+
+    {
+        PP_Token* left_brace = pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(left_brace);
+    }
+
+    member_capacity = AST_VECTOR_INIT_CAP;
+    member_names = (const char**)calloc(member_capacity, sizeof(const char*));
+    NULL_POINTER_ERROR_HANDLE(member_names);
+    member_value_exprs = (PP_AST_Node**)calloc(member_capacity, sizeof(PP_AST_Node*));
+    NULL_POINTER_ERROR_HANDLE(member_value_exprs);
+
+    while (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_CURLY_BRACKET &&
+           pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
+        {
+            member_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+            NULL_POINTER_ERROR_HANDLE(member_tok);
+        }
+
+        value_expr = NULL;
+        if (pp_parser_peek_token_type(parser, 0) == PP_TT_EQUAL) {
+            {
+                PP_Token* equal_tok = pp_parser_consume_token(parser, PP_TT_EQUAL);
+                NULL_POINTER_ERROR_HANDLE(equal_tok);
+            }
+            value_expr = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
+            NULL_POINTER_ERROR_HANDLE(value_expr);
+        }
+
+        if (member_count >= member_capacity) {
+            unsigned int new_cap = member_capacity * 2;
+            const char** names_tmp = (const char**)realloc(member_names, new_cap * sizeof(const char*));
+            NULL_POINTER_ERROR_HANDLE(names_tmp);
+            member_names = names_tmp;
+            PP_AST_Node** values_tmp = (PP_AST_Node**)realloc(member_value_exprs, new_cap * sizeof(PP_AST_Node*));
+            NULL_POINTER_ERROR_HANDLE(values_tmp);
+            member_value_exprs = values_tmp;
+            member_capacity = new_cap;
+        }
+        member_names[member_count] = member_tok->lexeme;
+        member_value_exprs[member_count] = value_expr;
+        member_count++;
+        value_expr = NULL;
+        member_tok = NULL;
+
+        if (pp_parser_peek_token_type(parser, 0) == PP_TT_COMMA) {
+            {
+                PP_Token* comma_tok = pp_parser_consume_token(parser, PP_TT_COMMA);
+                NULL_POINTER_ERROR_HANDLE(comma_tok);
+            }
+            continue;
+        }
+        break;
+    }
+
+    {
+        PP_Token* right_brace = pp_parser_consume_token(parser, PP_TT_RIGHT_CURLY_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(right_brace);
+    }
+
+    node = pp_ast_node_create(PP_AST_EnumDeclarationNode, keyword_tok->loc);
+    NULL_POINTER_ERROR_HANDLE(node);
+    node->enum_declaration.identifier = name_tok->lexeme;
+    node->enum_declaration.underlying_type = underlying_type;
+    node->enum_declaration.member_names = member_names;
+    node->enum_declaration.member_value_exprs = member_value_exprs;
+    node->enum_declaration.member_count = member_count;
+    node->enum_declaration.member_capacity = member_capacity;
+    underlying_type = NULL;
+    member_names = NULL;
+    member_value_exprs = NULL;
+
+    return node;
+
+error_cleanup:
+    pp_ast_root_free(node);
+    pp_ast_root_free(underlying_type);
+    pp_ast_root_free(value_expr);
+    if (member_value_exprs) {
+        for (unsigned int i = 0; i < member_count; i++) { pp_ast_root_free(member_value_exprs[i]); }
+    }
+    free(member_value_exprs);
+    free(member_names);
+    return NULL;
+}
+
+/*
+ * Parse a `flag` declaration:
+ *   flag Name :: underlying { Member, Member = expr, }
+ * Same shape as `enum` but kept as a separate declaration on purpose: the two
+ * keywords take different value rules and different operators.
+ */
+static PP_AST_Node* pp_parser_create_flag_declaration(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* underlying_type = NULL;
+    PP_AST_Node* value_expr = NULL;
+    const char** member_names = NULL;
+    PP_AST_Node** member_value_exprs = NULL;
+    PP_Token* keyword_tok = NULL;
+    PP_Token* name_tok = NULL;
+    PP_Token* member_tok = NULL;
+    unsigned int member_count = 0;
+    unsigned int member_capacity = 0;
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    {
+        keyword_tok = pp_parser_consume_token(parser, PP_TT_FLAG);
+        NULL_POINTER_ERROR_HANDLE(keyword_tok);
+    }
+    {
+        name_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(name_tok);
+    }
+    {
+        PP_Token* coloncolon_tok = pp_parser_consume_token(parser, PP_TT_COLON_COLON);
+        NULL_POINTER_ERROR_HANDLE(coloncolon_tok);
+    }
+
+    underlying_type = pp_parser_create_type(parser);
+    NULL_POINTER_ERROR_HANDLE(underlying_type);
+
+    {
+        PP_Token* left_brace = pp_parser_consume_token(parser, PP_TT_LEFT_CURLY_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(left_brace);
+    }
+
+    member_capacity = AST_VECTOR_INIT_CAP;
+    member_names = (const char**)calloc(member_capacity, sizeof(const char*));
+    NULL_POINTER_ERROR_HANDLE(member_names);
+    member_value_exprs = (PP_AST_Node**)calloc(member_capacity, sizeof(PP_AST_Node*));
+    NULL_POINTER_ERROR_HANDLE(member_value_exprs);
+
+    while (pp_parser_peek_token_type(parser, 0) != PP_TT_RIGHT_CURLY_BRACKET &&
+           pp_parser_peek_token_type(parser, 0) != PP_TT_EOF) {
+        {
+            member_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+            NULL_POINTER_ERROR_HANDLE(member_tok);
+        }
+
+        value_expr = NULL;
+        if (pp_parser_peek_token_type(parser, 0) == PP_TT_EQUAL) {
+            {
+                PP_Token* equal_tok = pp_parser_consume_token(parser, PP_TT_EQUAL);
+                NULL_POINTER_ERROR_HANDLE(equal_tok);
+            }
+            value_expr = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
+            NULL_POINTER_ERROR_HANDLE(value_expr);
+        }
+
+        if (member_count >= member_capacity) {
+            unsigned int new_cap = member_capacity * 2;
+            const char** names_tmp = (const char**)realloc(member_names, new_cap * sizeof(const char*));
+            NULL_POINTER_ERROR_HANDLE(names_tmp);
+            member_names = names_tmp;
+            PP_AST_Node** values_tmp = (PP_AST_Node**)realloc(member_value_exprs, new_cap * sizeof(PP_AST_Node*));
+            NULL_POINTER_ERROR_HANDLE(values_tmp);
+            member_value_exprs = values_tmp;
+            member_capacity = new_cap;
+        }
+        member_names[member_count] = member_tok->lexeme;
+        member_value_exprs[member_count] = value_expr;
+        member_count++;
+        value_expr = NULL;
+        member_tok = NULL;
+
+        if (pp_parser_peek_token_type(parser, 0) == PP_TT_COMMA) {
+            {
+                PP_Token* comma_tok = pp_parser_consume_token(parser, PP_TT_COMMA);
+                NULL_POINTER_ERROR_HANDLE(comma_tok);
+            }
+            continue;
+        }
+        break;
+    }
+
+    {
+        PP_Token* right_brace = pp_parser_consume_token(parser, PP_TT_RIGHT_CURLY_BRACKET);
+        NULL_POINTER_ERROR_HANDLE(right_brace);
+    }
+
+    node = pp_ast_node_create(PP_AST_FlagDeclarationNode, keyword_tok->loc);
+    NULL_POINTER_ERROR_HANDLE(node);
+    node->flag_declaration.identifier = name_tok->lexeme;
+    node->flag_declaration.underlying_type = underlying_type;
+    node->flag_declaration.member_names = member_names;
+    node->flag_declaration.member_value_exprs = member_value_exprs;
+    node->flag_declaration.member_count = member_count;
+    node->flag_declaration.member_capacity = member_capacity;
+    underlying_type = NULL;
+    member_names = NULL;
+    member_value_exprs = NULL;
+
+    return node;
+
+error_cleanup:
+    pp_ast_root_free(node);
+    pp_ast_root_free(underlying_type);
+    pp_ast_root_free(value_expr);
+    if (member_value_exprs) {
+        for (unsigned int i = 0; i < member_count; i++) { pp_ast_root_free(member_value_exprs[i]); }
+    }
+    free(member_value_exprs);
+    free(member_names);
     return NULL;
 }
 

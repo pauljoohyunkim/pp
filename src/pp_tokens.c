@@ -75,6 +75,8 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "@";
         case PP_TT_DOLLAR:
             return "$";
+        case PP_TT_TILDE:
+            return "~";
 
         // Double-letter
         case PP_TT_PLUS_EQUAL:
@@ -173,6 +175,10 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "newtype";
         case PP_TT_HANDLE:
             return "handle";
+        case PP_TT_ENUM:
+            return "enum";
+        case PP_TT_FLAG:
+            return "flag";
         case PP_TT_DROP:
             return "drop";
         case PP_TT_PTR:

@@ -37,6 +37,7 @@ typedef enum {
     PP_TT_LESS,
     PP_TT_AT,
     PP_TT_DOLLAR,
+    PP_TT_TILDE,
 
     // Double-letter
     PP_TT_PLUS_EQUAL,
@@ -92,6 +93,8 @@ typedef enum {
     PP_TT_TYPEDEF,
     PP_TT_NEWTYPE,
     PP_TT_HANDLE,
+    PP_TT_ENUM,
+    PP_TT_FLAG,
     PP_TT_DROP,
     PP_TT_PTR,
     PP_TT_NULLPTR,
