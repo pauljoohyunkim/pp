@@ -199,6 +199,8 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "static string literal";
         case PP_TT_STRING_LITERAL:
             return "string literal";
+        case PP_TT_CHAR_LITERAL:
+            return "char literal";
         case PP_TT_IDENTIFIER:
             return "identifier";
         case PP_TT_UNKNOWN:

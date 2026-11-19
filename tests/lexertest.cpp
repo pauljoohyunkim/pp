@@ -499,4 +499,33 @@ TEST(Lexer, AtKeywordBoundaries) {
     ASSERT_EQ(lexer->tokens[4].token_type, PP_TT_EOF);
 }
 
+TEST(Lexer, HexIntegerLiterals) {
+    auto lexer_h = pp_lexer_create("0x0 0X1A 0x41u 0xFFu 0x1a2b3c", nullptr, test_sp);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 6);
+    for (int i = 0; i < 5; ++i) {
+        ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_INTEGER_LITERAL);
+    }
+    ASSERT_STREQ(lexer->tokens[0].lexeme, "0x0");
+    ASSERT_STREQ(lexer->tokens[1].lexeme, "0X1A");
+    ASSERT_STREQ(lexer->tokens[2].lexeme, "0x41u");
+    ASSERT_STREQ(lexer->tokens[3].lexeme, "0xFFu");
+    ASSERT_STREQ(lexer->tokens[4].lexeme, "0x1a2b3c");
+}
+
+TEST(Lexer, CharLiterals) {
+    auto lexer_h = pp_lexer_create("'A' '\\n' '\\x41' '\\''", nullptr, test_sp);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 5);
+    for (int i = 0; i < 4; ++i) {
+        ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_CHAR_LITERAL);
+    }
+    ASSERT_STREQ(lexer->tokens[0].lexeme, "'A'");
+    ASSERT_STREQ(lexer->tokens[1].lexeme, "'\\n'");
+    ASSERT_STREQ(lexer->tokens[2].lexeme, "'\\x41'");
+    ASSERT_STREQ(lexer->tokens[3].lexeme, "'\\''");
+}
+
 

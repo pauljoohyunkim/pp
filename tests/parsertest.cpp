@@ -1447,3 +1447,19 @@ TEST(ParserTest, GoodHandleDeclarationPtr) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, CharLiteralParsing) {
+    const char* source = "func main :: () -> uint8 { let c :: uint8 = 'A'; return c; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, HexLiteralParsing) {
+    const char* source = "func main :: () -> uint32 { let v :: uint32 = 0x41u; return v; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}

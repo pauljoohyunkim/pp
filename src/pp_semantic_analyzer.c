@@ -4823,6 +4823,12 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
             }
             break;
         }
+        case PP_TT_CHAR_LITERAL: {
+            resolved_type = pp_global_type_table_find_alias(sa->gtt, "uint8");
+            assert(resolved_type);
+            /* Optional validation of escape sequences could be added here */
+            break;
+        }
         case PP_TT_TRUE:
         case PP_TT_FALSE:
             resolved_type = pp_global_type_table_find_alias(sa->gtt, "bool");
