@@ -37,6 +37,8 @@ operator + :: (a :: const Vec&, b :: const Vec&) -> Vec {
 * Parameters must be `const T&`. Mutable references are forbidden.
 * Return type must be by value. Returning a reference is rejected.
 * Built-in operators for core types cannot be redefined. Example: `operator + :: (int32, int32) -> int32` is rejected.
+  The same applies to the built-in unary `~` on integer primitives and flags, which is why `~` is overloadable
+  for other types (e.g. `operator ~ :: (v :: const W&) -> W`).
 * Operator bodies may only call lambdas or other operators, not regular functions.
 * Operators support overload resolution by type. Overloads must differ in parameter types.
 

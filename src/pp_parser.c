@@ -1663,6 +1663,7 @@ static bool pp_parser_is_overloadable_operator_token(PP_TokenType token_type) {
         case PP_TT_GREATER:
         case PP_TT_LESS_EQUAL:
         case PP_TT_GREATER_EQUAL:
+        case PP_TT_TILDE:
             return true;
         default:
             return false;

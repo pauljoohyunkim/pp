@@ -16,9 +16,9 @@ integer type, nor with any other enum or flag.
 
 The underlying type is mandatory and must be an integer primitive.
 
-* `enum` may use a **signed or an unsigned** integer type. When the enum mirrors a C enum, pick the
+* `enum` may use a **signed or an unsigned** integer type up to 64 bits. When the enum mirrors a C enum, pick the
   type that matches the C declaration (`int8` vs `uint8`, and so on).
-* `flag` must use an **unsigned** integer type. A signed underlying type is rejected, because flag
+* `flag` must use an **unsigned** integer type up to 64 bits. A signed underlying type is rejected, because flag
   values are bit positions and every bit of the underlying width must be usable.
 
 ```pp

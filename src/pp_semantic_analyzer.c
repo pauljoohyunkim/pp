@@ -646,8 +646,10 @@ static int pp_semantic_check_static_string_size_mismatch(PP_SemanticAnalyzer* sa
     return 1;
 }
 
-/** @brief True when the type is a primitive integer kind (enum/flag newtypes are not). */
-static bool pp_semantic_type_is_integer_primitive(const PPType* type) {
+/** @brief True when the (already decayed) type is a primitive integer kind.
+ * Call only on a decayed type: const/reference are not unwrapped here, and enum/flag newtypes are
+ * deliberately not integer primitives. */
+static bool pp_semantic_type_is_decayed_integer_primitive(const PPType* type) {
     return type != NULL && pp_type_kind_is_integer(type->kind);
 }
 
@@ -1201,8 +1203,8 @@ error_cleanup:
 
 static bool pp_semantic_analyzer_is_operator_symbol(const char* name) {
     if (!name) return false;
-    const char* const operator_symbols[] = {"+",  "-",  "*",  "/",  "%", "&", "|",  "^",
-                                            "<<", ">>", "==", "!=", "<", ">", "<=", ">="};
+    const char* const operator_symbols[] = {"+",  "-",  "*",  "/", "%", "&",  "|",  "^", "<<",
+                                            ">>", "==", "!=", "<", ">", "<=", ">=", "~"};
     for (size_t i = 0; i < sizeof(operator_symbols) / sizeof(operator_symbols[0]); i++) {
         if (strcmp(name, operator_symbols[i]) == 0) return true;
     }
@@ -1431,6 +1433,7 @@ static int pp_builtin_unary_supported(const char* op, PPTypeKind lk) {
         return 0;
     }
     if (strcmp(op, "!") == 0) { return lk == PP_TK_Bool; }
+    if (strcmp(op, "~") == 0) { return pp_type_kind_is_integer(lk); }
     return 0;
 }
 
@@ -1535,7 +1538,12 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
 
     if (pp_semantic_analyzer_is_operator_symbol(node->callable_declaration.name) &&
         node->callable_declaration.param_count == 1 && decayed_p[0]) {
-        if (pp_builtin_unary_supported(node->callable_declaration.name, decayed_p[0]->kind)) {
+        bool redefines_builtin_unary = pp_builtin_unary_supported(node->callable_declaration.name, decayed_p[0]->kind);
+        // Flags lower to a Newtype, so the kind-based helper cannot see them; `~` is built in for them too.
+        if (strcmp(node->callable_declaration.name, "~") == 0 && pp_type_is_flag(decayed_p[0])) {
+            redefines_builtin_unary = true;
+        }
+        if (redefines_builtin_unary) {
             pp_error_list_push_error(sa->error_list, node->loc,
                                      "Operator '%s' cannot redefine supported built-in unary operator.",
                                      node->callable_declaration.name);
@@ -2294,16 +2302,14 @@ static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_N
                             break;
                         case 'x': {
                             if (strlen(lexeme) < 5) {
-                                pp_error_list_push_error(sa->error_list, expr->loc,
-                                                         "Invalid escape in char literal");
+                                pp_error_list_push_error(sa->error_list, expr->loc, "Invalid escape in char literal");
                                 goto error_cleanup;
                             }
                             char hex[3] = {lexeme[3], lexeme[4], 0};
                             char* hex_end = NULL;
                             long hex_value = strtol(hex, &hex_end, 16);
                             if (hex_end == hex) {
-                                pp_error_list_push_error(sa->error_list, expr->loc,
-                                                         "Invalid escape in char literal");
+                                pp_error_list_push_error(sa->error_list, expr->loc, "Invalid escape in char literal");
                                 goto error_cleanup;
                             }
                             char_value = (unsigned long long)(unsigned char)hex_value;
@@ -2540,6 +2546,14 @@ static int pp_semantic_analyzer_build_global_table_enum_decl(PP_SemanticAnalyzer
         goto error_cleanup;
     }
 
+    // Member values are evaluated as 64-bit unsigned quantities, so a wider underlying type would be
+    // nominally supported only.
+    if (underlying->kind == PP_TK_Int128 || underlying->kind == PP_TK_UInt128) {
+        pp_error_list_push_error(sa->error_list, node->loc,
+                                 "Underlying type for enum '%s' must be a 64-bit-or-smaller integer type", enum_name);
+        goto error_cleanup;
+    }
+
     if (member_count > 0) {
         members = (PP_EnumMember*)calloc(member_count, sizeof(PP_EnumMember));
         if (!members) {
@@ -2676,6 +2690,14 @@ static int pp_semantic_analyzer_build_global_table_flag_decl(PP_SemanticAnalyzer
     if (!pp_type_kind_is_unsigned(underlying->kind)) {
         pp_error_list_push_error(sa->error_list, node->loc,
                                  "Underlying type for flag '%s' must be an unsigned integer type", flag_name);
+        goto error_cleanup;
+    }
+
+    // Member values are evaluated as 64-bit unsigned quantities, so a wider underlying type would be
+    // nominally supported only.
+    if (underlying->kind == PP_TK_UInt128) {
+        pp_error_list_push_error(sa->error_list, node->loc,
+                                 "Underlying type for flag '%s' must be a 64-bit-or-smaller integer type", flag_name);
         goto error_cleanup;
     }
 
@@ -5282,6 +5304,9 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
         case PP_TT_EXCLAMATION:
             op_spelling = "!";
             break;
+        case PP_TT_TILDE:
+            op_spelling = "~";
+            break;
         default:
             op_spelling = NULL;
             break;
@@ -6214,14 +6239,14 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
             }
             cast_ok = true;
         } else if (expr_is_nominal) {
-            cast_ok = pp_semantic_type_is_integer_primitive(decayed_target_type);
+            cast_ok = pp_semantic_type_is_decayed_integer_primitive(decayed_target_type);
             if (!cast_ok) {
                 pp_error_list_push_error(sa->error_list, expr->loc,
                                          "Casting an enum or flag is only allowed to an integer type.");
                 goto error_cleanup;
             }
         } else if (pp_type_is_flag(decayed_target_type)) {
-            cast_ok = pp_semantic_type_is_integer_primitive(decayed_expr_type);
+            cast_ok = pp_semantic_type_is_decayed_integer_primitive(decayed_expr_type);
             if (!cast_ok) {
                 pp_error_list_push_error(sa->error_list, expr->loc,
                                          "Casting to a flag is only allowed from an integer type.");

@@ -80,8 +80,11 @@ Pass 1 typology (`:2455` enum, `:2588` flag):
   - [ ] 64-bit wraparound is *silent* — is that acceptable, or should `1 << 64`, `A * 2` overflow, etc. error?
 - [ ] Auto numbering: enum `0, +1` (UINT64_MAX guard); flag `1`, then next power of two **strictly greater**
       (guard near `UINT64_MAX`). Verify `Sync = 1 << 40` followed by an auto member yields `1 << 41`.
-- [ ] Fit check (`pp_semantic_int_value_fits`, `:2216`): width-based on the underlying kind; confirm 128-bit kinds
-      really accept everything, and that `int8`/`uint8` both cap at `UINT8_MAX` (no negative values by design).
+- [x] Fit check (`pp_semantic_int_value_fits`): width-based on the underlying kind; 128-bit underlying types are
+      now rejected outright by both builders (member values are evaluated as 64-bit unsigned quantities), so
+      only `int8..int64`/`uint8..uint64` reach it.
+- [ ] Confirm the built-in unary `~` cannot be redefined for integers or flags, but *can* be defined for other
+      types (`operator ~ :: (v :: const W&) -> W`).
 - [ ] Strictly increasing check is unsigned (`value <= previous_value`). Confirm that is what you want for
       signed underlying types too.
 - [ ] Flag extras: explicit `0` rejected; value must be a single bit **or** the OR of earlier members that

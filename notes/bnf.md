@@ -181,7 +181,7 @@
 
 ## Note
 * `enum` and `flag` declarations (v1, lexer/parser only so far):
-  * The underlying type is explicit and must be an integer (unsigned for `flag`). Both types are nominal:
+  * The underlying type is explicit and must be an integer of at most 64 bits (unsigned for `flag`). Both types are nominal:
     an `enum`/`flag` value is not interchangeable with its underlying type or with another enum/flag.
   * Members are named constants. In `enum`, auto-assigned values count from 0 (0, 1, 2, ...); in `flag`,
     auto-assigned values are successive powers of two (`1 << 0`, `1 << 1`, ...).

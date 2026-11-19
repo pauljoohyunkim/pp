@@ -2374,3 +2374,39 @@ TEST(SemanticTest, EnumAndFlagMixedOperandsRejected) {
                            "}\n",
                            "mixing enum and flag operands rejected");
 }
+
+TEST(SemanticTest, EnumUnderlying128Rejected) {
+    expect_semantic_reject("enum E :: uint128 { A }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "enum underlying type wider than 64 bits");
+}
+
+TEST(SemanticTest, FlagUnderlying128Rejected) {
+    expect_semantic_reject("flag F :: uint128 { A = 1 }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "flag underlying type wider than 64 bits");
+}
+
+TEST(SemanticTest, TildeOperatorOnNewtypeAccepted) {
+    expect_semantic_accept("newtype uint32 W;\n"
+                           "operator ~ :: (v :: const W&) -> W { return (~(v as uint32)) as W; }\n"
+                           "func main :: () -> uint32 {\n"
+                           "    let w :: W = 5u as W;\n"
+                           "    let n :: W = ~w;\n"
+                           "    return n as uint32;\n"
+                           "}\n",
+                           "user-defined '~' on a newtype");
+}
+
+TEST(SemanticTest, TildeOperatorOnIntegerRejected) {
+    expect_semantic_reject("operator ~ :: (v :: const int32&) -> int32 { return v; }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "user-defined '~' cannot replace the built-in integer operator");
+}
+
+TEST(SemanticTest, TildeOperatorOnFlagRejected) {
+    expect_semantic_reject("flag F :: uint32 { A = 1 }\n"
+                           "operator ~ :: (v :: const F&) -> F { return v; }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "user-defined '~' cannot replace the built-in flag operator");
+}
