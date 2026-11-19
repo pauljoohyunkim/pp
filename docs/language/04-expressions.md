@@ -11,6 +11,9 @@
   - `u` prefix makes unsigned
 
   Examples: `42` → `int32`, `42u` → `uint32`, `42s` → `int16`, `42ss` → `int8`, `42l` → `int64`, `42ll` → `int128`
+  * Hexadecimal integers are supported: `0x41`, `0xDEADBEEFu`. Hex literals use the same suffix rules.
+* Character: `'A'`, `'\n'`, `'\x41'`
+  Character literals are automatically typed as `uint8`. Escapes: `\n`, `\t`, `\r`, `\0`, `\'`, `\\`, `\xHH`.
 * Float: `3.14`
 * Bool: `true`, `false`
 * String: `"hello"` – heap allocated `string`
