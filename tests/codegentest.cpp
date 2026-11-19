@@ -2256,9 +2256,9 @@ TEST(CodeGenTest, HandleDropsOnEveryReturnPath) {
     const char* source = "handle File :: int32 drop pp_close;\n"
                          "extern func pp_close :: (fd :: int32) -> void;\n"
                          "extern func pp_open :: () -> File;\n"
-                         "func early :: (flag :: bool) -> int32 {\n"
+                         "func early :: (cond :: bool) -> int32 {\n"
                          "    let h :: File = pp_open();\n"
-                         "    if (flag) { return 1; }\n"
+                         "    if (cond) { return 1; }\n"
                          "    return 0;\n"
                          "}\n";
     int semantic_errors = 0, codegen_result = 0;
@@ -2467,3 +2467,180 @@ TEST(CodeGenTest, HexLiteralCodegen) {
     assert_ir_contains(cg.get(), "i32 65");
 }
 
+/* ---------------------------------------------------------------------------
+ * Enums and flags.
+ * Declarations emit no IR; qualified constants fold to LLVMConstInt. Enum and
+ * flag values use the integer paths, so bit operations lower to or/and/xor/not.
+ * ------------------------------------------------------------------------- */
+
+TEST(CodeGenTest, EnumConstantReturnValue) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5 }\n"
+        "func main :: () -> int32 { return Mode::Append as int32; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The qualified constant folds to its value; no declaration IR is emitted.
+    assert_ir_contains(cg.get(), "ret i32 5");
+    assert_ir_not_contains(cg.get(), "@Mode");
+}
+
+TEST(CodeGenTest, EnumReturnTypeAndEquality) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5 }\n"
+        "func pick :: () -> Mode { return Mode::Append; }\n"
+        "func main :: () -> int32 {\n"
+        "    let m :: Mode = pick();\n"
+        "    if (m == Mode::Append) { return m as int32; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The nominal enum type lowers to its underlying integer type; comparison
+    // and widening cast use the integer instructions.
+    assert_ir_contains(cg.get(), "define i8 @pick()");
+    assert_ir_contains(cg.get(), "ret i8 5");
+    assert_ir_contains(cg.get(), "icmp eq i8");
+    assert_ir_contains(cg.get(), "sext i8");
+}
+
+TEST(CodeGenTest, FlagBinaryOrAndXor) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: Perms = Perms::Create | Perms::Truncate;\n"
+        "    let g :: Perms = f & Perms::Truncate;\n"
+        "    let h :: Perms = f ^ Perms::Create;\n"
+        "    return (g as int32) + (h as int32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "store i32 3");
+    assert_ir_contains(cg.get(), "and i32");
+    assert_ir_contains(cg.get(), "xor i32");
+}
+
+TEST(CodeGenTest, FlagComplement) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "func main :: () -> int32 { let k :: Perms = ~Perms::Sync; return k as int32; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // ~1024 == -1025 in two's complement, folded into a single constant.
+    assert_ir_contains(cg.get(), "store i32 -1025");
+}
+
+TEST(CodeGenTest, FlagCompoundAssignments) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: Perms = Perms::none;\n"
+        "    f |= Perms::Create;\n"
+        "    f |= Perms::Truncate;\n"
+        "    f &= Perms::Create | Perms::Truncate;\n"
+        "    let x :: Perms = Perms::Create;\n"
+        "    x ^= Perms::Truncate;\n"
+        "    return (f as int32) + (x as int32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // `Perms::none` initializes with zero and each compound op reuses the
+    // integer binary path followed by a store back into the slot.
+    assert_ir_contains(cg.get(), "store i32 0");
+    assert_ir_contains(cg.get(), "or i32");
+    assert_ir_contains(cg.get(), "and i32");
+    assert_ir_contains(cg.get(), "xor i32");
+}
+
+TEST(CodeGenTest, FlagNoneComparison) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "func main :: () -> int32 {\n"
+        "    let p :: Perms = 7 as Perms;\n"
+        "    if (p != Perms::none) { return 1; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "store i32 7");
+    assert_ir_contains(cg.get(), "icmp ne i32");
+    assert_ir_contains(cg.get(), ", 0");
+}
+
+TEST(CodeGenTest, EnumConstantInArraySizeAndLength) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5 }\n"
+        "func main :: () -> int32 {\n"
+        "    let arr :: [uint8 : Mode::Append] = @\"AAAA\";\n"
+        "    let n :: uint32 = #arr as uint32;\n"
+        "    return n as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The enum constant resolves to 5 as the array bound and as the '#' result.
+    assert_ir_contains(cg.get(), "[5 x i8]");
+    assert_ir_contains(cg.get(), "store i32 5");
+}
+
+TEST(CodeGenTest, EnumFlagIntegerCasts) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5 }\n"
+        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "func main :: () -> uint32 {\n"
+        "    let m :: Mode = Mode::Append;\n"
+        "    let a :: uint32 = m as uint32;\n"
+        "    let p :: Perms = 7 as Perms;\n"
+        "    return a + (p as uint32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Widening enum cast and integer->flag cast keep the underlying layout.
+    // Note: integer widening uses LLVMBuildIntCast (sign-extending) for all
+    // unsigned sources too; that is pre-existing behaviour unrelated to enums.
+    assert_ir_contains(cg.get(), "to i32");
+    assert_ir_contains(cg.get(), "store i32 7");
+}
+
+TEST(CodeGenTest, EnumFlagDebugInfo) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5 }\n"
+        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "func main :: () -> int32 {\n"
+        "    let m :: Mode = Mode::Append;\n"
+        "    let p :: Perms = Perms::Create;\n"
+        "    return (m as int32) + (p as int32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source, true);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Enum and flag types both surface as DWARF enumeration types.
+    assert_ir_contains(cg.get(), "tag: DW_TAG_enumeration_type, name: \"Mode\"");
+    assert_ir_contains(cg.get(), "tag: DW_TAG_enumeration_type, name: \"Perms\"");
+    assert_ir_contains(cg.get(), "!DIEnumerator(name: \"Append\", value: 5");
+    assert_ir_contains(cg.get(), "!DIEnumerator(name: \"Sync\", value: 1024");
+}

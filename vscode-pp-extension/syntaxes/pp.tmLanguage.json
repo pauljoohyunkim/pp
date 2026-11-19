@@ -67,7 +67,7 @@
         },
         {
           "name": "keyword.declaration.type.pp",
-          "match": "\\b(?:struct|typedef|newtype|handle)\\b"
+          "match": "\\b(?:struct|typedef|newtype|handle|enum|flag)\\b"
         },
         {
           "name": "keyword.declaration.variable.pp",
