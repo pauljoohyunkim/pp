@@ -608,31 +608,46 @@ static void pp_code_generator_push_drop(PP_CodeGenerator* cg, LLVMValueRef addre
  * and abort, rather than returning a status that callers would have to thread through every expression
  * or, worse, hide inside an assert() that disappears under NDEBUG. */
 static void pp_code_generator_push_temp_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
+    LLVMValueRef* new_addresses = NULL;
+    PPType** new_types = NULL;
+    size_t new_capacity = 0;
+    size_t i = 0;
+
     assert(cg != NULL);
     assert(address != NULL);
     assert(type != NULL);
     if (!pp_type_needs_drop(type) || pp_type_is_reference(type)) return;
 
     if (cg->temp_drop_count >= cg->temp_drop_capacity) {
-        size_t new_capacity = cg->temp_drop_capacity ? cg->temp_drop_capacity * 2 : 8;
-        LLVMValueRef* new_addresses =
-            (LLVMValueRef*)realloc(cg->temp_drop_addresses, new_capacity * sizeof(LLVMValueRef));
-        PPType** new_types = (PPType**)realloc(cg->temp_drop_types, new_capacity * sizeof(PPType*));
-        if (new_addresses == NULL || new_types == NULL) {
-            /* Keep whichever buffer realloc already moved so the generator can still be freed. */
-            if (new_addresses != NULL) { cg->temp_drop_addresses = new_addresses; }
-            if (new_types != NULL) { cg->temp_drop_types = new_types; }
-            fprintf(stderr, "PP codegen: out of memory while growing the temporary drop stack\n");
-            abort();
+        new_capacity = cg->temp_drop_capacity ? cg->temp_drop_capacity * 2 : 8;
+        new_addresses = (LLVMValueRef*)malloc(new_capacity * sizeof(LLVMValueRef));
+        NULL_POINTER_ERROR_HANDLE(new_addresses);
+        new_types = (PPType**)malloc(new_capacity * sizeof(PPType*));
+        NULL_POINTER_ERROR_HANDLE(new_types);
+        for (i = 0; i < cg->temp_drop_count; i++) {
+            new_addresses[i] = cg->temp_drop_addresses[i];
+            new_types[i] = cg->temp_drop_types[i];
         }
+        free(cg->temp_drop_addresses);
+        free(cg->temp_drop_types);
         cg->temp_drop_addresses = new_addresses;
         cg->temp_drop_types = new_types;
         cg->temp_drop_capacity = new_capacity;
+        /* Ownership moved into cg; clear so error_cleanup cannot free them. */
+        new_addresses = NULL;
+        new_types = NULL;
     }
 
     cg->temp_drop_addresses[cg->temp_drop_count] = address;
     cg->temp_drop_types[cg->temp_drop_count] = (PPType*)type;
     cg->temp_drop_count++;
+    return;
+
+error_cleanup:
+    free(new_addresses);
+    free(new_types);
+    fprintf(stderr, "PP codegen: out of memory while growing the temporary drop stack\n");
+    abort();
 }
 
 /* Release the statement's own temporaries. Must run before the block is terminated: after a return,
@@ -2930,7 +2945,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
     assert(node);
     if (cg->debug) { pp_code_generator_debug_set_location(cg, &node->loc); }
     const PP_AST_Decoration* dec = pp_ast_get_decoration(node);
-    if (dec) { assert(dec->value_category == PP_VALUE_CATEGORY_LVALUE); }
+    assert(dec);
+    assert(dec->value_category == PP_VALUE_CATEGORY_LVALUE);
     LLVMValueRef llvm_val = NULL;
 
     switch (node->node_type) {
@@ -3127,7 +3143,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
 
             if (pp_type_is_reference(param_type)) {
                 const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(node->function_call.arguments[i]);
-                bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+                assert(arg_decor);
+                bool arg_is_lvalue = arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
                 if (arg_is_lvalue) {
                     llvm_args[i] =
                         pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->function_call.arguments[i]);
@@ -3149,7 +3166,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                 }
             } else if (pp_type_needs_drop(param_type)) {
                 const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(node->function_call.arguments[i]);
-                bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+                assert(arg_decor);
+                bool arg_is_lvalue = arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
                 if (arg_is_lvalue) {
                     // Copy lvalue argument for owning param
                     // Create a temporary alloca for the param value
@@ -3295,7 +3313,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
     const PPType* ref_temp_types[2] = {0};
 
     const PP_AST_Decoration* bin_decor = pp_ast_get_decoration(node);
-    if (bin_decor && bin_decor->resolved_operator_callable) {
+    assert(bin_decor);
+    if (bin_decor->resolved_operator_callable) {
         const PPSymbol* oc = bin_decor->resolved_operator_callable;
         assert(oc);
         const PPType* op_type = oc->type;
@@ -3314,7 +3333,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 assert(param_type);
                 if (pp_type_is_reference(param_type)) {
                     const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(args_nodes[i]);
-                    bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+                    assert(arg_decor);
+                    bool arg_is_lvalue = arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
                     if (arg_is_lvalue) {
                         llvm_args[i] = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, args_nodes[i]);
                     } else {
@@ -3661,7 +3681,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
     assert(node->node_type == PP_AST_UnaryExpressionNode);
 
     const PP_AST_Decoration* un_decor = pp_ast_get_decoration(node);
-    if (un_decor && un_decor->resolved_operator_callable) {
+    assert(un_decor);
+    if (un_decor->resolved_operator_callable) {
         const PPSymbol* oc = un_decor->resolved_operator_callable;
         assert(oc);
         const PPType* op_type = oc->type;
@@ -3681,7 +3702,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
             assert(param_type);
             if (pp_type_is_reference(param_type)) {
                 const PP_AST_Decoration* arg_decor = pp_ast_get_decoration(args_nodes[i]);
-                bool arg_is_lvalue = arg_decor && arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
+                assert(arg_decor);
+                bool arg_is_lvalue = arg_decor->value_category == PP_VALUE_CATEGORY_LVALUE;
                 if (arg_is_lvalue) {
                     llvm_args[i] = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, args_nodes[i]);
                 } else {
@@ -4304,7 +4326,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerat
             field_vals[field_idx] = val;
         } else {
             const PP_AST_Decoration* init_dec = pp_ast_get_decoration(entry->member_value);
-            bool init_is_lvalue = init_dec && init_dec->value_category == PP_VALUE_CATEGORY_LVALUE;
+            assert(init_dec);
+            bool init_is_lvalue = init_dec->value_category == PP_VALUE_CATEGORY_LVALUE;
             if (needs_deep_init && init_is_lvalue && pp_type_needs_drop(field->field_type)) {
                 val = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, entry->member_value);
                 field_src_addrs[field_idx] = val;
@@ -4326,7 +4349,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerat
         LLVMValueRef val = NULL;
         if (field->default_initializer != NULL) {
             const PP_AST_Decoration* def_dec = pp_ast_get_decoration(field->default_initializer);
-            bool def_is_lvalue = def_dec && def_dec->value_category == PP_VALUE_CATEGORY_LVALUE;
+            assert(def_dec);
+            bool def_is_lvalue = def_dec->value_category == PP_VALUE_CATEGORY_LVALUE;
             if (needs_deep_init && def_is_lvalue && pp_type_needs_drop(field->field_type)) {
                 val = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, field->default_initializer);
                 field_src_addrs[i] = val;
@@ -5289,6 +5313,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_list_push(PP_CodeGenerator
     bool value_is_lvalue = push_value_dec->value_category == PP_VALUE_CATEGORY_LVALUE;
     LLVMValueRef elem_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->list_push.value);
     const PP_AST_Decoration* list_dec = pp_ast_get_decoration(node->list_push.list);
+    assert(list_dec);
+    assert(list_dec->resolved_type);
     const PPType* list_type = pp_type_decay_cg(cg->gtt, list_dec->resolved_type);
     const PPType* elem_type = list_type->type.pp_type_list.element_type;
     LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, list_type);
@@ -5367,8 +5393,6 @@ static LLVMValueRef pp_code_generator_generate_rvalue_list_push(PP_CodeGenerator
     LLVMValueRef dest_ptr = LLVMBuildBitCast(cg->builder, dest_i8, LLVMPointerType(llvm_elem_type, 0), "push_dest");
     if (!pp_type_is_trivially_copyable(elem_type) && value_is_lvalue) {
         /* An l-value keeps its ownership, so the list gets its own copy. */
-        const PP_AST_Decoration* value_dec = pp_ast_get_decoration(node->list_push.value);
-        assert(value_dec);
         LLVMValueRef src_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->list_push.value);
         assert(src_ptr);
         pp_code_generator_emit_copy(cg, dest_ptr, src_ptr, elem_type);
@@ -5388,6 +5412,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_list_pop(PP_CodeGenerator*
     assert(node->node_type == PP_AST_ListPopNode);
     LLVMValueRef list_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->list_pop.list);
     const PP_AST_Decoration* list_dec = pp_ast_get_decoration(node->list_pop.list);
+    assert(list_dec);
+    assert(list_dec->resolved_type);
     const PPType* list_type = pp_type_decay_cg(cg->gtt, list_dec->resolved_type);
     const PPType* elem_type = list_type->type.pp_type_list.element_type;
     LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, list_type);
@@ -5457,6 +5483,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_list_clear(PP_CodeGenerato
     assert(node->node_type == PP_AST_ListClearNode);
     LLVMValueRef list_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->list_clear.list);
     const PP_AST_Decoration* list_dec = pp_ast_get_decoration(node->list_clear.list);
+    assert(list_dec);
+    assert(list_dec->resolved_type);
     const PPType* list_type = pp_type_decay_cg(cg->gtt, list_dec->resolved_type);
     const PPType* elem_type = list_type->type.pp_type_list.element_type;
     LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, list_type);
