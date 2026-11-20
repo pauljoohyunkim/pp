@@ -26,6 +26,9 @@ The demos depend on `lib/pp_std/bin/pp_std.a` which is built automatically by th
 * `03_eigenvector` – Eigenvector demo
 * `04_pointers` – Pointer / reference example
 * `05_bf` – Brainfuck via PPI
+* `06_handle` – Handle type (RAII drop) with POSIX fd I/O
+* `07_file` – `PP_File` handle wrapping stdio
+* `08_argv` – Command-line arguments as a `List(string)` via `pp_get_argv`
 
 Each demo folder contains:
 * `main.pp` – entry point

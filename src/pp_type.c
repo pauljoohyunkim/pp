@@ -322,6 +322,9 @@ static bool pp_type_is_copyable_impl(const PPType* type, const PPType** stack, i
             const PPType* elem = type->type.pp_type_list.element_type;
             return pp_type_is_copyable_impl(elem, stack, depth + 1);
         }
+        case PP_TK_String:
+            // Owned but deep-copyable: the code generator clones the buffer.
+            return true;
         case PP_TK_Pointer: {
             const PPType* pointee = type->type.pp_type_pointer.pointee;
             return pp_type_is_copyable_impl(pointee, stack, depth + 1);
@@ -399,7 +402,11 @@ static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType*
         case PP_TK_List:
             return false;
         case PP_TK_String:
-            return true;
+            // A string owns its heap buffer, so a copy must clone the buffer:
+            // treat it as non-trivial here and let the code generator emit a
+            // deep copy. Marking this trivial yields a shallow descriptor copy
+            // while the drop still frees the buffer (double free).
+            return false;
         default:
             return false;
     }

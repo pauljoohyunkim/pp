@@ -24,6 +24,8 @@ typedef struct PP_Environment_Backend PP_Environment_Backend;
 typedef struct {
     LLVMBasicBlockRef continue_bb;
     LLVMBasicBlockRef exit_bb;
+    /* Drop-stack height at the start of the loop body: break/continue unwind down to it. */
+    size_t drop_stack_mark;
 } PP_LoopContext;
 
 typedef struct {
@@ -82,6 +84,13 @@ typedef struct {
     PPType** drop_stack_types;
     size_t drop_stack_count;
     size_t drop_stack_capacity;
+
+    /* Owning temporaries that are only read by the expression that created them. They are released
+     * at the end of the enclosing statement, before scope drops. */
+    LLVMValueRef* temp_drop_addresses;
+    PPType** temp_drop_types;
+    size_t temp_drop_count;
+    size_t temp_drop_capacity;
 
     /* Per-type copy/drop function cache */
     PP_TypeCacheEntry* type_cache;
