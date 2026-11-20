@@ -2708,3 +2708,321 @@ TEST(CodeGenTest, UndersizedArrayInitializerZeroFills) {
     // Undersized initializers must zero-fill the remaining elements, not leave them undefined.
     assert_ir_contains(cg.get(), "zeroinitializer");
 }
+
+TEST(CodeGenTest, StringCopyDeepClonesBuffer) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let s1 :: string = \"hello\";\n"
+        "    let s2 :: string = s1;\n"
+        "    return #s2 as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // A string owns its buffer, so copying the descriptor must not alias it: the copy helper
+    // allocates a fresh buffer and terminates it instead of memcpy'ing the 16-byte pair.
+    assert_ir_contains(cg.get(), "call void @pp.copy.");
+    assert_ir_contains(cg.get(), "%str_copy_bytes = add i64 %src_str_len, 1");
+    assert_ir_contains(cg.get(), "%str_copy_data = call ptr @malloc(i64 %str_copy_bytes)");
+}
+
+TEST(CodeGenTest, StructLiteralCopiesOwnedLvalueField) {
+    const char* source =
+        "struct Person { name :: string; age :: int32; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"abc\";\n"
+        "    let p :: Person = Person { .name = a, .age = 1 };\n"
+        "    return #p.name as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // An owning field initialized from an l-value is copied into the aggregate, never aliased.
+    assert_ir_contains(cg.get(), "%struct_init_tmp = alloca");
+    assert_ir_contains(cg.get(), "call void @pp.copy.");
+    assert_ir_contains(cg.get(), "ptr %struct_init_field_ptr");
+}
+
+TEST(CodeGenTest, CollectionLiteralCopiesOwnedLvalueElement) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"abc\";\n"
+        "    let l :: [string] = [string; a];\n"
+        "    return #l[0u] as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // An owning element initialized from an l-value is copied into the backing buffer.
+    assert_ir_contains(cg.get(), "call void @pp.copy.");
+    assert_ir_contains(cg.get(), "ptr %list_elem_ptr");
+}
+
+TEST(CodeGenTest, ReturnMoveClearsTheReturnedLocalNotAnotherOne) {
+    const char* source =
+        "func mk :: () -> string {\n"
+        "    let a :: string = \"aaa\";\n"
+        "    let b :: string = \"bbb\";\n"
+        "    return b;\n"
+        "}\n"
+        "func main :: () -> int32 {\n"
+        "    let x :: string = mk();\n"
+        "    return #x as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Returning an owned local moves it: the value is read out before the source slot is cleared, and
+    // the cleared slot is the returned variable, not merely the first local of the same type.
+    assert_ir_contains(cg.get(), "%return_moved_value = load %pp.string, ptr %b");
+    assert_ir_contains(cg.get(), "store %pp.string zeroinitializer, ptr %b");
+}
+
+TEST(CodeGenTest, ReturnCopiesOwnedElement) {
+    const char* source =
+        "func pick :: () -> string {\n"
+        "    let l :: [string] = [string; \"abc\"];\n"
+        "    return l[0u];\n"
+        "}\n"
+        "func main :: () -> int32 {\n"
+        "    let x :: string = pick();\n"
+        "    return #x as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The list still owns the element, so it must be copied out before the list is dropped.
+    assert_ir_contains(cg.get(), "%return_copy_slot = alloca %pp.string");
+    assert_ir_contains(cg.get(), "%return_copied_value = load %pp.string, ptr %return_copy_slot");
+    assert_ir_not_contains(cg.get(), "%return_moved_value");
+}
+
+TEST(CodeGenTest, ByValueOwnedArgumentTransfersOwnership) {
+    const char* source =
+        "func sink :: (s :: string) -> void { }\n"
+        "func main :: () -> int32 {\n"
+        "    sink(\"x\" + \"y\");\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // A PP callee drops its by-value owning parameter, so the caller must not drop the materialized
+    // argument again.
+    assert_ir_contains(cg.get(), "%arg_tmp = alloca %pp.string");
+    assert_ir_not_contains(cg.get(), "(ptr %arg_tmp)");
+}
+
+TEST(CodeGenTest, ReturnFromNestedBlockAfterOuterLocal) {
+    const char* source =
+        "func f :: () -> string {\n"
+        "    let outer :: string = \"o\";\n"
+        "    { return \"x\"; }\n"
+        "}\n"
+        "func main :: () -> int32 {\n"
+        "    let x :: string = f();\n"
+        "    return #x as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // A return inside a nested block must not leak drop entries from the returning function into the
+    // next emitted function body (which previously produced non-dominating uses).
+    assert_ir_contains(cg.get(), "define %pp.string @f()");
+    assert_ir_contains(cg.get(), "define i32 @main()");
+}
+
+TEST(CodeGenTest, StatementAfterReturnIsSkipped) {
+    const char* source =
+        "func f :: () -> int32 {\n"
+        "    { return 1; }\n"
+        "    let x :: int32 = 2;\n"
+        "    return x;\n"
+        "}\n"
+        "func main :: () -> int32 { return f(); }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The statement after the return is unreachable and must not be emitted into a terminated block.
+    assert_ir_not_contains(cg.get(), "%x = alloca i32");
+}
+
+TEST(CodeGenTest, BreakDropsLoopBodyLocals) {
+    const char* source =
+        "func f :: () -> int32 {\n"
+        "    for (let i :: int32 = 0; i < 4; i += 1) {\n"
+        "        let s :: string = \"abcdef\";\n"
+        "        if (i == 2) { break; }\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // One drop on the break path, one when the body ends normally.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
+TEST(CodeGenTest, ContinueDropsLoopBodyLocals) {
+    const char* source =
+        "func f :: () -> int32 {\n"
+        "    for (let i :: int32 = 0; i < 4; i += 1) {\n"
+        "        let s :: string = \"abcdef\";\n"
+        "        if (i == 2) { continue; }\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // One drop on the continue path, one when the body ends normally.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
+TEST(CodeGenTest, TemporaryOwnedValueIsDropped) {
+    const char* source =
+        "func f :: () -> string { return \"abcd\"; }\n"
+        "func main :: () -> int32 {\n"
+        "    let n :: uint32 = #f();\n"
+        "    return n as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // An owned value that is only read is parked in a temporary and released at the end of the statement.
+    assert_ir_contains(cg.get(), "%owned_temp = alloca %pp.string");
+    assert_ir_contains(cg.get(), "call void @pp.drop.");
+}
+
+TEST(CodeGenTest, RvalueListIndexMaterializesBase) {
+    const char* source =
+        "func mk :: () -> [string] { return [string; \"e0\", \"e1\"]; }\n"
+        "func main :: () -> int32 {\n"
+        "    let s :: string = mk()[1u];\n"
+        "    return #s as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The base is materialized so the real index is applied, the element is copied out of it, and the
+    // base is released at the end of the statement.
+    assert_ir_contains(cg.get(), "%index_base_tmp = alloca %pp.list");
+    assert_ir_contains(cg.get(), "%index_elem_copy = alloca %pp.string");
+    assert_ir_contains(cg.get(), "(ptr %index_base_tmp)");
+}
+
+TEST(CodeGenTest, PushRvalueMovesIntoList) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let l :: [string] = [string; \"a\"];\n"
+        "    list_push(l, \"b\" + \"c\");\n"
+        "    return #l as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // An r-value element transfers ownership into the list; no copy helper is needed.
+    assert_ir_not_contains(cg.get(), "call void @pp.copy.");
+}
+
+TEST(CodeGenTest, ListPopMovesElementOut) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let l :: [string] = [string; \"aa\", \"bb\"];\n"
+        "    let s :: string = list_pop(l);\n"
+        "    return #s as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The popped slot leaves the list's live range, so its value is moved out, not copied.
+    assert_ir_contains(cg.get(), "%pop_elem = load %pp.string");
+    assert_ir_not_contains(cg.get(), "call void @pp.copy.");
+}
+
+TEST(CodeGenTest, MemberAccessOnOwnedRvalueMovesField) {
+    const char* source =
+        "struct P { name :: string; tag :: string; }\n"
+        "func mk :: () -> P { return P { .name = \"nm\", .tag = \"tg\" }; }\n"
+        "func main :: () -> int32 {\n"
+        "    let s :: string = mk().name;\n"
+        "    return #s as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The accessed field is moved out and its slot cleared, so the aggregate drop releases the rest.
+    assert_ir_contains(cg.get(), "%member_base_tmp = alloca %P");
+    assert_ir_contains(cg.get(), "%member_field_ptr = getelementptr inbounds nuw %P, ptr %member_base_tmp");
+    assert_ir_contains(cg.get(), "store %pp.string zeroinitializer, ptr %member_field_ptr");
+}
+
+TEST(CodeGenTest, ReferenceAssignmentOwnsReferent) {
+    const char* source =
+        "func set_from :: (r :: string&, src :: const string&) -> void {\n"
+        "    r = src;\n"
+        "}\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"aa\";\n"
+        "    let b :: string = \"bb\";\n"
+        "    set_from(a, b);\n"
+        "    return #a as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Writing through a reference stores into the referent: the overwritten value is dropped and
+    // the source is copied, instead of emitting a store of the reference type.
+    assert_ir_contains(cg.get(), "%ref_deref = load ptr, ptr %r");
+    assert_ir_contains(cg.get(), "call void @pp.drop.");
+    assert_ir_contains(cg.get(), "call void @pp.copy.");
+}
+
+TEST(CodeGenTest, CompoundAssignRhsTemporaryIsDropped) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let s :: string = \"ab\";\n"
+        "    s += \"cd\";\n"
+        "    return #s as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The right-hand side is read but never owned by the assignment, so it is released afterwards.
+    assert_ir_contains(cg.get(), "%owned_temp = alloca %pp.string");
+    assert_ir_contains(cg.get(), "(ptr %owned_temp)");
+}
