@@ -18,6 +18,8 @@
                               | <typedef_decl> ";"
                               | <newtype_decl> ";"
                               | <handle_decl> ";"
+                              | <enum_decl>
+                              | <flag_decl>
 
 <function_signature>        ::= <identifier> "::" "(" <param_list> ")" "->" <type>
 <lambda_signature>          ::= <identifier> "::" "(" <param_list> ")" "->" <type>
@@ -33,6 +35,12 @@
 <typedef_decl>              ::= "typedef" <base_type> <identifier>
 <newtype_decl>              ::= "newtype" <base_type> <identifier>
 <handle_decl>               ::= "handle" <identifier> "::" <type> "drop" <identifier>
+<enum_decl>                 ::= "enum" <identifier> "::" <base_type> "{" [ <enum_member_list> ] "}"
+<enum_member_list>          ::= <enum_member> [ "," <enum_member> ]* [ "," ]
+<enum_member>               ::= <identifier> [ "=" <expression> ]
+<flag_decl>                 ::= "flag" <identifier> "::" <base_type> "{" [ <flag_member_list> ] "}"
+<flag_member_list>          ::= <flag_member> [ "," <flag_member> ]* [ "," ]
+<flag_member>               ::= <identifier> [ "=" <expression> ]
 
 <block>                     ::= "{" <statement_list> "}"
 <statement_list>            ::= <statement> <statement_list> | ""
@@ -135,11 +143,13 @@
                               | "$" <postfix> 
                               | "-" <postfix> 
                               | "!" <postfix> 
+                              | "~" <postfix> 
                               | <postfix>
 
 <postfix>                   ::= <postfix> "(" <argument_list> ")"       ;; Function call or reserved builtin call
                               | <postfix> "." <identifier>              ;; Struct Member Access
                               | <postfix> "[" <expression> "]"          ;; Array/List Access
+                              | <identifier> "::" <identifier>           ;; Enum/Flag member constant access (first is a type name)
                               | <primary>
 
 ;; Reserved builtin calls
@@ -170,6 +180,26 @@
 ```
 
 ## Note
+* `enum` and `flag` declarations:
+  * The underlying type is explicit and must be an integer of at most 64 bits (unsigned for `flag`). Both types are nominal:
+    an `enum`/`flag` value is not interchangeable with its underlying type or with another enum/flag.
+  * Members are named constants. In `enum`, auto-assigned values count from 0 (0, 1, 2, ...); in `flag`,
+    auto-assigned values are successive powers of two (`1 << 0`, `1 << 1`, ...).
+  * An explicit member value must be a constant expression of exactly the underlying type, so its literal
+    carries the matching suffix (`1ss`/`1uss`/`1s`/`1us`/`1`/`1u`/`1l`/`1ul`). Earlier members of the same
+    body may be referenced, and character literals (`'+'`) are accepted only for a `uint8` underlying type.
+    Negative values are allowed when the underlying type is signed.
+  * A member is written `Type::Member`, never `Type.Member` — `.` stays reserved for access on a value,
+    which keeps the two forms unambiguous.
+  * The declaration body closes with `}` and takes no trailing semicolon. A trailing comma and an empty
+    member list are allowed.
+  * Member constants are constexpr, so they may appear in global initializers and array sizes. An array size
+    constant must have an **unsigned** underlying type, so a signed enum's member is rejected there.
+  * `enum` supports only `==` / `!=`. `flag` additionally supports `|`, `&`, `^`, `~`, the compound
+    assignments `|=`, `&=`, `^=`, and the built-in empty set `Flag::none`. No operator may be declared for an
+    enum or flag type, because those operators are built in.
+  * Conversion is explicit: `e as uint8` (down, always safe to spell) and `uint8 as FlagType` (up, unchecked).
+    Integer-to-enum and enum-to-enum/flag casts are rejected.
 * Pointer support added: `ptr[T]`, `@` address-of, `$` deref, `nullptr` literal.
 * Callable types (`func[...]`, `lambda[...]`): a callable signature is also a *value* type. A value of such a
   type is a plain pointer-sized code pointer.

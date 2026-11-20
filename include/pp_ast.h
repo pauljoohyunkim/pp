@@ -29,6 +29,9 @@ typedef struct {
     bool is_constexpr;
     bool is_escapable_ref;
     const PPSymbol* resolved_operator_callable;
+    /* Enum/flag member constant produced by `Type::Member` access. */
+    bool is_enum_constant;
+    unsigned long long enum_constant_value;
     /* unsigned int scope_level; // reserved */
 } PP_AST_Decoration;
 
@@ -60,6 +63,8 @@ typedef enum {
     PP_AST_TypedefDeclarationNode,
     PP_AST_NewtypeDeclarationNode,
     PP_AST_HandleDeclarationNode,
+    PP_AST_EnumDeclarationNode,
+    PP_AST_FlagDeclarationNode,
     PP_AST_CallableDeclarationNode,
     PP_AST_ExternCallableDeclarationNode,
     PP_AST_StatementListNode,
@@ -78,6 +83,7 @@ typedef enum {
     PP_AST_ListPushNode,
     PP_AST_ListPopNode,
     PP_AST_ListClearNode,
+    PP_AST_QualifiedConstantNode,
     PP_AST_BreakStatementNode,
     PP_AST_ContinueStatementNode
 } PP_AST_NodeType;
@@ -202,6 +208,24 @@ struct PP_AST_Node {
             const char* drop_func_name;
         } handle_declaration;
 
+        struct { /* EnumDeclaration */
+            const char* identifier;
+            PP_AST_Node* underlying_type;
+            const char** member_names;
+            PP_AST_Node** member_value_exprs;
+            unsigned int member_count;
+            unsigned int member_capacity;
+        } enum_declaration;
+
+        struct { /* FlagDeclaration */
+            const char* identifier;
+            PP_AST_Node* underlying_type;
+            const char** member_names;
+            PP_AST_Node** member_value_exprs;
+            unsigned int member_count;
+            unsigned int member_capacity;
+        } flag_declaration;
+
         struct { /* CallableDeclaration */
             const char* name;
             PP_AST_Node** params; /* ParamDeclaration nodes */
@@ -322,6 +346,12 @@ struct PP_AST_Node {
             PP_AST_Node* list;
             PP_AST_Decoration* decoration;
         } list_clear;
+
+        struct { /* QualifiedConstant: Type::Member */
+            const char* type_name;
+            const char* member;
+            PP_AST_Decoration* decoration;
+        } qualified_constant;
 
         struct { /* BreakStatement */
         } break_statement;

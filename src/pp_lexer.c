@@ -385,6 +385,10 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                 if (!pp_lexer_push_token_helper(lexer, PP_TT_DOLLAR, 1)) return 0;
                 advance_pp(lexer, 1);
                 break;
+            case '~':
+                if (!pp_lexer_push_token_helper(lexer, PP_TT_TILDE, 1)) return 0;
+                advance_pp(lexer, 1);
+                break;
             default:
                 if (isalpha((unsigned char)c) || c == '_') {
                     size_t len = 1;
@@ -479,6 +483,12 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     } else if (pp_lexer_exactly_match_keyword(lexer, "handle")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_HANDLE, 6)) return 0;
                         advance_pp(lexer, 6);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "enum")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_ENUM, 4)) return 0;
+                        advance_pp(lexer, 4);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "flag")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_FLAG, 4)) return 0;
+                        advance_pp(lexer, 4);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "drop")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_DROP, 4)) return 0;
                         advance_pp(lexer, 4);

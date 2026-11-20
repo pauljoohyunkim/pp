@@ -2162,3 +2162,392 @@ TEST(SemanticTest, CharLiteralTypeIsUint8) {
 TEST(SemanticTest, HexLiteralTypeInference) {
     expect_semantic_accept("func main :: () -> uint32 { let v :: uint32 = 0x41u; return v; }", "hex literal");
 }
+
+TEST(SemanticTest, EnumDeclarationAccepted) {
+    expect_semantic_accept("enum Color :: uint8 { Red, Green, Blue }\n"
+                           "func main :: () -> uint8 {\n"
+                           "    let c :: Color = Color::Green;\n"
+                           "    return c as uint8;\n"
+                           "}\n",
+                           "enum declaration");
+}
+
+TEST(SemanticTest, EnumExplicitAndAutoValuesAccepted) {
+    expect_semantic_accept("enum Status :: int32 { Ok = 10, Warn, Error = 100 }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let s :: Status = Status::Error;\n"
+                           "    return s as int32;\n"
+                           "}\n",
+                           "enum explicit and auto values");
+}
+
+TEST(SemanticTest, EnumEqualityComparisonAccepted) {
+    expect_semantic_accept("enum Mode :: int32 { A, B }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let m :: Mode = Mode::A;\n"
+                           "    if (m == Mode::B) { return 1; }\n"
+                           "    if (m != Mode::A) { return 2; }\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "enum equality");
+}
+
+TEST(SemanticTest, EnumConstantUsableInArraySizeAndGlobalInitializer) {
+    expect_semantic_accept("enum Sizes :: uint32 { Small = 4u, Large = 16u }\n"
+                           "let buffer :: [uint8 : Sizes::Small];\n"
+                           "let total :: Sizes = Sizes::Large;\n"
+                           "func main :: () -> Sizes { return total; }\n",
+                           "enum constant as array size and global initializer");
+}
+
+TEST(SemanticTest, FlagDeclarationAndOperationsAccepted) {
+    expect_semantic_accept("flag Perm :: uint32 { Read = 1u, Write = 2u, Execute = 4u }\n"
+                           "func main :: () -> uint32 {\n"
+                           "    let p :: Perm = Perm::Read | Perm::Write;\n"
+                           "    p |= Perm::Execute;\n"
+                           "    p &= Perm::Read;\n"
+                           "    p ^= Perm::Write;\n"
+                           "    let q :: Perm = ~p;\n"
+                           "    if ((p & Perm::Read) != Perm::none) { return 1u; }\n"
+                           "    if (p == Perm::none) { return 2u; }\n"
+                           "    return q as uint32;\n"
+                           "}\n",
+                           "flag declaration and operations");
+}
+
+TEST(SemanticTest, FlagAutoValuesAccepted) {
+    expect_semantic_accept("flag F :: uint16 { A, B, C }\n"
+                           "func main :: () -> uint16 { let f :: F = F::C; return f as uint16; }\n",
+                           "flag auto values");
+}
+
+TEST(SemanticTest, FlagCompositeMemberAccepted) {
+    expect_semantic_accept("flag Acc :: uint32 { Read = 1u, Write = 2u, ReadWrite = Read | Write }\n"
+                           "func main :: () -> uint32 { let a :: Acc = Acc::ReadWrite; return a as uint32; }\n",
+                           "flag composite member");
+}
+
+TEST(SemanticTest, FlagHeroExplicitValueAccepted) {
+    expect_semantic_accept("flag Bits :: uint32 { Sync = 1u << 10u, Next }\n"
+                           "func main :: () -> uint32 { let b :: Bits = Bits::Next; return b as uint32; }\n",
+                           "flag explicit high bit followed by auto");
+}
+
+TEST(SemanticTest, EnumCharLiteralValuesAccepted) {
+    expect_semantic_accept("enum Cmd :: uint8 { Plus = '+', Minus = '-', Period = '.' }\n"
+                           "func main :: () -> uint8 { return Cmd::Period as uint8; }\n",
+                           "enum member values from char literals");
+}
+
+TEST(SemanticTest, EnumCharLiteralNonIncreasingRejected) {
+    expect_semantic_reject("enum Cmd :: uint8 { Greater = '>', Less = '<' }\n"
+                           "func main :: () -> uint8 { return 0 as uint8; }\n",
+                           "enum char literal members out of order");
+}
+
+TEST(SemanticTest, FlagCharLiteralValuesAccepted) {
+    expect_semantic_accept("flag Bits :: uint8 { Space = ' ', At = '@' }\n"
+                           "func main :: () -> uint8 { return Bits::At as uint8; }\n",
+                           "flag member values from char literals (single-bit code points)");
+}
+
+TEST(SemanticTest, TildeOnIntegerAccepted) {
+    expect_semantic_accept("func main :: () -> uint32 { let v :: uint32 = 0u; return ~v; }\n",
+                           "tilde on integer");
+}
+
+TEST(SemanticTest, CastBetweenEnumAndIntegerAccepted) {
+    expect_semantic_accept("enum Mode :: int32 { A, B }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let m :: Mode = Mode::B;\n"
+                           "    let i :: int32 = m as int32;\n"
+                           "    return i;\n"
+                           "}\n",
+                           "enum to integer cast");
+}
+
+TEST(SemanticTest, CastIntegerToFlagAccepted) {
+    expect_semantic_accept("flag Perm :: uint32 { Read = 1u, Write = 2u }\n"
+                           "func main :: () -> uint32 {\n"
+                           "    let p :: Perm = 3u as Perm;\n"
+                           "    return p as uint32;\n"
+                           "}\n",
+                           "integer to flag cast");
+}
+
+TEST(SemanticTest, EnumDuplicateMemberRejected) {
+    expect_semantic_reject("enum Mode :: int32 { A, B, A }\n", "duplicate enum member");
+}
+
+TEST(SemanticTest, EnumNonIncreasingValueRejected) {
+    expect_semantic_reject("enum Mode :: int32 { A = 5, B = 3 }\n", "enum values strictly increasing");
+}
+
+TEST(SemanticTest, EnumValueOutOfRangeRejected) {
+    expect_semantic_reject("enum Mode :: uint8 { A = 300uss }\n", "enum value out of range");
+}
+
+TEST(SemanticTest, EnumUnderlyingMustBeInteger) {
+    expect_semantic_reject("enum Mode :: float { A }\n", "enum underlying must be integer");
+}
+
+TEST(SemanticTest, FlagUnderlyingMustBeUnsigned) {
+    expect_semantic_reject("flag Perm :: int32 { Read = 1 }\n", "flag underlying must be unsigned");
+}
+
+TEST(SemanticTest, FlagMemberNamedNoneRejected) {
+    expect_semantic_reject("flag Perm :: uint32 { none = 1u }\n", "flag member named none");
+}
+
+TEST(SemanticTest, FlagExplicitZeroRejected) {
+    expect_semantic_reject("flag Perm :: uint32 { Read = 0u }\n", "flag explicit zero");
+}
+
+TEST(SemanticTest, FlagArbitraryCompositeRejected) {
+    expect_semantic_reject("flag Perm :: uint32 { Read = 1u, Write = 2u, Bad = 5u }\n",
+                           "flag composite must be single bit or OR of earlier members");
+}
+
+TEST(SemanticTest, FlagArithmeticRejected) {
+    expect_semantic_reject("flag Perm :: uint32 { Read = 1u }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let p :: Perm = Perm::Read + Perm::Read;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "flag arithmetic rejected");
+}
+
+TEST(SemanticTest, EnumArithmeticRejected) {
+    expect_semantic_reject("enum Mode :: int32 { A, B }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let m :: Mode = Mode::A + Mode::B;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "enum arithmetic rejected");
+}
+
+TEST(SemanticTest, QualifiedConstantUnknownMemberRejected) {
+    expect_semantic_reject("enum Mode :: int32 { A }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let m :: Mode = Mode::Z;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "unknown enum member");
+}
+
+TEST(SemanticTest, QualifiedConstantOnStructRejected) {
+    expect_semantic_reject("struct S { x :: int32; }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let s :: S = S::x;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "qualified constant on non-enum type");
+}
+
+TEST(SemanticTest, CastIntegerToEnumRejected) {
+    expect_semantic_reject("enum Mode :: int32 { A, B }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let m :: Mode = 1 as Mode;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "integer to enum cast rejected");
+}
+
+TEST(SemanticTest, CastBetweenDifferentEnumsRejected) {
+    expect_semantic_reject("enum A :: int32 { X }\n"
+                           "enum B :: int32 { Y }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let b :: B = A::X as B;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "cast between different enums rejected");
+}
+
+TEST(SemanticTest, EnumAndFlagMixedOperandsRejected) {
+    expect_semantic_reject("enum A :: int32 { X }\n"
+                           "flag F :: uint32 { Y = 1u }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let a :: A = A::X;\n"
+                           "    let f :: F = F::Y;\n"
+                           "    if (a == f) { return 1; }\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "mixing enum and flag operands rejected");
+}
+
+TEST(SemanticTest, EnumUnderlying128Rejected) {
+    expect_semantic_reject("enum E :: uint128 { A }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "enum underlying type wider than 64 bits");
+}
+
+TEST(SemanticTest, FlagUnderlying128Rejected) {
+    expect_semantic_reject("flag F :: uint128 { A = 1ull }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "flag underlying type wider than 64 bits");
+}
+
+TEST(SemanticTest, TildeOperatorOnNewtypeAccepted) {
+    expect_semantic_accept("newtype uint32 W;\n"
+                           "operator ~ :: (v :: const W&) -> W { return (~(v as uint32)) as W; }\n"
+                           "func main :: () -> uint32 {\n"
+                           "    let w :: W = 5u as W;\n"
+                           "    let n :: W = ~w;\n"
+                           "    return n as uint32;\n"
+                           "}\n",
+                           "user-defined '~' on a newtype");
+}
+
+TEST(SemanticTest, TildeOperatorOnIntegerRejected) {
+    expect_semantic_reject("operator ~ :: (v :: const int32&) -> int32 { return v; }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "user-defined '~' cannot replace the built-in integer operator");
+}
+
+TEST(SemanticTest, TildeOperatorOnFlagRejected) {
+    expect_semantic_reject("flag F :: uint32 { A = 1u }\n"
+                           "operator ~ :: (v :: const F&) -> F { return v; }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "user-defined '~' cannot replace the built-in flag operator");
+}
+
+TEST(SemanticTest, EnumOperatorDeclarationRejected) {
+    expect_semantic_reject("enum Mode :: uint8 { A = 1uss }\n"
+                           "operator + :: (a :: const Mode&, b :: const Mode&) -> Mode { return a; }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "operators cannot be declared for enum types");
+}
+
+TEST(SemanticTest, FlagEqualityOperatorDeclarationRejected) {
+    expect_semantic_reject("flag F :: uint32 { A = 1u }\n"
+                           "operator == :: (a :: const F&, b :: const F&) -> bool { return false; }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "built-in flag equality cannot be overridden");
+}
+
+TEST(SemanticTest, EnumTildeOperatorDeclarationRejected) {
+    expect_semantic_reject("enum Mode :: uint8 { A = 1uss }\n"
+                           "operator ~ :: (v :: const Mode&) -> Mode { return v; }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "operators cannot be declared for enum types (tilde)");
+}
+
+TEST(SemanticTest, FlagNoneArraySizeRejected) {
+    expect_semantic_reject("flag F :: uint32 { A = 1u }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : F::none] = @\"\";\n"
+                           "    return #a as int32;\n"
+                           "}\n",
+                           "Flag::none as an array size is zero and rejected");
+}
+
+TEST(SemanticTest, TypedefAliasedEnumConstantInArraySizeAccepted) {
+    expect_semantic_accept("typedef uint8 MyByte;\n"
+                           "enum E :: uint8 { A = 4uss }\n"
+                           "func main :: () -> uint8 {\n"
+                           "    let a :: [MyByte : E::A] = @\"abc\";\n"
+                           "    return #a as uint8;\n"
+                           "}\n",
+                           "enum constant through a typedef alias as array size");
+}
+
+TEST(SemanticTest, UnsignedIndexTypesAccepted) {
+    expect_semantic_accept("func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : 4u] = @\"abc\";\n"
+                           "    let i8 :: uint8 = 2 as uint8;\n"
+                           "    let i16 :: uint16 = 2 as uint16;\n"
+                           "    let i64 :: uint64 = 2ul;\n"
+                           "    return (a[i8] + a[i16] + a[i64]) as int32;\n"
+                           "}\n",
+                           "unsigned indexes of several widths");
+}
+
+TEST(SemanticTest, SignedIndexRejected) {
+    expect_semantic_reject("func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : 4u] = @\"abc\";\n"
+                           "    let i :: int32 = 2;\n"
+                           "    return a[i] as int32;\n"
+                           "}\n",
+                           "signed index rejected");
+}
+
+TEST(SemanticTest, Uint128IndexRejected) {
+    expect_semantic_reject("func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : 4u] = @\"abc\";\n"
+                           "    let i :: uint128 = 2 as uint128;\n"
+                           "    return a[i] as int32;\n"
+                           "}\n",
+                           "128-bit index rejected");
+}
+
+TEST(SemanticTest, ArraySizeUint128LiteralRejected) {
+    expect_semantic_reject("func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : 5ull] = @\"abcd\";\n"
+                           "    return #a as int32;\n"
+                           "}\n",
+                           "128-bit array size literal rejected");
+}
+
+TEST(SemanticTest, EnumValueSuffixMustMatchUnderlying) {
+    expect_semantic_reject("enum E :: uint8 { A = 1u }\n"
+                           "func main :: () -> int32 { return E::A as int32; }\n",
+                           "uint32 literal used for a uint8-backed enum");
+}
+
+TEST(SemanticTest, FlagValueSuffixMustMatchUnderlying) {
+    expect_semantic_reject("flag F :: uint32 { A = 1 }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "unsuffixed int32 literal used for a uint32-backed flag");
+}
+
+TEST(SemanticTest, NegativeEnumMemberAccepted) {
+    expect_semantic_accept("enum Delta :: int8 { Down = -2ss, Level = 0ss, Up = 1ss }\n"
+                           "func main :: () -> int32 { return Delta::Down as int32; }\n",
+                           "negative members of a signed enum");
+}
+
+TEST(SemanticTest, SignedEnumValuesMustIncrease) {
+    expect_semantic_reject("enum Delta :: int8 { Down = -1ss, Lower = -2ss }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "signed enum values compared in signed order");
+}
+
+TEST(SemanticTest, CharLiteralRequiresUint8Underlying) {
+    expect_semantic_reject("enum E :: int8 { A = 'a' }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "char literal is uint8 and cannot back an int8 enum");
+}
+
+TEST(SemanticTest, EnumLiteralOutOfRangeForSignedUnderlyingRejected) {
+    expect_semantic_reject("enum E :: int8 { A = 200ss }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "200 does not fit int8");
+}
+
+TEST(SemanticTest, EnumMemberMayReferenceEarlierMember) {
+    expect_semantic_accept("enum E :: uint8 { A = 1uss, B = A + 1uss }\n"
+                           "func main :: () -> int32 { return E::B as int32; }\n",
+                           "enum member referencing an earlier member of the same body");
+}
+
+TEST(SemanticTest, SignedEnumConstantAsArraySizeRejected) {
+    expect_semantic_reject("enum Delta :: int8 { Down = -2ss, Up = 1ss }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : Delta::Up] = @\"ab\";\n"
+                           "    return #a as int32;\n"
+                           "}\n",
+                           "signed enum constant cannot define an array size");
+}
+
+TEST(SemanticTest, ExternOperatorOnFlagRejected) {
+    expect_semantic_reject("flag F :: uint32 { A = 1u }\n"
+                           "extern operator ~ :: (v :: const F&) -> F;\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "extern operator cannot be declared for a flag type");
+}
+
+TEST(SemanticTest, LeadingZeroDecimalIsNotOctal) {
+    expect_semantic_accept("enum E :: uint8 { Ten = 010uss, Eleven = 11uss, Hex = 0x10uss }\n"
+                           "func main :: () -> int32 { return E::Ten as int32; }\n",
+                           "010uss is ten and 0x10uss is sixteen, so the members increase");
+}

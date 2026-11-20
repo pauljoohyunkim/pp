@@ -38,7 +38,7 @@ Functions are declared with `func`, signature after `::`, body in `{}`.
 External functions:
 
 ```pp
-extern func pp_std_print_string :: (str :: string) -> void;
+extern func pp_print_string :: (str :: string) -> void;
 ```
 
 ## Lambdas

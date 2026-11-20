@@ -11,8 +11,8 @@ func main :: () -> int32 {
         }
     }
 
-    pp_std_print_float(sum * 4.0);
-    pp_std_print_string("\n");
+    pp_print_float(sum * 4.0);
+    pp_print_string("\n");
 
     return 0;
 }

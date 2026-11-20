@@ -1872,11 +1872,11 @@ TEST(CodeGenTest, PointerNullComparison) {
 
 TEST(CodeGenTest, PointerStaticArrayInterop) {
     const char* source =
-        "extern func pp_std_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
+        "extern func pp_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
         "func main :: () -> void {\n"
         "    let hello :: [uint8 : 6u] = @\"hello\";\n"
         "    let p :: ptr[uint8] = @hello as ptr[uint8];\n"
-        "    pp_std_print_c_str(p as ptr[const uint8]);\n"
+        "    pp_print_c_str(p as ptr[const uint8]);\n"
         "}\n";
     int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
     auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
@@ -1886,7 +1886,7 @@ TEST(CodeGenTest, PointerStaticArrayInterop) {
     EXPECT_EQ(semantic_errors, 0);
     EXPECT_EQ(codegen_result, 1);
     // Verify call to extern and pointer cast
-    assert_ir_contains(cg.get(), "pp_std_print_c_str");
+    assert_ir_contains(cg.get(), "pp_print_c_str");
     char* error_msg = nullptr;
     LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
     if (broken) {
@@ -1899,11 +1899,11 @@ TEST(CodeGenTest, PointerStaticArrayInterop) {
 
 TEST(CodeGenTest, PointerArrayElementAddress) {
     const char* source =
-        "extern func pp_std_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
+        "extern func pp_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
         "func main :: () -> void {\n"
         "    let hello :: [uint8 : 6u] = @\"hello\";\n"
         "    let p :: ptr[uint8] = @hello[1u];\n"
-        "    pp_std_print_c_str(p as ptr[const uint8]);\n"
+        "    pp_print_c_str(p as ptr[const uint8]);\n"
         "}\n";
     int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
     auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
@@ -2256,9 +2256,9 @@ TEST(CodeGenTest, HandleDropsOnEveryReturnPath) {
     const char* source = "handle File :: int32 drop pp_close;\n"
                          "extern func pp_close :: (fd :: int32) -> void;\n"
                          "extern func pp_open :: () -> File;\n"
-                         "func early :: (flag :: bool) -> int32 {\n"
+                         "func early :: (cond :: bool) -> int32 {\n"
                          "    let h :: File = pp_open();\n"
-                         "    if (flag) { return 1; }\n"
+                         "    if (cond) { return 1; }\n"
                          "    return 0;\n"
                          "}\n";
     int semantic_errors = 0, codegen_result = 0;
@@ -2467,3 +2467,228 @@ TEST(CodeGenTest, HexLiteralCodegen) {
     assert_ir_contains(cg.get(), "i32 65");
 }
 
+/* ---------------------------------------------------------------------------
+ * Enums and flags.
+ * Declarations emit no IR; qualified constants fold to LLVMConstInt. Enum and
+ * flag values use the integer paths, so bit operations lower to or/and/xor/not.
+ * ------------------------------------------------------------------------- */
+
+TEST(CodeGenTest, EnumConstantReturnValue) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "func main :: () -> int32 { return Mode::Append as int32; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The qualified constant folds to its value; no declaration IR is emitted.
+    assert_ir_contains(cg.get(), "ret i32 5");
+    assert_ir_not_contains(cg.get(), "@Mode");
+}
+
+TEST(CodeGenTest, EnumReturnTypeAndEquality) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "func pick :: () -> Mode { return Mode::Append; }\n"
+        "func main :: () -> int32 {\n"
+        "    let m :: Mode = pick();\n"
+        "    if (m == Mode::Append) { return m as int32; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The nominal enum type lowers to its underlying integer type; comparison
+    // and widening cast use the integer instructions.
+    assert_ir_contains(cg.get(), "define i8 @pick()");
+    assert_ir_contains(cg.get(), "ret i8 5");
+    assert_ir_contains(cg.get(), "icmp eq i8");
+    assert_ir_contains(cg.get(), "zext i8");
+}
+
+TEST(CodeGenTest, FlagBinaryOrAndXor) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: Perms = Perms::Create | Perms::Truncate;\n"
+        "    let g :: Perms = f & Perms::Truncate;\n"
+        "    let h :: Perms = f ^ Perms::Create;\n"
+        "    return (g as int32) + (h as int32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "store i32 3");
+    assert_ir_contains(cg.get(), "and i32");
+    assert_ir_contains(cg.get(), "xor i32");
+}
+
+TEST(CodeGenTest, FlagComplement) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> int32 { let k :: Perms = ~Perms::Sync; return k as int32; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // ~1024 == -1025 in two's complement, folded into a single constant.
+    assert_ir_contains(cg.get(), "store i32 -1025");
+}
+
+TEST(CodeGenTest, FlagCompoundAssignments) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: Perms = Perms::none;\n"
+        "    f |= Perms::Create;\n"
+        "    f |= Perms::Truncate;\n"
+        "    f &= Perms::Create | Perms::Truncate;\n"
+        "    let x :: Perms = Perms::Create;\n"
+        "    x ^= Perms::Truncate;\n"
+        "    return (f as int32) + (x as int32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // `Perms::none` initializes with zero and each compound op reuses the
+    // integer binary path followed by a store back into the slot.
+    assert_ir_contains(cg.get(), "store i32 0");
+    assert_ir_contains(cg.get(), "or i32");
+    assert_ir_contains(cg.get(), "and i32");
+    assert_ir_contains(cg.get(), "xor i32");
+}
+
+TEST(CodeGenTest, FlagNoneComparison) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> int32 {\n"
+        "    let p :: Perms = 7 as Perms;\n"
+        "    if (p != Perms::none) { return 1; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "store i32 7");
+    assert_ir_contains(cg.get(), "icmp ne i32");
+    assert_ir_contains(cg.get(), ", 0");
+}
+
+TEST(CodeGenTest, EnumConstantInArraySizeAndLength) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "func main :: () -> int32 {\n"
+        "    let arr :: [uint8 : Mode::Append] = @\"AAAA\";\n"
+        "    let n :: uint32 = #arr as uint32;\n"
+        "    return n as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The enum constant resolves to 5 as the array bound and as the '#' result.
+    assert_ir_contains(cg.get(), "[5 x i8]");
+    assert_ir_contains(cg.get(), "store i32 5");
+}
+
+TEST(CodeGenTest, EnumFlagIntegerCasts) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> uint32 {\n"
+        "    let m :: Mode = Mode::Append;\n"
+        "    let a :: uint32 = m as uint32;\n"
+        "    let p :: Perms = 7 as Perms;\n"
+        "    return a + (p as uint32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Widening enum cast and integer->flag cast keep the underlying layout.
+    assert_ir_contains(cg.get(), "to i32");
+    assert_ir_contains(cg.get(), "store i32 7");
+}
+
+TEST(CodeGenTest, UnsignedWideningZeroExtends) {
+    const char* source =
+        "enum Mode :: uint8 { A = 200uss }\n"
+        "func main :: () -> int32 {\n"
+        "    let m :: Mode = Mode::A;\n"
+        "    let b :: uint8 = 200 as uint8;\n"
+        "    let s :: int8 = -1 as int8;\n"
+        "    let w1 :: uint32 = m as uint32;\n"
+        "    let w2 :: uint32 = b as uint32;\n"
+        "    let w3 :: int32 = s as int32;\n"
+        "    return (w1 + w2 + (w3 as uint32)) as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Unsigned sources (uint8 and an enum over uint8) widen with zext, signed sources with sext.
+    assert_ir_contains(cg.get(), "zext i8");
+    assert_ir_contains(cg.get(), "sext i8");
+}
+
+TEST(CodeGenTest, EnumFlagDebugInfo) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> int32 {\n"
+        "    let m :: Mode = Mode::Append;\n"
+        "    let p :: Perms = Perms::Create;\n"
+        "    return (m as int32) + (p as int32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source, true);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Enum and flag types both surface as DWARF enumeration types.
+    assert_ir_contains(cg.get(), "tag: DW_TAG_enumeration_type, name: \"Mode\"");
+    assert_ir_contains(cg.get(), "tag: DW_TAG_enumeration_type, name: \"Perms\"");
+    assert_ir_contains(cg.get(), "!DIEnumerator(name: \"Append\", value: 5");
+    assert_ir_contains(cg.get(), "!DIEnumerator(name: \"Sync\", value: 1024");
+}
+
+TEST(CodeGenTest, UnsignedIndexZeroExtends) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [uint8 : 4u] = @\"abc\";\n"
+        "    let i :: uint8 = 200 as uint8;\n"
+        "    return a[i] as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // GEP indices are sign-extended by LLVM, so a uint8 index must be zero-extended explicitly.
+    assert_ir_contains(cg.get(), "zext i8");
+}
+
+TEST(CodeGenTest, NegativeEnumMemberUsesTwosComplement) {
+    const char* source =
+        "enum Delta :: int8 { Down = -2ss, Up = 1ss }\n"
+        "func main :: () -> int32 { return Delta::Down as int32; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "ret i32 -2");
+}

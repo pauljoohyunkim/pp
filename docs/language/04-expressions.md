@@ -12,6 +12,7 @@
 
   Examples: `42` → `int32`, `42u` → `uint32`, `42s` → `int16`, `42ss` → `int8`, `42l` → `int64`, `42ll` → `int128`
   * Hexadecimal integers are supported: `0x41`, `0xDEADBEEFu`. Hex literals use the same suffix rules.
+  * There are no octal literals: a leading zero is decimal, so `010` is ten (not eight).
 * Character: `'A'`, `'\n'`, `'\x41'`
   Character literals are automatically typed as `uint8`. Escapes: `\n`, `\t`, `\r`, `\0`, `\'`, `\\`, `\xHH`.
 * Float: `3.14`
@@ -39,7 +40,10 @@ Precedence from lowest to highest:
 * Logical: `&& ||`
 * Cast: `expr as type`
 * Member access: `obj.field`
-* Indexing: `array[index]`, `list[index]`
+* Indexing: `array[index]`, `list[index]`, `string[index]`
+  * The index must be an **unsigned** integer of at most 64 bits (`uint8` … `uint64`). Signed and
+    128-bit indices are rejected.
+  * Indexing a string yields a `uint8`.
 * Calls: `func(args)`, `lambda(args)`
 * Operator calls: `a + b` is resolved via built-in or user-defined operator overload
 

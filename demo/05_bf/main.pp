@@ -6,13 +6,13 @@ func main :: () -> int32 {
     readBFCode(ctx);
 
     // Print BF code received.
-    pp_std_print_string("Received code\n");
+    pp_print_string("Received code\n");
     let i :: uint32 = 0u;
     while (i < #ctx.code as uint32) {
-        pp_std_print_char(ctx.code[i as uint32]);
+        pp_print_char(ctx.code[i as uint32]);
         i += 1u;
     }
-    pp_std_print_string("\n");
+    pp_print_string("\n");
 
     // Run BF code
     runBFCode(ctx);

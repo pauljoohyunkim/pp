@@ -6,5 +6,17 @@ struct BFContext {
     return_stack :: [uint32];
 }
 
+// Brainfuck instruction characters, in ascending code-point order (member values must increase).
+enum BFCommand :: uint8 {
+    Plus = '+',
+    Comma = ',',
+    Minus = '-',
+    Period = '.',
+    Less = '<',
+    Greater = '>',
+    LeftBracket = '[',
+    RightBracket = ']',
+}
+
 extern func readBFCode :: (ctx :: BFContext&) -> void;
 extern func runBFCode :: (ctx :: BFContext&) -> void;

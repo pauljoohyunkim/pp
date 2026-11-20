@@ -133,6 +133,7 @@ static LLVMValueRef pp_codegen_static_string_literal_to_llvm_constant(LLVMContex
 static LLVMValueRef pp_codegen_string_literal_to_llvm_value(PP_CodeGenerator* cg, const char* lexeme);
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                               PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_rvalue_qualified_constant(PP_CodeGenerator* cg, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_null_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                    PP_Environment_Backend* env_b,
                                                                    const PP_AST_Node* node);
@@ -1225,6 +1226,21 @@ error_cleanup:
     return NULL;
 }
 
+/** @brief Sign-extend a masked enum member value to 64 bits when the enum's underlying type is signed, so
+ * DWARF and LLVM print negative members as negative numbers. */
+static int64_t pp_code_generator_enum_member_value(PPTypeKind kind, unsigned long long value) {
+    switch (kind) {
+        case PP_TK_Int8:
+            return (int64_t)(int8_t)(uint8_t)value;
+        case PP_TK_Int16:
+            return (int64_t)(int16_t)(uint16_t)value;
+        case PP_TK_Int32:
+            return (int64_t)(int32_t)(uint32_t)value;
+        default:
+            return (int64_t)value;
+    }
+}
+
 static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const PPType* t) {
     bool guard_pushed = false;
     if (!cg->debug || !t) return NULL;
@@ -1294,7 +1310,37 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
         }
         case PP_TK_Newtype: {
             const PPType* underlying = t->type.pp_type_newtype.underlying;
-            result = pp_code_generator_get_di_type(cg, underlying);
+            if (!pp_type_is_enum_or_flag(t)) {
+                result = pp_code_generator_get_di_type(cg, underlying);
+                break;
+            }
+            const PP_EnumMember* enum_members = t->type.pp_type_newtype.members;
+            const size_t enum_member_count = t->type.pp_type_newtype.member_count;
+            LLVMMetadataRef* enumerators = NULL;
+            if (enum_member_count > 0) {
+                enumerators = (LLVMMetadataRef*)calloc(enum_member_count, sizeof(LLVMMetadataRef));
+                NULL_POINTER_ERROR_HANDLE(enumerators);
+                const bool is_unsigned = pp_type_is_flag(t) || pp_type_kind_is_unsigned(underlying->kind);
+                for (size_t i = 0; i < enum_member_count; i++) {
+                    const int64_t member_value =
+                        is_unsigned ? (int64_t)enum_members[i].value
+                                    : pp_code_generator_enum_member_value(underlying->kind, enum_members[i].value);
+                    enumerators[i] =
+                        LLVMDIBuilderCreateEnumerator(cg->di_builder, enum_members[i].name,
+                                                      strlen(enum_members[i].name), member_value, is_unsigned);
+                }
+            }
+            LLVMTypeRef llvm_underlying_type = pp_backend_lower_type(cg, underlying);
+            uint64_t size_bits = 0;
+            if (llvm_underlying_type) { size_bits = pp_code_generator_type_store_size(cg, llvm_underlying_type) * 8; }
+            const char* enum_name = t->type.pp_type_newtype.name ? t->type.pp_type_newtype.name : "<anonymous>";
+            // ClassTy is the underlying integer type; without it DWARF has no DW_AT_type for the enumeration.
+            LLVMMetadataRef enum_class_di = pp_code_generator_get_di_type(cg, underlying);
+            result =
+                LLVMDIBuilderCreateEnumerationType(cg->di_builder, cg->di_compile_unit, enum_name, strlen(enum_name),
+                                                   cg->di_file, 0, size_bits, (uint32_t)size_bits, enumerators,
+                                                   (unsigned)enum_member_count, enum_class_di);
+            free(enumerators);
             break;
         }
         case PP_TK_Pointer: {
@@ -1572,6 +1618,8 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
             case PP_AST_TypedefDeclarationNode:
             case PP_AST_NewtypeDeclarationNode:
             case PP_AST_HandleDeclarationNode:
+            case PP_AST_EnumDeclarationNode:
+            case PP_AST_FlagDeclarationNode:
             case PP_AST_ExternCallableDeclarationNode:
                 break;
             default:
@@ -2591,6 +2639,16 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
     LLVMValueRef llvm_index = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
     assert(llvm_index);
 
+    /* GEP indices are sign-extended to the pointer width, so zero-extend an unsigned index explicitly.
+     * Without this, a uint8 index of 200 would be used as -56. */
+    {
+        LLVMTypeRef index_llvm_type = LLVMTypeOf(llvm_index);
+        if (LLVMGetTypeKind(index_llvm_type) == LLVMIntegerTypeKind && LLVMGetIntTypeWidth(index_llvm_type) < 64) {
+            llvm_index = LLVMBuildZExt(cg->builder, llvm_index, LLVMInt64TypeInContext(cg->ctx), "index_zext");
+            assert(llvm_index);
+        }
+    }
+
     if (base_type->kind == PP_TK_Array) {
         LLVMTypeRef llvm_base_type = pp_environment_backend_lookup_type(cg, base_type);
         assert(llvm_base_type);
@@ -3014,6 +3072,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
             break;
         case PP_AST_MemberAccessNode:
             llvm_val = pp_code_generator_generate_rvalue_struct_member_access(cg, symbol_table, env_b, node);
+            break;
+        case PP_AST_QualifiedConstantNode:
+            llvm_val = pp_code_generator_generate_rvalue_qualified_constant(cg, node);
             break;
         default:
             assert(0 && "Cannot get r-value");
@@ -3512,6 +3573,14 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
             llvm_val = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, operand_node);
             break;
         }
+        case PP_TT_TILDE: {
+            if (llvm_operand_type_kind == LLVMIntegerTypeKind) {
+                llvm_val = LLVMBuildNot(cg->builder, llvm_operand, "tilttmp");
+            } else {
+                assert(0 && "Unary '~' requires an integer or flag operand");
+            }
+            break;
+        }
         case PP_TT_DOLLAR: {
             const PP_AST_Decoration* op_dec = pp_ast_get_decoration(node->unary_expression.operand);
             assert(op_dec);
@@ -3536,6 +3605,35 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
     }
 
     return llvm_val;
+}
+
+/* Widen/narrow an integer value preserving the signedness of the PP source type (enums and flags use the
+ * signedness of their underlying type). LLVMBuildIntCast would sign-extend unsigned sources. */
+static LLVMValueRef pp_code_generator_build_int_cast(PP_CodeGenerator* cg, LLVMValueRef value, LLVMTypeRef dest_type,
+                                                     const PPType* src_type) {
+    assert(cg);
+    assert(value);
+    assert(dest_type);
+    assert(src_type);
+
+    const PPType* integer_type = src_type;
+    if (integer_type->kind == PP_TK_Newtype) {
+        integer_type = integer_type->type.pp_type_newtype.underlying;
+        assert(integer_type);
+    }
+
+    LLVMTypeRef src_llvm_type = LLVMTypeOf(value);
+    const unsigned int src_bits = LLVMGetIntTypeWidth(src_llvm_type);
+    const unsigned int dest_bits = LLVMGetIntTypeWidth(dest_type);
+
+    if (dest_bits < src_bits) { return LLVMBuildTrunc(cg->builder, value, dest_type, "intcast_trunc"); }
+    if (dest_bits > src_bits) {
+        if (pp_type_kind_is_unsigned(integer_type->kind)) {
+            return LLVMBuildZExt(cg->builder, value, dest_type, "intcast_zext");
+        }
+        return LLVMBuildSExt(cg->builder, value, dest_type, "intcast_sext");
+    }
+    return value;
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -3595,7 +3693,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
             if (src_kind == LLVMFloatTypeKind) {
                 val = LLVMBuildFPToSI(cg->builder, val, i64_type, "num_to_i64_fp");
             } else if (llvm_src_type != i64_type) {
-                val = LLVMBuildIntCast(cg->builder, val, i64_type, "num_to_i64");
+                val = pp_code_generator_build_int_cast(cg, val, i64_type, src_type);
             }
             llvm_val = LLVMBuildIntToPtr(cg->builder, val, llvm_dest_type, "inttoptr_tmp");
         } else if (src_type->kind == PP_TK_Pointer && pp_type_is_numerical(dest_type)) {
@@ -3624,7 +3722,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
             } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMIntegerTypeKind) {
                 llvm_val = LLVMBuildFPToSI(cg->builder, llvm_val_to_cast, llvm_dest_type, "fptosi_tmp");
             } else if (src_kind == LLVMIntegerTypeKind && dest_kind == LLVMIntegerTypeKind) {
-                llvm_val = LLVMBuildIntCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "intcast_tmp");
+                llvm_val = pp_code_generator_build_int_cast(cg, llvm_val_to_cast, llvm_dest_type, src_type);
             } else if (src_kind == LLVMFloatTypeKind && dest_kind == LLVMFloatTypeKind) {
                 llvm_val = LLVMBuildFPCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "fpcast_tmp");
             } else {
@@ -3802,6 +3900,23 @@ static LLVMValueRef pp_codegen_string_literal_to_llvm_value(PP_CodeGenerator* cg
     return str_val;
 }
 
+static LLVMValueRef pp_code_generator_generate_rvalue_qualified_constant(PP_CodeGenerator* cg,
+                                                                         const PP_AST_Node* node) {
+    assert(cg);
+    assert(node);
+    assert(node->node_type == PP_AST_QualifiedConstantNode);
+
+    const PP_AST_Decoration* dec = pp_ast_get_decoration(node);
+    assert(dec && dec->is_enum_constant);
+    assert(dec->resolved_type);
+
+    LLVMTypeRef llvm_type = pp_backend_lower_type(cg, dec->resolved_type);
+    assert(llvm_type);
+    assert(LLVMGetTypeKind(llvm_type) == LLVMIntegerTypeKind);
+
+    return LLVMConstInt(llvm_type, dec->enum_constant_value, false);
+}
+
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                               PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     LLVMValueRef llvm_val = NULL;
@@ -3842,17 +3957,29 @@ static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* 
         } break;
         case PP_TT_CHAR_LITERAL: {
             const char* lex = node->literal.lexeme;
-            assert(lex && lex[0] == '\'' && lex[strlen(lex)-1] == '\'');
+            assert(lex && lex[0] == '\'' && lex[strlen(lex) - 1] == '\'');
             unsigned char ch = 0;
             if (lex[1] == '\\') {
                 char esc = lex[2];
                 switch (esc) {
-                    case 'n': ch = '\n'; break;
-                    case 't': ch = '\t'; break;
-                    case 'r': ch = '\r'; break;
-                    case '0': ch = 0; break;
-                    case '\'': ch = '\''; break;
-                    case '\\': ch = '\\'; break;
+                    case 'n':
+                        ch = '\n';
+                        break;
+                    case 't':
+                        ch = '\t';
+                        break;
+                    case 'r':
+                        ch = '\r';
+                        break;
+                    case '0':
+                        ch = 0;
+                        break;
+                    case '\'':
+                        ch = '\'';
+                        break;
+                    case '\\':
+                        ch = '\\';
+                        break;
                     case 'x': {
                         if (lex[3] && lex[4]) {
                             char h1 = lex[3];
@@ -3864,7 +3991,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* 
                         }
                         break;
                     }
-                    default: ch = esc; break;
+                    default:
+                        ch = esc;
+                        break;
                 }
             } else {
                 ch = (unsigned char)lex[1];

@@ -35,7 +35,8 @@ Search for "PP Language" in the Extensions view.
 - **Types**: `int8/16/32/64/128`, `uint8/16/32/64/128`, `float`, `bool`, `void`, `string`, `ptr`
 - **Literals**: Integer (with suffixes), Float, Boolean, String (`"..."` and `@"..."`)
 - **Operators**: `+`, `-`, `*`, `/`, `%`, `=`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `!`, `->`, `=>`, `::`, `@`, `$`, `#`, `.`
-- **Built-in functions**: `list_push`, `list_pop`, `list_clear`, `pp_std_print_*`, `pp_std_input_char`, `pp_std_abort`
+- **Built-in functions**: `list_push`, `list_pop`, `list_clear`
+- **Standard library** (`lib/pp_std`): `pp_print_*`, `pp_input_char`, `pp_abort`, `pp_fd_*` — regular library functions, not language builtins
 
 ## License
 
