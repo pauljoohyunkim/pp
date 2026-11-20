@@ -5,8 +5,8 @@ An `enum` describes a value chosen from a fixed list; a `flag` describes a set o
 bits that can be combined with bitwise operators.
 
 ```pp
-enum Mode  :: uint8  { Read, Write, Append = 5 }
-flag Perms :: uint32 { Create, Truncate, Exclusive, Sync = 1 << 10 }
+enum Mode :: uint8 { Read, Write, Append = 5uss }
+flag Perms :: uint32 { Create, Truncate, Exclusive, Sync = 1u << 10u }
 ```
 
 Both declarations introduce a **new nominal type**: it is not interchangeable with its underlying
@@ -22,8 +22,8 @@ The underlying type is mandatory and must be an integer primitive.
   values are bit positions and every bit of the underlying width must be usable.
 
 ```pp
-enum Status :: int8   { Idle, Running, Done }
-flag Bits   :: uint8  { A, B, C }
+enum Status :: int8 { Idle, Running, Done }
+flag Bits :: uint8 { A, B, C }
 ```
 
 * Members are separated by commas; a trailing comma is allowed and the body may be empty.
@@ -31,42 +31,59 @@ flag Bits   :: uint8  { A, B, C }
 
 ### Values
 
-Each member has a non-negative constant value that must fit the width of the underlying type.
+Each member has a constant value of the **underlying type**. An explicit value is a typed constant, so
+its literal carries the suffix of the underlying type:
 
-* An explicit value is any constant integer expression, and may refer to members declared
-  **earlier** in the same body. `+ - * / % << >> | & ^` and unary `-` / `~` are supported, and
-  character literals such as `'+'` stand for their code point (a `uint8` constant).
+| underlying type | suffix | examples |
+|---|---|---|
+| `int8` / `uint8` | `ss` / `uss` | `-1ss`, `255uss` |
+| `int16` / `uint16` | `s` / `us` | `-1s`, `65535us` |
+| `int32` / `uint32` | *(none)* / `u` | `-1`, `65535u` |
+| `int64` / `uint64` | `l` / `ul` | `-1l`, `25ul` |
+
+* An explicit value must be an expression of exactly the underlying type. A mismatch — an unsuffixed
+  `1` in a `uint32` flag, or `1u` in a `uint8` enum — is an error, so a value is never silently
+  reinterpreted.
+* An explicit value may refer to members declared **earlier** in the same body. `+ - * / % << >> | & ^`
+  and unary `-` / `~` are supported and keep the underlying type; arithmetic wraps at that type's width.
+* Character literals such as `'+'` are `uint8` constants, so they are only accepted when the
+  underlying type is `uint8`.
 * An automatic `enum` value is `0` for the first member, then the previous value plus one.
 * An automatic `flag` value is `1` for the first member, then the **next power of two strictly
   greater** than the previous member's value.
 
-Values must be unique and **strictly increasing**, whether written explicitly or computed. This
-makes an enum's numbering predictable and keeps flags ordered by bit position.
+Values must be unique and **strictly increasing**, whether written explicitly or computed, compared in
+the underlying type's signed or unsigned domain.
 
 ```pp
-enum Mode  :: uint8  { Read, Write, Append = 5 }
+enum Mode :: uint8 { Read, Write, Append = 5uss }
 flag Perms :: uint32 { Create, Truncate, Exclusive }
 // Mode::Append is 5; Perms::Exclusive is 4
 ```
 
-For flags, an explicit value must be a single bit (`1 << n`) or the OR of earlier flag members,
+For flags, an explicit value must be a single bit (`1u << n`) or the OR of earlier flag members,
 and must still be greater than the previous member's value:
 
 ```pp
-flag Access :: uint32 { Read = 1, Write = 2, ReadWrite = Read | Write, Execute = 1 << 4 }
+flag Access :: uint32 { Read = 1u, Write = 2u, ReadWrite = Read | Write, Execute = 1u << 4u }
 ```
 
-Because character literals are ordinary constants, an enum can name the characters a parser
-dispatches on — remember that values must still increase:
+Because character literals are `uint8` constants, a `uint8`-backed enum can name the characters a
+parser dispatches on — remember that values must still increase:
 
 ```pp
 enum BFCommand :: uint8 { Plus = '+', Comma = ',', Minus = '-', Period = '.' }
 ```
 
-Member values are always non-negative; there are no negative enum constants. With a signed
-underlying type a value is stored in the same bits, so `enum E :: int8 { A = 200 }` names the bit
-pattern `0xC8`, which reads as `-56` once widened as a signed integer. Prefer an unsigned underlying
-type unless you are matching an external declaration.
+A signed underlying type makes negative members expressible directly:
+
+```pp
+enum Delta :: int8 { Down = -2ss, Level = 0ss, Up = 1ss }
+```
+
+`Delta::Down` widens to `-2`. Values are stored in the bits of the underlying type, so an unsigned
+enum still holds only non-negative numbers. Prefer an unsigned underlying type unless you are matching
+an external signed declaration.
 
 ### `none`
 
@@ -146,8 +163,8 @@ Reading such a value before assigning it is as meaningless as for an uninitializ
 ## A complete example
 
 ```pp
-enum Mode  :: uint8  { Read, Write, Append = 5 }
-flag Perms :: uint32 { Create, Truncate, Exclusive, Sync = 1 << 10 }
+enum Mode :: uint8 { Read, Write, Append = 5uss }
+flag Perms :: uint32 { Create, Truncate, Exclusive, Sync = 1u << 10u }
 
 func describe :: (m :: Mode, p :: Perms) -> uint32 {
     let folded :: uint32 = (m as uint32) + (p as uint32);
@@ -163,3 +180,30 @@ func main :: () -> int32 {
     return (describe(Mode::Append, p) + #buffer) as int32;
 }
 ```
+
+## In the standard library
+
+`lib/pp_std/extern/pp_io.ppi` declares the POSIX open flags as a flag over `uint32`, so bit combinations are
+passed to `pp_fd_open` without magic numbers:
+
+```pp
+flag PP_OpenFlags :: uint32 {
+    Write = 1u, ReadWrite = 2u, Create = 64u, Exclusive = 128u, Truncate = 512u, Append = 1024u,
+}
+
+let flags :: PP_OpenFlags = PP_OpenFlags::Write | PP_OpenFlags::Create | PP_OpenFlags::Truncate;
+let fd :: PP_FD = pp_fd_open("out.bin", flags, 420);   // 0644
+```
+
+Read-only access is `PP_OpenFlags::none`, because `O_RDONLY` is zero.
+
+Enums serve the same purpose for selector values; `pp_fd_seek` takes one instead of a bare integer:
+
+```pp
+enum PP_Whence :: int32 { Set, Current, End }   // 0, 1, 2
+
+pp_fd_seek(fd, 0ul, PP_Whence::End);
+```
+
+Enum and flag types are accepted directly as `extern` parameter types, so no cast is needed at the call site;
+they use the ABI of their underlying integer type.

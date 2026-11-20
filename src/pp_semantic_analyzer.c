@@ -145,8 +145,8 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
 static int pp_semantic_analyzer_build_global_table_handle_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_enum_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_flag_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
-static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_Node* expr, const PP_EnumMember* members,
-                                         size_t member_count, unsigned long long* out);
+static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_Node* expr, PPTypeKind underlying,
+                                         const PP_EnumMember* members, size_t member_count, unsigned long long* out);
 
 /* Pass II */
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
@@ -2230,30 +2230,6 @@ error_cleanup:
  * [x] Register named type in GTT
  * [x] Do not allow function or lambda types as newtype.
  */
-/** @brief True when `value` fits the bit width of the primitive integer kind. Enum and flag member values are
- * always unsigned: a signed underlying type keeps its signed semantics for the value itself, but members can only
- * carry non-negative values that fit the width. */
-static bool pp_semantic_int_value_fits(PPTypeKind kind, unsigned long long value) {
-    switch (kind) {
-        case PP_TK_Int8:
-        case PP_TK_UInt8:
-            return value <= UINT8_MAX;
-        case PP_TK_Int16:
-        case PP_TK_UInt16:
-            return value <= UINT16_MAX;
-        case PP_TK_Int32:
-        case PP_TK_UInt32:
-            return value <= UINT32_MAX;
-        case PP_TK_Int64:
-        case PP_TK_UInt64:
-        case PP_TK_Int128:
-        case PP_TK_UInt128:
-            return true;
-        default:
-            return false;
-    }
-}
-
 /** @brief True when a flag value is a valid composite: a single bit, or the OR of the earlier members that
  * intersect it. Keeps composite members (e.g. `ReadWrite = Read | Write`) legal while rejecting arbitrary
  * values. */
@@ -2269,23 +2245,145 @@ static bool pp_semantic_flag_value_is_combination(const PP_EnumMember* members, 
     return combined == value;
 }
 
+/** @brief Name of an integer primitive kind, for member-value diagnostics. */
+static const char* pp_semantic_integer_kind_name(PPTypeKind kind) {
+    switch (kind) {
+        case PP_TK_Int8:
+            return "int8";
+        case PP_TK_UInt8:
+            return "uint8";
+        case PP_TK_Int16:
+            return "int16";
+        case PP_TK_UInt16:
+            return "uint16";
+        case PP_TK_Int32:
+            return "int32";
+        case PP_TK_UInt32:
+            return "uint32";
+        case PP_TK_Int64:
+            return "int64";
+        case PP_TK_UInt64:
+            return "uint64";
+        case PP_TK_Int128:
+            return "int128";
+        case PP_TK_UInt128:
+            return "uint128";
+        default:
+            return "non-integer";
+    }
+}
+
+/** @brief Bit width of an integer primitive kind (0 when the kind is not an integer primitive). */
+static unsigned int pp_semantic_integer_kind_width(PPTypeKind kind) {
+    switch (kind) {
+        case PP_TK_Int8:
+        case PP_TK_UInt8:
+            return 8;
+        case PP_TK_Int16:
+        case PP_TK_UInt16:
+            return 16;
+        case PP_TK_Int32:
+        case PP_TK_UInt32:
+            return 32;
+        case PP_TK_Int64:
+        case PP_TK_UInt64:
+            return 64;
+        default:
+            return 0;
+    }
+}
+
+/** @brief Mask of the value bits of a kind. Member values are kept inside this range, so the operations on them
+ * behave like arithmetic in the underlying type (modular for unsigned, two's complement for signed). */
+static unsigned long long pp_semantic_integer_value_mask(PPTypeKind kind) {
+    unsigned int width = pp_semantic_integer_kind_width(kind);
+    if (width == 0) return 0;
+    if (width >= 64) return UINT64_MAX;
+    return (1ULL << width) - 1;
+}
+
+/** @brief Interpret the low `width` bits of `bits` as a signed value of `kind`. */
+static long long pp_semantic_signed_value(PPTypeKind kind, unsigned long long bits) {
+    unsigned int width = pp_semantic_integer_kind_width(kind);
+    if (width == 0 || width >= 64) return (long long)bits;
+    unsigned long long sign_bit = 1ULL << (width - 1);
+    unsigned long long mask = (1ULL << width) - 1;
+    return (bits & sign_bit) ? (long long)(bits | ~mask) : (long long)bits;
+}
+
+/** @brief Largest value representable by the signed kind `kind`. */
+static long long pp_semantic_signed_max(PPTypeKind kind) {
+    unsigned int width = pp_semantic_integer_kind_width(kind);
+    if (width == 0 || width >= 64) return INT64_MAX;
+    return (1LL << (width - 1)) - 1;
+}
+
+/** @brief Compare two member values in the value domain of `kind` (signed kinds compare as signed). */
+static int pp_semantic_int_value_compare(PPTypeKind kind, unsigned long long a, unsigned long long b) {
+    if (pp_type_kind_is_signed(kind)) {
+        long long sa = pp_semantic_signed_value(kind, a);
+        long long sb = pp_semantic_signed_value(kind, b);
+        return (sa < sb) ? -1 : (sa > sb ? 1 : 0);
+    }
+    return (a < b) ? -1 : (a > b ? 1 : 0);
+}
+
+/** @brief Whether a non-negative literal value fits the value range of `kind`. A literal is checked before it is
+ * masked, so `300uss` (uint8) is an error rather than a silently wrapped 44. */
+static bool pp_semantic_int_literal_fits(PPTypeKind kind, unsigned long long value) {
+    switch (kind) {
+        case PP_TK_Int8:
+            return value <= INT8_MAX;
+        case PP_TK_UInt8:
+            return value <= UINT8_MAX;
+        case PP_TK_Int16:
+            return value <= INT16_MAX;
+        case PP_TK_UInt16:
+            return value <= UINT16_MAX;
+        case PP_TK_Int32:
+            return value <= INT32_MAX;
+        case PP_TK_UInt32:
+            return value <= UINT32_MAX;
+        case PP_TK_Int64:
+            return value <= (unsigned long long)INT64_MAX;
+        case PP_TK_UInt64:
+            return true;
+        default:
+            return false;
+    }
+}
+
 /**
- * Enum/Flag constant evaluation checklist:
- * [x] Integer literal (hex supported through base 0 parsing).
- * [x] Unary '-' and '~'.
- * [x] Binary + - * / % << >> | & ^ with zero-division and shift-range checks.
- * [x] Anything else is rejected (no identifier references).
+ * Enum/Flag constant evaluation checklist (typed):
+ * [x] Every explicit member value is a constant expression whose type is exactly the underlying type.
+ * [x] An integer literal must carry the suffix of the underlying type; a char literal is a uint8 constant and
+ *     therefore requires a uint8 underlying type.
+ * [x] Unary '-' and '~', binary + - * / % << >> | & ^ with zero-division and shift-range checks.
+ * [x] Results are masked to the width of the underlying type, i.e. modular/two's-complement arithmetic.
+ * [x] Negative values are representable when the underlying type is signed.
+ * [x] Anything else is rejected (earlier members of the same flag body are the only identifiers).
  */
-static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_Node* expr, const PP_EnumMember* members,
-                                         size_t member_count, unsigned long long* out) {
+static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_Node* expr, PPTypeKind underlying,
+                                         const PP_EnumMember* members, size_t member_count, unsigned long long* out) {
     assert(sa);
     assert(expr);
     assert(out);
 
+    const unsigned long long value_mask = pp_semantic_integer_value_mask(underlying);
+    const unsigned int width = pp_semantic_integer_kind_width(underlying);
+    const bool is_signed = pp_type_kind_is_signed(underlying);
+
     switch (expr->node_type) {
         case PP_AST_LiteralNode: {
             if (expr->literal.literal_type == PP_TT_CHAR_LITERAL) {
-                // Character literals are uint8 constants, so `enum ... { Plus = '+' }` is expressible.
+                // Character literals are uint8 constants, so only a uint8-backed enum or flag can use them.
+                if (underlying != PP_TK_UInt8) {
+                    pp_error_list_push_error(sa->error_list, expr->loc,
+                                             "Character literal member values require a uint8 underlying type, not "
+                                             "'%s'",
+                                             pp_semantic_integer_kind_name(underlying));
+                    goto error_cleanup;
+                }
                 const char* lexeme = expr->literal.lexeme;
                 if (!lexeme || lexeme[0] != '\'' || strlen(lexeme) < 3) {
                     pp_error_list_push_error(sa->error_list, expr->loc, "Invalid char literal");
@@ -2337,17 +2435,33 @@ static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_N
                 *out = char_value;
                 return 1;
             }
+
             if (expr->literal.literal_type != PP_TT_INTEGER_LITERAL) {
                 pp_error_list_push_error(sa->error_list, expr->loc, "Value must be a constant integer expression");
                 goto error_cleanup;
             }
+
             char numbuf[PP_INT_LITERAL_NUMBUF_SIZE] = {0};
-            pp_type_parse_int_literal_suffix(expr->literal.lexeme, numbuf);
+            PPTypeKind literal_kind = pp_type_parse_int_literal_suffix(expr->literal.lexeme, numbuf);
+            if (literal_kind != underlying) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "Member value type '%s' does not match the underlying type '%s'",
+                                         pp_semantic_integer_kind_name(literal_kind),
+                                         pp_semantic_integer_kind_name(underlying));
+                goto error_cleanup;
+            }
+
             char* endptr = NULL;
             errno = 0;
             unsigned long long value = strtoull(numbuf, &endptr, 0);
             if (errno != 0 || endptr == numbuf || (endptr && *endptr != '\0')) {
                 pp_error_list_push_error(sa->error_list, expr->loc, "Could not parse constant integer literal");
+                goto error_cleanup;
+            }
+            if (!pp_semantic_int_literal_fits(underlying, value)) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "Member value is out of range for the underlying type '%s'",
+                                         pp_semantic_integer_kind_name(underlying));
                 goto error_cleanup;
             }
             *out = value;
@@ -2368,14 +2482,15 @@ static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_N
         } break;
         case PP_AST_UnaryExpressionNode: {
             unsigned long long operand = 0;
-            if (!pp_semantic_eval_int_constant(sa, expr->unary_expression.operand, members, member_count, &operand))
+            if (!pp_semantic_eval_int_constant(sa, expr->unary_expression.operand, underlying, members, member_count,
+                                               &operand))
                 goto error_cleanup;
             switch (expr->unary_expression.op) {
                 case PP_TT_MINUS:
-                    *out = 0ULL - operand;
+                    *out = (0ULL - operand) & value_mask;
                     return 1;
                 case PP_TT_TILDE:
-                    *out = ~operand;
+                    *out = (~operand) & value_mask;
                     return 1;
                 default:
                     pp_error_list_push_error(sa->error_list, expr->loc, "Value must be a constant integer expression");
@@ -2385,61 +2500,80 @@ static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_N
         case PP_AST_BinaryExpressionNode: {
             unsigned long long left = 0;
             unsigned long long right = 0;
-            if (!pp_semantic_eval_int_constant(sa, expr->binary_expression.left, members, member_count, &left))
+            if (!pp_semantic_eval_int_constant(sa, expr->binary_expression.left, underlying, members, member_count,
+                                               &left))
                 goto error_cleanup;
-            if (!pp_semantic_eval_int_constant(sa, expr->binary_expression.right, members, member_count, &right))
+            if (!pp_semantic_eval_int_constant(sa, expr->binary_expression.right, underlying, members, member_count,
+                                               &right))
                 goto error_cleanup;
+
+            unsigned long long result = 0;
             switch (expr->binary_expression.op) {
                 case PP_TT_PLUS:
-                    *out = left + right;
+                    result = left + right;
                     break;
                 case PP_TT_MINUS:
-                    *out = left - right;
+                    result = left - right;
                     break;
                 case PP_TT_STAR:
-                    *out = left * right;
+                    result = left * right;
                     break;
                 case PP_TT_SLASH:
                     if (right == 0) {
                         pp_error_list_push_error(sa->error_list, expr->loc, "Division by zero in constant value");
                         goto error_cleanup;
                     }
-                    *out = left / right;
+                    if (is_signed) {
+                        result = (unsigned long long)(pp_semantic_signed_value(underlying, left) /
+                                                      pp_semantic_signed_value(underlying, right));
+                    } else {
+                        result = left / right;
+                    }
                     break;
                 case PP_TT_PERCENT:
                     if (right == 0) {
                         pp_error_list_push_error(sa->error_list, expr->loc, "Modulo by zero in constant value");
                         goto error_cleanup;
                     }
-                    *out = left % right;
+                    if (is_signed) {
+                        result = (unsigned long long)(pp_semantic_signed_value(underlying, left) %
+                                                      pp_semantic_signed_value(underlying, right));
+                    } else {
+                        result = left % right;
+                    }
                     break;
                 case PP_TT_LESS_LESS:
-                    if (right >= 64) {
+                    if (right >= width) {
                         pp_error_list_push_error(sa->error_list, expr->loc, "Shift amount too large in constant value");
                         goto error_cleanup;
                     }
-                    *out = left << right;
+                    result = left << right;
                     break;
                 case PP_TT_GREATER_GREATER:
-                    if (right >= 64) {
+                    if (right >= width) {
                         pp_error_list_push_error(sa->error_list, expr->loc, "Shift amount too large in constant value");
                         goto error_cleanup;
                     }
-                    *out = left >> right;
+                    if (is_signed) {
+                        result = (unsigned long long)(pp_semantic_signed_value(underlying, left) >> right);
+                    } else {
+                        result = left >> right;
+                    }
                     break;
                 case PP_TT_BAR:
-                    *out = left | right;
+                    result = left | right;
                     break;
                 case PP_TT_AMPERSAND:
-                    *out = left & right;
+                    result = left & right;
                     break;
                 case PP_TT_CARET:
-                    *out = left ^ right;
+                    result = left ^ right;
                     break;
                 default:
                     pp_error_list_push_error(sa->error_list, expr->loc, "Value must be a constant integer expression");
                     goto error_cleanup;
             }
+            *out = result & value_mask;
             return 1;
         } break;
         default:
@@ -2589,13 +2723,23 @@ static int pp_semantic_analyzer_build_global_table_enum_decl(PP_SemanticAnalyzer
         }
 
         if (node->enum_declaration.member_value_exprs[i]) {
-            if (!pp_semantic_eval_int_constant(sa, node->enum_declaration.member_value_exprs[i], NULL, 0, &value)) {
+            if (!pp_semantic_eval_int_constant(sa, node->enum_declaration.member_value_exprs[i], underlying->kind, NULL,
+                                               0, &value)) {
                 goto error_cleanup;
             }
         } else if (!has_previous) {
             value = 0;
+        } else if (pp_type_kind_is_signed(underlying->kind)) {
+            long long previous_signed = pp_semantic_signed_value(underlying->kind, previous_value);
+            if (previous_signed == pp_semantic_signed_max(underlying->kind)) {
+                pp_error_list_push_error(sa->error_list, node->loc,
+                                         "Enum member '%s' value overflows the underlying type", member_name);
+                goto error_cleanup;
+            }
+            value = pp_semantic_integer_value_mask(underlying->kind) & (unsigned long long)(previous_signed + 1);
         } else {
-            if (previous_value == UINT64_MAX) {
+            unsigned long long max_unsigned = pp_semantic_integer_value_mask(underlying->kind);
+            if (previous_value == max_unsigned) {
                 pp_error_list_push_error(sa->error_list, node->loc,
                                          "Enum member '%s' value overflows the underlying type", member_name);
                 goto error_cleanup;
@@ -2603,13 +2747,7 @@ static int pp_semantic_analyzer_build_global_table_enum_decl(PP_SemanticAnalyzer
             value = previous_value + 1;
         }
 
-        if (!pp_semantic_int_value_fits(underlying->kind, value)) {
-            pp_error_list_push_error(sa->error_list, node->loc,
-                                     "Enum member '%s' value is out of range for the underlying type", member_name);
-            goto error_cleanup;
-        }
-
-        if (has_previous && value <= previous_value) {
+        if (has_previous && pp_semantic_int_value_compare(underlying->kind, value, previous_value) <= 0) {
             pp_error_list_push_error(sa->error_list, node->loc,
                                      "Enum member '%s' value must be strictly greater than the previous member",
                                      member_name);
@@ -2743,7 +2881,8 @@ static int pp_semantic_analyzer_build_global_table_flag_decl(PP_SemanticAnalyzer
 
         is_explicit = node->flag_declaration.member_value_exprs[i] != NULL;
         if (is_explicit) {
-            if (!pp_semantic_eval_int_constant(sa, node->flag_declaration.member_value_exprs[i], members, i, &value)) {
+            if (!pp_semantic_eval_int_constant(sa, node->flag_declaration.member_value_exprs[i], underlying->kind,
+                                               members, i, &value)) {
                 goto error_cleanup;
             }
         } else if (!has_previous) {
@@ -2759,13 +2898,13 @@ static int pp_semantic_analyzer_build_global_table_flag_decl(PP_SemanticAnalyzer
             value = next_value;
         }
 
-        if (!pp_semantic_int_value_fits(underlying->kind, value)) {
+        if (!pp_semantic_int_literal_fits(underlying->kind, value)) {
             pp_error_list_push_error(sa->error_list, node->loc,
                                      "Flag member '%s' value is out of range for the underlying type", member_name);
             goto error_cleanup;
         }
 
-        if (has_previous && value <= previous_value) {
+        if (has_previous && pp_semantic_int_value_compare(underlying->kind, value, previous_value) <= 0) {
             pp_error_list_push_error(sa->error_list, node->loc,
                                      "Flag member '%s' value must be strictly greater than the previous member",
                                      member_name);

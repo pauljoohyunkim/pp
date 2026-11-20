@@ -1872,11 +1872,11 @@ TEST(CodeGenTest, PointerNullComparison) {
 
 TEST(CodeGenTest, PointerStaticArrayInterop) {
     const char* source =
-        "extern func pp_std_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
+        "extern func pp_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
         "func main :: () -> void {\n"
         "    let hello :: [uint8 : 6u] = @\"hello\";\n"
         "    let p :: ptr[uint8] = @hello as ptr[uint8];\n"
-        "    pp_std_print_c_str(p as ptr[const uint8]);\n"
+        "    pp_print_c_str(p as ptr[const uint8]);\n"
         "}\n";
     int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
     auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
@@ -1886,7 +1886,7 @@ TEST(CodeGenTest, PointerStaticArrayInterop) {
     EXPECT_EQ(semantic_errors, 0);
     EXPECT_EQ(codegen_result, 1);
     // Verify call to extern and pointer cast
-    assert_ir_contains(cg.get(), "pp_std_print_c_str");
+    assert_ir_contains(cg.get(), "pp_print_c_str");
     char* error_msg = nullptr;
     LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
     if (broken) {
@@ -1899,11 +1899,11 @@ TEST(CodeGenTest, PointerStaticArrayInterop) {
 
 TEST(CodeGenTest, PointerArrayElementAddress) {
     const char* source =
-        "extern func pp_std_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
+        "extern func pp_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
         "func main :: () -> void {\n"
         "    let hello :: [uint8 : 6u] = @\"hello\";\n"
         "    let p :: ptr[uint8] = @hello[1u];\n"
-        "    pp_std_print_c_str(p as ptr[const uint8]);\n"
+        "    pp_print_c_str(p as ptr[const uint8]);\n"
         "}\n";
     int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
     auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
@@ -2475,7 +2475,7 @@ TEST(CodeGenTest, HexLiteralCodegen) {
 
 TEST(CodeGenTest, EnumConstantReturnValue) {
     const char* source =
-        "enum Mode :: uint8 { Read, Write, Append = 5 }\n"
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
         "func main :: () -> int32 { return Mode::Append as int32; }\n";
     CallableCodegenCase r = compile_and_verify(source);
     std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
@@ -2489,7 +2489,7 @@ TEST(CodeGenTest, EnumConstantReturnValue) {
 
 TEST(CodeGenTest, EnumReturnTypeAndEquality) {
     const char* source =
-        "enum Mode :: uint8 { Read, Write, Append = 5 }\n"
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
         "func pick :: () -> Mode { return Mode::Append; }\n"
         "func main :: () -> int32 {\n"
         "    let m :: Mode = pick();\n"
@@ -2511,7 +2511,7 @@ TEST(CodeGenTest, EnumReturnTypeAndEquality) {
 
 TEST(CodeGenTest, FlagBinaryOrAndXor) {
     const char* source =
-        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
         "func main :: () -> int32 {\n"
         "    let f :: Perms = Perms::Create | Perms::Truncate;\n"
         "    let g :: Perms = f & Perms::Truncate;\n"
@@ -2530,7 +2530,7 @@ TEST(CodeGenTest, FlagBinaryOrAndXor) {
 
 TEST(CodeGenTest, FlagComplement) {
     const char* source =
-        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
         "func main :: () -> int32 { let k :: Perms = ~Perms::Sync; return k as int32; }\n";
     CallableCodegenCase r = compile_and_verify(source);
     std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
@@ -2543,7 +2543,7 @@ TEST(CodeGenTest, FlagComplement) {
 
 TEST(CodeGenTest, FlagCompoundAssignments) {
     const char* source =
-        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
         "func main :: () -> int32 {\n"
         "    let f :: Perms = Perms::none;\n"
         "    f |= Perms::Create;\n"
@@ -2568,7 +2568,7 @@ TEST(CodeGenTest, FlagCompoundAssignments) {
 
 TEST(CodeGenTest, FlagNoneComparison) {
     const char* source =
-        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
         "func main :: () -> int32 {\n"
         "    let p :: Perms = 7 as Perms;\n"
         "    if (p != Perms::none) { return 1; }\n"
@@ -2586,7 +2586,7 @@ TEST(CodeGenTest, FlagNoneComparison) {
 
 TEST(CodeGenTest, EnumConstantInArraySizeAndLength) {
     const char* source =
-        "enum Mode :: uint8 { Read, Write, Append = 5 }\n"
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
         "func main :: () -> int32 {\n"
         "    let arr :: [uint8 : Mode::Append] = @\"AAAA\";\n"
         "    let n :: uint32 = #arr as uint32;\n"
@@ -2604,8 +2604,8 @@ TEST(CodeGenTest, EnumConstantInArraySizeAndLength) {
 
 TEST(CodeGenTest, EnumFlagIntegerCasts) {
     const char* source =
-        "enum Mode :: uint8 { Read, Write, Append = 5 }\n"
-        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
         "func main :: () -> uint32 {\n"
         "    let m :: Mode = Mode::Append;\n"
         "    let a :: uint32 = m as uint32;\n"
@@ -2624,7 +2624,7 @@ TEST(CodeGenTest, EnumFlagIntegerCasts) {
 
 TEST(CodeGenTest, UnsignedWideningZeroExtends) {
     const char* source =
-        "enum Mode :: uint8 { A = 200 }\n"
+        "enum Mode :: uint8 { A = 200uss }\n"
         "func main :: () -> int32 {\n"
         "    let m :: Mode = Mode::A;\n"
         "    let b :: uint8 = 200 as uint8;\n"
@@ -2646,8 +2646,8 @@ TEST(CodeGenTest, UnsignedWideningZeroExtends) {
 
 TEST(CodeGenTest, EnumFlagDebugInfo) {
     const char* source =
-        "enum Mode :: uint8 { Read, Write, Append = 5 }\n"
-        "flag Perms :: uint32 { Create = 1, Truncate = 2, Sync = 1 << 10 }\n"
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
         "func main :: () -> int32 {\n"
         "    let m :: Mode = Mode::Append;\n"
         "    let p :: Perms = Perms::Create;\n"
@@ -2679,4 +2679,16 @@ TEST(CodeGenTest, UnsignedIndexZeroExtends) {
     EXPECT_EQ(r.codegen_result, 1);
     // GEP indices are sign-extended by LLVM, so a uint8 index must be zero-extended explicitly.
     assert_ir_contains(cg.get(), "zext i8");
+}
+
+TEST(CodeGenTest, NegativeEnumMemberUsesTwosComplement) {
+    const char* source =
+        "enum Delta :: int8 { Down = -2ss, Up = 1ss }\n"
+        "func main :: () -> int32 { return Delta::Down as int32; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "ret i32 -2");
 }

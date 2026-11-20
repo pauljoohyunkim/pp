@@ -85,6 +85,6 @@ ERROR SUMMARY: 0 errors from 0 contexts
 
 * Demos may grow or be renamed; the script never hardcodes names, binaries or source lists.
 * Per-step timeouts (600 s compile, 300 s run, 1800 s unit tests) keep CI from hanging.
-* `pp_std_input_char` / `pp_std_abort` undefined at link time almost always means a stale
+* `pp_input_char` / `pp_abort` undefined at link time almost always means a stale
   `lib/pp_std/bin/pp_std.a`; rebuild it with `make -C lib/pp_std`.
 * Record the outcome in the notebook page `valgrind-validation`.

@@ -1,9 +1,9 @@
 func readBFCode :: (ctx :: BFContext&) -> void {
-    let c :: int32 = pp_std_input_char();
+    let c :: int32 = pp_input_char();
     while (c >= 0) {
         let character :: uint8 = c as uint8;
         list_push(ctx.code, character);
-        c = pp_std_input_char();
+        c = pp_input_char();
     }
 }
 
@@ -22,8 +22,8 @@ func runBFCode :: (ctx :: BFContext&) -> void {
         } else if (cur == BFCommand::Less as uint8) {
             // <
             if (ctx.mem_idx == 0u) {
-                pp_std_print_string("[-] You are accessing invalid memory\n");
-                pp_std_abort();
+                pp_print_string("[-] You are accessing invalid memory\n");
+                pp_abort();
             }
             ctx.mem_idx -= 1u;
         } else if (cur == BFCommand::Plus as uint8) {
@@ -34,11 +34,11 @@ func runBFCode :: (ctx :: BFContext&) -> void {
             ctx.memory[ctx.mem_idx as uint32] -= 1uss;
         } else if (cur == BFCommand::Period as uint8) {
             // .
-            pp_std_print_char(ctx.memory[ctx.mem_idx as uint32]);
+            pp_print_char(ctx.memory[ctx.mem_idx as uint32]);
         } else if (cur == BFCommand::Comma as uint8) {
-            let c :: const int32 = pp_std_input_char();
+            let c :: const int32 = pp_input_char();
             if (c < 0) {
-                pp_std_print_string("EOF Received\n");
+                pp_print_string("EOF Received\n");
             } else {
                 let ch :: const uint8 = c as uint8;
                 ctx.memory[ctx.mem_idx as uint32] = ch;
@@ -65,8 +65,8 @@ func runBFCode :: (ctx :: BFContext&) -> void {
         } else if (cur == BFCommand::RightBracket as uint8) {
             if (ctx.memory[ctx.mem_idx as uint32] != 0uss) {
                 if (#ctx.return_stack == 0u) {
-                    pp_std_print_string("[ ] Unmatched ']' - aborting\n");
-                    pp_std_abort();
+                    pp_print_string("[ ] Unmatched ']' - aborting\n");
+                    pp_abort();
                 } else {
                     let idx :: const uint32 = list_pop(ctx.return_stack);
                     ctx.code_idx = idx;

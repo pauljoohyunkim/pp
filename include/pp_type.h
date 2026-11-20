@@ -139,6 +139,11 @@ static inline bool pp_type_kind_is_integer(PPTypeKind k) {
     return k == PP_TK_Int8 || k == PP_TK_UInt8 || k == PP_TK_Int16 || k == PP_TK_UInt16 || k == PP_TK_Int32 ||
            k == PP_TK_UInt32 || k == PP_TK_Int64 || k == PP_TK_UInt64 || k == PP_TK_Int128 || k == PP_TK_UInt128;
 }
+/** @brief Return true if the type kind represents a signed integer */
+static inline bool pp_type_kind_is_signed(PPTypeKind k) {
+    return k == PP_TK_Int8 || k == PP_TK_Int16 || k == PP_TK_Int32 || k == PP_TK_Int64 || k == PP_TK_Int128;
+}
+
 /** @brief Return true if the type kind represents an unsigned integer */
 static inline bool pp_type_kind_is_unsigned(PPTypeKind k) {
     return k == PP_TK_UInt8 || k == PP_TK_UInt16 || k == PP_TK_UInt32 || k == PP_TK_UInt64 || k == PP_TK_UInt128;

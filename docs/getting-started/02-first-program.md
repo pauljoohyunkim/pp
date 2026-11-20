@@ -4,7 +4,7 @@ Create `hello.pp`:
 
 ```pp
 func main :: () -> int32 {
-    pp_std_print_string("Hello, PP!\n");
+    pp_print_string("Hello, PP!\n");
     return 0;
 }
 ```

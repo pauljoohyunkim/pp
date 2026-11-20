@@ -13,7 +13,7 @@ Functions are declared with `func`. Signature is mandatory, body is a block.
 External functions:
 
 ```pp
-extern func pp_std_print_string :: (str :: string) -> void;
+extern func pp_print_string :: (str :: string) -> void;
 ```
 
 ## Lambdas

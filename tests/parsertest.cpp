@@ -1469,7 +1469,7 @@ TEST(ParserTest, GoodEnumDeclaration) {
         "enum OpenMode :: uint8 {\n"
         "    Read,\n"
         "    Write,\n"
-        "    Append = 5,\n"
+        "    Append = 5uss,\n"
         "}\n";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
@@ -1478,7 +1478,7 @@ TEST(ParserTest, GoodEnumDeclaration) {
 }
 
 TEST(ParserTest, GoodFlagsDeclarationNoTrailingComma) {
-    const char* source = "flag OpenFlags :: uint32 { Create, Truncate, Sync = 1 << 10 }";
+    const char* source = "flag OpenFlags :: uint32 { Create, Truncate, Sync = 1u << 10u }";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_EQ(parse_result, 1);
