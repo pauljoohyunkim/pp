@@ -44,7 +44,7 @@ static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef addre
 static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, const PPType* type);
 static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg);
 static void pp_code_generator_emit_drops_since(PP_CodeGenerator* cg, size_t mark);
-static int pp_code_generator_push_temp_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type);
+static void pp_code_generator_push_temp_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type);
 static void pp_code_generator_flush_temp_drops(PP_CodeGenerator* cg);
 static LLVMValueRef pp_code_generator_generate_rvalue_disposable(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                  PP_Environment_Backend* env_b,
@@ -601,19 +601,31 @@ static void pp_code_generator_push_drop(PP_CodeGenerator* cg, LLVMValueRef addre
     cg->drop_stack_count++;
 }
 
-/* Register an owning temporary for release at the end of the current statement. */
-static int pp_code_generator_push_temp_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
-    if (cg == NULL || address == NULL || type == NULL) return 0;
-    if (!pp_type_needs_drop(type) || pp_type_is_reference(type)) return 1;
+/* Register an owning temporary for release at the end of the current statement.
+ *
+ * This runs on every expression codegen path that hands out an owned value, and a missed registration
+ * silently leaks it. Growing the bookkeeping is therefore not a recoverable condition here: report it
+ * and abort, rather than returning a status that callers would have to thread through every expression
+ * or, worse, hide inside an assert() that disappears under NDEBUG. */
+static void pp_code_generator_push_temp_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
+    assert(cg != NULL);
+    assert(address != NULL);
+    assert(type != NULL);
+    if (!pp_type_needs_drop(type) || pp_type_is_reference(type)) return;
 
     if (cg->temp_drop_count >= cg->temp_drop_capacity) {
         size_t new_capacity = cg->temp_drop_capacity ? cg->temp_drop_capacity * 2 : 8;
         LLVMValueRef* new_addresses =
             (LLVMValueRef*)realloc(cg->temp_drop_addresses, new_capacity * sizeof(LLVMValueRef));
-        if (!new_addresses) return 0;
-        cg->temp_drop_addresses = new_addresses;
         PPType** new_types = (PPType**)realloc(cg->temp_drop_types, new_capacity * sizeof(PPType*));
-        if (!new_types) return 0;
+        if (new_addresses == NULL || new_types == NULL) {
+            /* Keep whichever buffer realloc already moved so the generator can still be freed. */
+            if (new_addresses != NULL) { cg->temp_drop_addresses = new_addresses; }
+            if (new_types != NULL) { cg->temp_drop_types = new_types; }
+            fprintf(stderr, "PP codegen: out of memory while growing the temporary drop stack\n");
+            abort();
+        }
+        cg->temp_drop_addresses = new_addresses;
         cg->temp_drop_types = new_types;
         cg->temp_drop_capacity = new_capacity;
     }
@@ -621,7 +633,6 @@ static int pp_code_generator_push_temp_drop(PP_CodeGenerator* cg, LLVMValueRef a
     cg->temp_drop_addresses[cg->temp_drop_count] = address;
     cg->temp_drop_types[cg->temp_drop_count] = (PPType*)type;
     cg->temp_drop_count++;
-    return 1;
 }
 
 /* Release the statement's own temporaries. Must run before the block is terminated: after a return,
@@ -646,12 +657,14 @@ static LLVMValueRef pp_code_generator_generate_rvalue_disposable(PP_CodeGenerato
                                                                  PP_Environment_Backend* env_b,
                                                                  const PP_AST_Node* node) {
     LLVMValueRef value = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node);
-    if (value == NULL || node == NULL) return value;
-
+    assert(value);
+    assert(node);
+    /* Value-producing expressions are decorated by the semantic pass. Statement-like expression
+     * nodes (list_push, list_clear) produce no value, so there is nothing of theirs to release. */
     const PP_AST_Decoration* dec = pp_ast_get_decoration(node);
-    if (dec == NULL) return value;
+    if (dec == NULL || dec->resolved_type == NULL) return value;
     const PPType* type = pp_type_decay_cg(cg->gtt, dec->resolved_type);
-    if (type == NULL) return value;
+    assert(type);
     if (dec->value_category == PP_VALUE_CATEGORY_LVALUE) return value;
     if (pp_type_is_reference(type) || pp_type_is_handle(type) || !pp_type_needs_drop(type)) return value;
 
@@ -659,7 +672,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_disposable(PP_CodeGenerato
     assert(llvm_type);
     LLVMValueRef slot = pp_code_generator_entry_alloca(cg, llvm_type, "owned_temp");
     LLVMBuildStore(cg->builder, value, slot);
-    assert(pp_code_generator_push_temp_drop(cg, slot, type));
+    pp_code_generator_push_temp_drop(cg, slot, type);
     return value;
 }
 
@@ -2330,14 +2343,16 @@ static int pp_code_generator_generate_return_statement(PP_CodeGenerator* cg, PPS
              * parameter, global) still owns its buffer after the return, so copy instead. */
             LLVMValueRef move_slot = NULL;
             if (return_expr->node_type == PP_AST_IdentifierNode) {
-                const PPSymbol* sym = pp_symbol_table_lookup(symbol_table, return_expr->identifier.identifier, true);
-                if (sym) {
-                    LLVMValueRef sym_slot = pp_environment_backend_lookup_val(env_b, sym, true);
-                    for (size_t i = 0; i < cg->drop_stack_count; i++) {
-                        if (cg->drop_stack_addresses[i] == sym_slot) {
-                            move_slot = sym_slot;
-                            break;
-                        }
+                const char* return_name = return_expr->identifier.identifier;
+                assert(return_name);
+                const PPSymbol* sym = pp_symbol_table_lookup(symbol_table, return_name, true);
+                assert(sym);
+                LLVMValueRef sym_slot = pp_environment_backend_lookup_val(env_b, sym, true);
+                assert(sym_slot);
+                for (size_t i = 0; i < cg->drop_stack_count; i++) {
+                    if (cg->drop_stack_addresses[i] == sym_slot) {
+                        move_slot = sym_slot;
+                        break;
                     }
                 }
             }
@@ -2857,7 +2872,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeG
     assert(llvm_base_type);
     LLVMValueRef base_slot = pp_code_generator_entry_alloca(cg, llvm_base_type, "index_base_tmp");
     LLVMBuildStore(cg->builder, base_val, base_slot);
-    if (pp_type_needs_drop(base_type)) { assert(pp_code_generator_push_temp_drop(cg, base_slot, base_type)); }
+    if (pp_type_needs_drop(base_type)) { pp_code_generator_push_temp_drop(cg, base_slot, base_type); }
 
     LLVMValueRef llvm_index = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
     assert(llvm_index);
@@ -3085,11 +3100,11 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
      * Indirect callables are treated as PP-defined: leaking is safer than double-freeing. */
     bool callee_takes_ownership = true;
     if (node->function_call.callee->node_type == PP_AST_IdentifierNode) {
-        const PPSymbol* callee_symbol =
-            pp_symbol_table_lookup(symbol_table, node->function_call.callee->identifier.identifier, true);
-        if (callee_symbol && callee_symbol->is_callable_decl && !callee_symbol->is_definition) {
-            callee_takes_ownership = false;
-        }
+        const char* callee_name = node->function_call.callee->identifier.identifier;
+        assert(callee_name);
+        const PPSymbol* callee_symbol = pp_symbol_table_lookup(symbol_table, callee_name, true);
+        assert(callee_symbol);
+        if (callee_symbol->is_callable_decl && !callee_symbol->is_definition) { callee_takes_ownership = false; }
     }
     if (param_count > 0) {
         llvm_args = (LLVMValueRef*)calloc(param_count, sizeof(LLVMValueRef));
@@ -4548,7 +4563,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_Co
         /* Mark the field as moved so the aggregate drop leaves it alone. */
         LLVMBuildStore(cg->builder, LLVMConstNull(llvm_field_type), field_ptr);
     }
-    assert(pp_code_generator_push_temp_drop(cg, base_slot, base_type));
+    pp_code_generator_push_temp_drop(cg, base_slot, base_type);
     return field_val;
 
 error_cleanup:
