@@ -6,7 +6,7 @@ This is a high-level summary. See `notes/bnf.md` for full BNF.
 
 ```ebnf
 program ::= { declaration }
-declaration ::= function | lambda | struct | variable | operator | extern | handle
+declaration ::= function | lambda | struct | typedef | newtype | enum | flag | variable | operator | extern | handle
 ```
 
 ```ebnf

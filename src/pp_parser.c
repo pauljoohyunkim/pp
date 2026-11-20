@@ -2167,7 +2167,11 @@ static PP_AST_Node* pp_parser_create_enum_declaration(PP_Parser* parser) {
                 NULL_POINTER_ERROR_HANDLE(equal_tok);
             }
             value_expr = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
-            NULL_POINTER_ERROR_HANDLE(value_expr);
+            if (!value_expr) {
+                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),
+                                         "Expected expression for member value");
+                goto error_cleanup;
+            }
         }
 
         if (member_count >= member_capacity) {
@@ -2287,7 +2291,11 @@ static PP_AST_Node* pp_parser_create_flag_declaration(PP_Parser* parser) {
                 NULL_POINTER_ERROR_HANDLE(equal_tok);
             }
             value_expr = pp_parser_create_expression_ext(parser, PP_PRECEDENCE_NONE);
-            NULL_POINTER_ERROR_HANDLE(value_expr);
+            if (!value_expr) {
+                pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),
+                                         "Expected expression for member value");
+                goto error_cleanup;
+            }
         }
 
         if (member_count >= member_capacity) {

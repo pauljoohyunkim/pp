@@ -211,7 +211,7 @@
         },
         {
           "name": "support.function.builtin.pp",
-          "match": "\\b(?:list_push|list_pop|list_clear|pp_std_print(?:_string|_char|_uint64|_float|_int64)?|pp_std_input_char|pp_std_abort)\\b"
+          "match": "\\b(?:list_push|list_pop|list_clear)\\b"
         }
       ]
     },

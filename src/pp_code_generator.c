@@ -1226,6 +1226,21 @@ error_cleanup:
     return NULL;
 }
 
+/** @brief Sign-extend a masked enum member value to 64 bits when the enum's underlying type is signed, so
+ * DWARF and LLVM print negative members as negative numbers. */
+static int64_t pp_code_generator_enum_member_value(PPTypeKind kind, unsigned long long value) {
+    switch (kind) {
+        case PP_TK_Int8:
+            return (int64_t)(int8_t)(uint8_t)value;
+        case PP_TK_Int16:
+            return (int64_t)(int16_t)(uint16_t)value;
+        case PP_TK_Int32:
+            return (int64_t)(int32_t)(uint32_t)value;
+        default:
+            return (int64_t)value;
+    }
+}
+
 static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const PPType* t) {
     bool guard_pushed = false;
     if (!cg->debug || !t) return NULL;
@@ -1307,9 +1322,12 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
                 NULL_POINTER_ERROR_HANDLE(enumerators);
                 const bool is_unsigned = pp_type_is_flag(t) || pp_type_kind_is_unsigned(underlying->kind);
                 for (size_t i = 0; i < enum_member_count; i++) {
-                    enumerators[i] = LLVMDIBuilderCreateEnumerator(cg->di_builder, enum_members[i].name,
-                                                                   strlen(enum_members[i].name),
-                                                                   (int64_t)enum_members[i].value, is_unsigned);
+                    const int64_t member_value =
+                        is_unsigned ? (int64_t)enum_members[i].value
+                                    : pp_code_generator_enum_member_value(underlying->kind, enum_members[i].value);
+                    enumerators[i] =
+                        LLVMDIBuilderCreateEnumerator(cg->di_builder, enum_members[i].name,
+                                                      strlen(enum_members[i].name), member_value, is_unsigned);
                 }
             }
             LLVMTypeRef llvm_underlying_type = pp_backend_lower_type(cg, underlying);

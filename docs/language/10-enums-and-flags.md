@@ -105,6 +105,9 @@ let buffer :: [uint8 : Mode::Append] = @"hell";
 let default_mode :: Mode = Mode::Append;
 ```
 
+An array size must be non-negative, so it can only come from a flag or from an enum whose underlying type is
+**unsigned**: `Mode::Append` works above, while a member of a signed enum (`Delta::Down`) is rejected.
+
 ## Operators
 
 Enums support only equality comparison:

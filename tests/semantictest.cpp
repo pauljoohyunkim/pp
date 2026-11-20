@@ -2523,3 +2523,31 @@ TEST(SemanticTest, EnumLiteralOutOfRangeForSignedUnderlyingRejected) {
                            "func main :: () -> int32 { return 0; }\n",
                            "200 does not fit int8");
 }
+
+TEST(SemanticTest, EnumMemberMayReferenceEarlierMember) {
+    expect_semantic_accept("enum E :: uint8 { A = 1uss, B = A + 1uss }\n"
+                           "func main :: () -> int32 { return E::B as int32; }\n",
+                           "enum member referencing an earlier member of the same body");
+}
+
+TEST(SemanticTest, SignedEnumConstantAsArraySizeRejected) {
+    expect_semantic_reject("enum Delta :: int8 { Down = -2ss, Up = 1ss }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : Delta::Up] = @\"ab\";\n"
+                           "    return #a as int32;\n"
+                           "}\n",
+                           "signed enum constant cannot define an array size");
+}
+
+TEST(SemanticTest, ExternOperatorOnFlagRejected) {
+    expect_semantic_reject("flag F :: uint32 { A = 1u }\n"
+                           "extern operator ~ :: (v :: const F&) -> F;\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "extern operator cannot be declared for a flag type");
+}
+
+TEST(SemanticTest, LeadingZeroDecimalIsNotOctal) {
+    expect_semantic_accept("enum E :: uint8 { Ten = 010uss, Eleven = 11uss, Hex = 0x10uss }\n"
+                           "func main :: () -> int32 { return E::Ten as int32; }\n",
+                           "010uss is ten and 0x10uss is sixteen, so the members increase");
+}
