@@ -1526,6 +1526,17 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
         decayed_p[i] = decayed;
     }
 
+    // Enum and flag types are closed sets: their operators are built in, so a user operator may not mention
+    // them at all. Rejecting at declaration also prevents silently overriding built-in ==/!=/|/&/^/~ through the
+    // decoration's resolved_operator_callable lookup.
+    if (pp_semantic_analyzer_is_operator_symbol(node->callable_declaration.name) &&
+        ((decayed_p[0] && pp_type_is_enum_or_flag(decayed_p[0])) ||
+         (decayed_p[1] && pp_type_is_enum_or_flag(decayed_p[1])))) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Operator '%s' cannot be declared for enum or flag types.",
+                                 node->callable_declaration.name);
+        goto error_cleanup;
+    }
+
     if (pp_semantic_analyzer_is_operator_symbol(node->callable_declaration.name) &&
         node->callable_declaration.param_count >= 2 && decayed_p[0] && decayed_p[1]) {
         if (pp_builtin_binary_supported(node->callable_declaration.name, decayed_p[0]->kind, decayed_p[1]->kind)) {

@@ -83,7 +83,7 @@ Constants are constexpr and are written `Type::Member`. They may be used anywher
 constant is expected, including array sizes and global initializers:
 
 ```pp
-let buffer :: [uint8 : Mode::Append] = @"hello";
+let buffer :: [uint8 : Mode::Append] = @"hell";
 
 let default_mode :: Mode = Mode::Append;
 ```
@@ -159,7 +159,7 @@ func describe :: (m :: Mode, p :: Perms) -> uint32 {
 
 func main :: () -> int32 {
     let p :: Perms = Perms::Create | Perms::Sync;
-    let buffer :: [uint8 : Mode::Append] = @"hello";
+    let buffer :: [uint8 : Mode::Append] = @"hell";
     return (describe(Mode::Append, p) + #buffer) as int32;
 }
 ```

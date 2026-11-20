@@ -2410,3 +2410,43 @@ TEST(SemanticTest, TildeOperatorOnFlagRejected) {
                            "func main :: () -> int32 { return 0; }\n",
                            "user-defined '~' cannot replace the built-in flag operator");
 }
+
+TEST(SemanticTest, EnumOperatorDeclarationRejected) {
+    expect_semantic_reject("enum Mode :: uint8 { A = 1 }\n"
+                           "operator + :: (a :: const Mode&, b :: const Mode&) -> Mode { return a; }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "operators cannot be declared for enum types");
+}
+
+TEST(SemanticTest, FlagEqualityOperatorDeclarationRejected) {
+    expect_semantic_reject("flag F :: uint32 { A = 1 }\n"
+                           "operator == :: (a :: const F&, b :: const F&) -> bool { return false; }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "built-in flag equality cannot be overridden");
+}
+
+TEST(SemanticTest, EnumTildeOperatorDeclarationRejected) {
+    expect_semantic_reject("enum Mode :: uint8 { A = 1 }\n"
+                           "operator ~ :: (v :: const Mode&) -> Mode { return v; }\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "operators cannot be declared for enum types (tilde)");
+}
+
+TEST(SemanticTest, FlagNoneArraySizeRejected) {
+    expect_semantic_reject("flag F :: uint32 { A = 1 }\n"
+                           "func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : F::none] = @\"\";\n"
+                           "    return #a as int32;\n"
+                           "}\n",
+                           "Flag::none as an array size is zero and rejected");
+}
+
+TEST(SemanticTest, TypedefAliasedEnumConstantInArraySizeAccepted) {
+    expect_semantic_accept("typedef uint8 MyByte;\n"
+                           "enum E :: uint8 { A = 4 }\n"
+                           "func main :: () -> uint8 {\n"
+                           "    let a :: [MyByte : E::A] = @\"abc\";\n"
+                           "    return #a as uint8;\n"
+                           "}\n",
+                           "enum constant through a typedef alias as array size");
+}
