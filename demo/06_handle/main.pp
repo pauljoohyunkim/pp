@@ -5,7 +5,7 @@ func main :: () -> int32 {
     let data :: const [uint8 : 9u] = @"AABBCCDD";
 
     {
-        let flags :: PP_OpenFlags = PP_OpenFlags::Write | PP_OpenFlags::Create | PP_OpenFlags::Truncate;
+        let flags :: PP_FD_OpenFlags = PP_FD_OpenFlags::Write | PP_FD_OpenFlags::Create | PP_FD_OpenFlags::Truncate;
         let fd :: PP_FD = pp_fd_open("test.txt", flags, permission);
         let write_val :: int64 = pp_fd_write(fd, @data as ptr[const uint8], 8ul);
         pp_print_string("Wrote ");

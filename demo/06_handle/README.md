@@ -21,22 +21,22 @@ There is no explicit `drop h;` and no move. To release early, put the handle in 
 ## What the demo does
 
 `main.pp` writes the eight bytes `AABBCCDD` to `test.txt`, then prints how many bytes were written. The
-descriptor is opened with a flag value built from the standard library's `PP_OpenFlags`:
+descriptor is opened with a flag value built from the standard library's `PP_FD_OpenFlags`:
 
 ```pp
 {
-    let flags :: PP_OpenFlags = PP_OpenFlags::Write | PP_OpenFlags::Create | PP_OpenFlags::Truncate;
+    let flags :: PP_FD_OpenFlags = PP_FD_OpenFlags::Write | PP_FD_OpenFlags::Create | PP_FD_OpenFlags::Truncate;
     let fd :: PP_FD = pp_fd_open("test.txt", flags, permission);
     let write_val :: int64 = pp_fd_write(fd, @data as ptr[const uint8], 8ul);
     ...
 }   // fd is dropped (closed) here, on every path out of the block
 ```
 
-`PP_OpenFlags` is declared in `lib/pp_std/extern/pp_io.ppi` as a `flag` over `uint32` and mirrors the POSIX
-`O_*` bits. Read-only access is `PP_OpenFlags::none`, since `O_RDONLY` is zero:
+`PP_FD_OpenFlags` is declared in `lib/pp_std/extern/pp_io.ppi` as a `flag` over `uint32` and mirrors the POSIX
+`O_*` bits. Read-only access is `PP_FD_OpenFlags::none`, since `O_RDONLY` is zero:
 
 ```pp
-flag PP_OpenFlags :: uint32 {
+flag PP_FD_OpenFlags :: uint32 {
     Write = 1u,
     ReadWrite = 2u,
     Create = 64u,
@@ -51,8 +51,8 @@ flag PP_OpenFlags :: uint32 {
 `pp_fd_open` lives in `lib/pp_std/src/pp_io.c` and takes the same type name from `lib/pp_std/include/pp_io.h`:
 
 ```c
-typedef uint32_t PP_OpenFlags;
-PP_FD pp_fd_open(const pp_string_t* str, PP_OpenFlags flags, int32_t mode);
+typedef uint32_t PP_FD_OpenFlags;
+PP_FD pp_fd_open(const pp_string_t* str, PP_FD_OpenFlags flags, int32_t mode);
 ```
 
 The header also defines `PP_O_WRITE`, `PP_O_CREAT`, `PP_O_TRUNC`, … for C callers; they must stay in sync with

@@ -190,15 +190,15 @@ func main :: () -> int32 {
 passed to `pp_fd_open` without magic numbers:
 
 ```pp
-flag PP_OpenFlags :: uint32 {
+flag PP_FD_OpenFlags :: uint32 {
     Write = 1u, ReadWrite = 2u, Create = 64u, Exclusive = 128u, Truncate = 512u, Append = 1024u,
 }
 
-let flags :: PP_OpenFlags = PP_OpenFlags::Write | PP_OpenFlags::Create | PP_OpenFlags::Truncate;
+let flags :: PP_FD_OpenFlags = PP_FD_OpenFlags::Write | PP_FD_OpenFlags::Create | PP_FD_OpenFlags::Truncate;
 let fd :: PP_FD = pp_fd_open("out.bin", flags, 420);   // 0644
 ```
 
-Read-only access is `PP_OpenFlags::none`, because `O_RDONLY` is zero.
+Read-only access is `PP_FD_OpenFlags::none`, because `O_RDONLY` is zero.
 
 Enums serve the same purpose for selector values; `pp_fd_seek` takes one instead of a bare integer:
 
