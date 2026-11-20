@@ -691,10 +691,11 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
             }
             const char* lex = simple_expr_node->literal.lexeme;
             PPTypeKind k = pp_type_parse_int_literal_suffix(lex, NULL);
-            bool is_unsigned = pp_type_kind_is_unsigned(k);
-            if (!is_unsigned) {
+            // Size literals must be one of the supported unsigned integer types (uint8 .. uint64); a signed
+            // literal or an unsupported unsigned width such as uint128 fails this membership test.
+            if (!pp_type_kind_is_unsigned_up_to_64(k)) {
                 pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
-                                         "For array size expression, literals can only be unsigned integer");
+                                         "For array size expression, literals must be uint8, uint16, uint32 or uint64");
                 goto error_cleanup;
             }
             char numbuf[PP_INT_LITERAL_NUMBUF_SIZE] = {0};
@@ -5863,8 +5864,11 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     const PPType* decayed_index_type = pp_type_decay(sa->gtt, index_decoration->resolved_type);
     NULL_POINTER_ERROR_HANDLE(decayed_index_type);
 
-    if (decayed_index_type->kind != PP_TK_UInt32) {
-        pp_error_list_push_error(sa->error_list, expr->loc, "Array/list index must be unsigned 32-bit integer.");
+    // The index must be one of the supported unsigned integer types (uint8 .. uint64). Codegen zero-extends
+    // values narrower than 64 bits to the pointer width so high-bit indices cannot become negative offsets.
+    if (!pp_type_kind_is_unsigned_up_to_64(decayed_index_type->kind)) {
+        pp_error_list_push_error(sa->error_list, expr->loc,
+                                 "Array/list index must be uint8, uint16, uint32 or uint64.");
         goto error_cleanup;
     }
 

@@ -2450,3 +2450,40 @@ TEST(SemanticTest, TypedefAliasedEnumConstantInArraySizeAccepted) {
                            "}\n",
                            "enum constant through a typedef alias as array size");
 }
+
+TEST(SemanticTest, UnsignedIndexTypesAccepted) {
+    expect_semantic_accept("func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : 4u] = @\"abc\";\n"
+                           "    let i8 :: uint8 = 2 as uint8;\n"
+                           "    let i16 :: uint16 = 2 as uint16;\n"
+                           "    let i64 :: uint64 = 2ul;\n"
+                           "    return (a[i8] + a[i16] + a[i64]) as int32;\n"
+                           "}\n",
+                           "unsigned indexes of several widths");
+}
+
+TEST(SemanticTest, SignedIndexRejected) {
+    expect_semantic_reject("func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : 4u] = @\"abc\";\n"
+                           "    let i :: int32 = 2;\n"
+                           "    return a[i] as int32;\n"
+                           "}\n",
+                           "signed index rejected");
+}
+
+TEST(SemanticTest, Uint128IndexRejected) {
+    expect_semantic_reject("func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : 4u] = @\"abc\";\n"
+                           "    let i :: uint128 = 2 as uint128;\n"
+                           "    return a[i] as int32;\n"
+                           "}\n",
+                           "128-bit index rejected");
+}
+
+TEST(SemanticTest, ArraySizeUint128LiteralRejected) {
+    expect_semantic_reject("func main :: () -> int32 {\n"
+                           "    let a :: [uint8 : 5ull] = @\"abcd\";\n"
+                           "    return #a as int32;\n"
+                           "}\n",
+                           "128-bit array size literal rejected");
+}

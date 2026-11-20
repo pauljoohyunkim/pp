@@ -39,7 +39,10 @@ Precedence from lowest to highest:
 * Logical: `&& ||`
 * Cast: `expr as type`
 * Member access: `obj.field`
-* Indexing: `array[index]`, `list[index]`
+* Indexing: `array[index]`, `list[index]`, `string[index]`
+  * The index must be an **unsigned** integer of at most 64 bits (`uint8` … `uint64`). Signed and
+    128-bit indices are rejected.
+  * Indexing a string yields a `uint8`.
 * Calls: `func(args)`, `lambda(args)`
 * Operator calls: `a + b` is resolved via built-in or user-defined operator overload
 

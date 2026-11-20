@@ -2664,3 +2664,19 @@ TEST(CodeGenTest, EnumFlagDebugInfo) {
     assert_ir_contains(cg.get(), "!DIEnumerator(name: \"Append\", value: 5");
     assert_ir_contains(cg.get(), "!DIEnumerator(name: \"Sync\", value: 1024");
 }
+
+TEST(CodeGenTest, UnsignedIndexZeroExtends) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [uint8 : 4u] = @\"abc\";\n"
+        "    let i :: uint8 = 200 as uint8;\n"
+        "    return a[i] as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // GEP indices are sign-extended by LLVM, so a uint8 index must be zero-extended explicitly.
+    assert_ir_contains(cg.get(), "zext i8");
+}

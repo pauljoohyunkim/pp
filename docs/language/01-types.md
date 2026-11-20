@@ -103,7 +103,7 @@ let h :: func[() -> func[(int32) -> int32]] = factory;   // higher-order
 
 ### Array
 Fixed-size array type: `[T : N]` where `N` is an unsigned integer literal, e.g. `4u`, `4ul`.
-Currently array sizes are evaluated via `strtoull`, so literals larger than 64 bits are not supported in practice.
+Array size literals must be unsigned and at most 64 bits (`uint128` literals are rejected); sizes are evaluated via `strtoull`.
 
 ```pp
 let a :: [int32 : 4u] = [int32 : 4u; 1, 2, 3, 4];
@@ -132,6 +132,6 @@ See [Built-ins](docs/reference/builtins.md) for full semantics.
 
 Types are matched structurally for primitives and nominally for structs/typedefs/newtypes. Operator overloads are resolved on decayed operand types.
 
-Array sizes must be unsigned integer literals, e.g. `4u`. In practice sizes are evaluated via `strtoull`, so literals larger than 64 bits are not supported.
+Array sizes must be unsigned integer literals of at most 64 bits, e.g. `4u` or `4ul`. A 128-bit unsigned literal (`5ull`) is rejected: the largest possible length is 64 bits, and sizes are evaluated via `strtoull`.
 
 Next: [Variables & Const](02-variables-and-const.md)

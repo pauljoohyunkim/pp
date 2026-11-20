@@ -143,6 +143,11 @@ static inline bool pp_type_kind_is_integer(PPTypeKind k) {
 static inline bool pp_type_kind_is_unsigned(PPTypeKind k) {
     return k == PP_TK_UInt8 || k == PP_TK_UInt16 || k == PP_TK_UInt32 || k == PP_TK_UInt64 || k == PP_TK_UInt128;
 }
+/** @brief Return true for unsigned integer kinds of at most 64 bits (uint8 .. uint64).
+ * 128-bit kinds are outside that set, so they are rejected as a consequence of membership, not by name. */
+static inline bool pp_type_kind_is_unsigned_up_to_64(PPTypeKind k) {
+    return k == PP_TK_UInt8 || k == PP_TK_UInt16 || k == PP_TK_UInt32 || k == PP_TK_UInt64;
+}
 /** @brief Free a PPType. Shallow free – internal owned allocations such as
  * struct layouts and param arrays are freed, referenced types remain owned by
  * the global type table. */

@@ -2621,6 +2621,16 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
     LLVMValueRef llvm_index = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
     assert(llvm_index);
 
+    /* GEP indices are sign-extended to the pointer width, so zero-extend an unsigned index explicitly.
+     * Without this, a uint8 index of 200 would be used as -56. */
+    {
+        LLVMTypeRef index_llvm_type = LLVMTypeOf(llvm_index);
+        if (LLVMGetTypeKind(index_llvm_type) == LLVMIntegerTypeKind && LLVMGetIntTypeWidth(index_llvm_type) < 64) {
+            llvm_index = LLVMBuildZExt(cg->builder, llvm_index, LLVMInt64TypeInContext(cg->ctx), "index_zext");
+            assert(llvm_index);
+        }
+    }
+
     if (base_type->kind == PP_TK_Array) {
         LLVMTypeRef llvm_base_type = pp_environment_backend_lookup_type(cg, base_type);
         assert(llvm_base_type);
