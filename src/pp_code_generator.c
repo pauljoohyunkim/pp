@@ -4169,8 +4169,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_collection_init(PP_CodeGen
             free(const_vals);
             return result;
         } else {
-            LLVMValueRef undef_val = LLVMGetUndef(llvm_array_type);
-            LLVMValueRef result = undef_val;
+            // Remaining elements of an undersized initializer are zero-filled, per the initialization rules.
+            LLVMValueRef result = LLVMConstNull(llvm_array_type);
             for (unsigned int i = 0; i < node->collection_initializer.element_count; i++) {
                 LLVMValueRef elem_val = pp_code_generator_generate_rvalue(cg, symbol_table, env_b,
                                                                           node->collection_initializer.elements[i]);

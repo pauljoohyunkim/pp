@@ -2692,3 +2692,19 @@ TEST(CodeGenTest, NegativeEnumMemberUsesTwosComplement) {
     EXPECT_EQ(r.codegen_result, 1);
     assert_ir_contains(cg.get(), "ret i32 -2");
 }
+
+TEST(CodeGenTest, UndersizedArrayInitializerZeroFills) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let buf :: [uint8 : 8u] = [uint8 : 8u; 0uss];\n"
+        "    let i :: uint32 = 7u;\n"
+        "    return buf[i] as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Undersized initializers must zero-fill the remaining elements, not leave them undefined.
+    assert_ir_contains(cg.get(), "zeroinitializer");
+}
