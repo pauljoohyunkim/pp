@@ -1,0 +1,13 @@
+enum AESMode :: uint32 {
+    AES128 = 0u,
+    AES192 = 1u,
+    AES256 = 2u
+}
+
+struct AESCtx {
+    mode :: AESMode;
+    key :: [uint8 : 15u * 4u * 4u];
+    block :: [uint8 : 16u];
+}
+
+extern func aes_enc :: (ctx :: AESCtx&) -> void;

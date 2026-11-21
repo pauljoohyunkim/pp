@@ -1872,11 +1872,11 @@ TEST(CodeGenTest, PointerNullComparison) {
 
 TEST(CodeGenTest, PointerStaticArrayInterop) {
     const char* source =
-        "extern func pp_std_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
+        "extern func pp_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
         "func main :: () -> void {\n"
         "    let hello :: [uint8 : 6u] = @\"hello\";\n"
         "    let p :: ptr[uint8] = @hello as ptr[uint8];\n"
-        "    pp_std_print_c_str(p as ptr[const uint8]);\n"
+        "    pp_print_c_str(p as ptr[const uint8]);\n"
         "}\n";
     int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
     auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
@@ -1886,7 +1886,7 @@ TEST(CodeGenTest, PointerStaticArrayInterop) {
     EXPECT_EQ(semantic_errors, 0);
     EXPECT_EQ(codegen_result, 1);
     // Verify call to extern and pointer cast
-    assert_ir_contains(cg.get(), "pp_std_print_c_str");
+    assert_ir_contains(cg.get(), "pp_print_c_str");
     char* error_msg = nullptr;
     LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
     if (broken) {
@@ -1899,11 +1899,11 @@ TEST(CodeGenTest, PointerStaticArrayInterop) {
 
 TEST(CodeGenTest, PointerArrayElementAddress) {
     const char* source =
-        "extern func pp_std_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
+        "extern func pp_print_c_str :: (str :: ptr[const uint8]) -> void;\n"
         "func main :: () -> void {\n"
         "    let hello :: [uint8 : 6u] = @\"hello\";\n"
         "    let p :: ptr[uint8] = @hello[1u];\n"
-        "    pp_std_print_c_str(p as ptr[const uint8]);\n"
+        "    pp_print_c_str(p as ptr[const uint8]);\n"
         "}\n";
     int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
     auto cg = std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result), pp_code_generator_free);
@@ -2256,9 +2256,9 @@ TEST(CodeGenTest, HandleDropsOnEveryReturnPath) {
     const char* source = "handle File :: int32 drop pp_close;\n"
                          "extern func pp_close :: (fd :: int32) -> void;\n"
                          "extern func pp_open :: () -> File;\n"
-                         "func early :: (flag :: bool) -> int32 {\n"
+                         "func early :: (cond :: bool) -> int32 {\n"
                          "    let h :: File = pp_open();\n"
-                         "    if (flag) { return 1; }\n"
+                         "    if (cond) { return 1; }\n"
                          "    return 0;\n"
                          "}\n";
     int semantic_errors = 0, codegen_result = 0;
@@ -2439,3 +2439,649 @@ TEST(CodeGenTest, StructFieldAssignmentDropsOldValue) {
     EXPECT_GE(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
 }
 
+TEST(CodeGenTest, CharLiteralCodegen) {
+    const char* source =
+        "func main :: () -> uint8 { return 'A'; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "i8 65");
+}
+
+TEST(CodeGenTest, HexLiteralCodegen) {
+    const char* source =
+        "func main :: () -> uint32 { return 0x41u; }\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "i32 65");
+}
+
+/* ---------------------------------------------------------------------------
+ * Enums and flags.
+ * Declarations emit no IR; qualified constants fold to LLVMConstInt. Enum and
+ * flag values use the integer paths, so bit operations lower to or/and/xor/not.
+ * ------------------------------------------------------------------------- */
+
+TEST(CodeGenTest, EnumConstantReturnValue) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "func main :: () -> int32 { return Mode::Append as int32; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The qualified constant folds to its value; no declaration IR is emitted.
+    assert_ir_contains(cg.get(), "ret i32 5");
+    assert_ir_not_contains(cg.get(), "@Mode");
+}
+
+TEST(CodeGenTest, EnumReturnTypeAndEquality) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "func pick :: () -> Mode { return Mode::Append; }\n"
+        "func main :: () -> int32 {\n"
+        "    let m :: Mode = pick();\n"
+        "    if (m == Mode::Append) { return m as int32; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The nominal enum type lowers to its underlying integer type; comparison
+    // and widening cast use the integer instructions.
+    assert_ir_contains(cg.get(), "define i8 @pick()");
+    assert_ir_contains(cg.get(), "ret i8 5");
+    assert_ir_contains(cg.get(), "icmp eq i8");
+    assert_ir_contains(cg.get(), "zext i8");
+}
+
+TEST(CodeGenTest, FlagBinaryOrAndXor) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: Perms = Perms::Create | Perms::Truncate;\n"
+        "    let g :: Perms = f & Perms::Truncate;\n"
+        "    let h :: Perms = f ^ Perms::Create;\n"
+        "    return (g as int32) + (h as int32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "store i32 3");
+    assert_ir_contains(cg.get(), "and i32");
+    assert_ir_contains(cg.get(), "xor i32");
+}
+
+TEST(CodeGenTest, FlagComplement) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> int32 { let k :: Perms = ~Perms::Sync; return k as int32; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // ~1024 == -1025 in two's complement, folded into a single constant.
+    assert_ir_contains(cg.get(), "store i32 -1025");
+}
+
+TEST(CodeGenTest, FlagCompoundAssignments) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> int32 {\n"
+        "    let f :: Perms = Perms::none;\n"
+        "    f |= Perms::Create;\n"
+        "    f |= Perms::Truncate;\n"
+        "    f &= Perms::Create | Perms::Truncate;\n"
+        "    let x :: Perms = Perms::Create;\n"
+        "    x ^= Perms::Truncate;\n"
+        "    return (f as int32) + (x as int32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // `Perms::none` initializes with zero and each compound op reuses the
+    // integer binary path followed by a store back into the slot.
+    assert_ir_contains(cg.get(), "store i32 0");
+    assert_ir_contains(cg.get(), "or i32");
+    assert_ir_contains(cg.get(), "and i32");
+    assert_ir_contains(cg.get(), "xor i32");
+}
+
+TEST(CodeGenTest, FlagNoneComparison) {
+    const char* source =
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> int32 {\n"
+        "    let p :: Perms = 7 as Perms;\n"
+        "    if (p != Perms::none) { return 1; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "store i32 7");
+    assert_ir_contains(cg.get(), "icmp ne i32");
+    assert_ir_contains(cg.get(), ", 0");
+}
+
+TEST(CodeGenTest, EnumConstantInArraySizeAndLength) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "func main :: () -> int32 {\n"
+        "    let arr :: [uint8 : Mode::Append] = @\"AAAA\";\n"
+        "    let n :: uint32 = #arr as uint32;\n"
+        "    return n as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The enum constant resolves to 5 as the array bound and as the '#' result.
+    assert_ir_contains(cg.get(), "[5 x i8]");
+    assert_ir_contains(cg.get(), "store i32 5");
+}
+
+TEST(CodeGenTest, EnumFlagIntegerCasts) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> uint32 {\n"
+        "    let m :: Mode = Mode::Append;\n"
+        "    let a :: uint32 = m as uint32;\n"
+        "    let p :: Perms = 7 as Perms;\n"
+        "    return a + (p as uint32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Widening enum cast and integer->flag cast keep the underlying layout.
+    assert_ir_contains(cg.get(), "to i32");
+    assert_ir_contains(cg.get(), "store i32 7");
+}
+
+TEST(CodeGenTest, UnsignedWideningZeroExtends) {
+    const char* source =
+        "enum Mode :: uint8 { A = 200uss }\n"
+        "func main :: () -> int32 {\n"
+        "    let m :: Mode = Mode::A;\n"
+        "    let b :: uint8 = 200 as uint8;\n"
+        "    let s :: int8 = -1 as int8;\n"
+        "    let w1 :: uint32 = m as uint32;\n"
+        "    let w2 :: uint32 = b as uint32;\n"
+        "    let w3 :: int32 = s as int32;\n"
+        "    return (w1 + w2 + (w3 as uint32)) as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Unsigned sources (uint8 and an enum over uint8) widen with zext, signed sources with sext.
+    assert_ir_contains(cg.get(), "zext i8");
+    assert_ir_contains(cg.get(), "sext i8");
+}
+
+TEST(CodeGenTest, EnumFlagDebugInfo) {
+    const char* source =
+        "enum Mode :: uint8 { Read, Write, Append = 5uss }\n"
+        "flag Perms :: uint32 { Create = 1u, Truncate = 2u, Sync = 1u << 10u }\n"
+        "func main :: () -> int32 {\n"
+        "    let m :: Mode = Mode::Append;\n"
+        "    let p :: Perms = Perms::Create;\n"
+        "    return (m as int32) + (p as int32);\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source, true);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Enum and flag types both surface as DWARF enumeration types.
+    assert_ir_contains(cg.get(), "tag: DW_TAG_enumeration_type, name: \"Mode\"");
+    assert_ir_contains(cg.get(), "tag: DW_TAG_enumeration_type, name: \"Perms\"");
+    assert_ir_contains(cg.get(), "!DIEnumerator(name: \"Append\", value: 5");
+    assert_ir_contains(cg.get(), "!DIEnumerator(name: \"Sync\", value: 1024");
+}
+
+TEST(CodeGenTest, UnsignedIndexZeroExtends) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: [uint8 : 4u] = @\"abc\";\n"
+        "    let i :: uint8 = 200 as uint8;\n"
+        "    return a[i] as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // GEP indices are sign-extended by LLVM, so a uint8 index must be zero-extended explicitly.
+    assert_ir_contains(cg.get(), "zext i8");
+}
+
+TEST(CodeGenTest, NegativeEnumMemberUsesTwosComplement) {
+    const char* source =
+        "enum Delta :: int8 { Down = -2ss, Up = 1ss }\n"
+        "func main :: () -> int32 { return Delta::Down as int32; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "ret i32 -2");
+}
+
+TEST(CodeGenTest, UndersizedArrayInitializerZeroFills) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let buf :: [uint8 : 8u] = [uint8 : 8u; 0uss];\n"
+        "    let i :: uint32 = 7u;\n"
+        "    return buf[i] as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Undersized initializers must zero-fill the remaining elements, not leave them undefined.
+    assert_ir_contains(cg.get(), "zeroinitializer");
+}
+
+TEST(CodeGenTest, StringCopyDeepClonesBuffer) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let s1 :: string = \"hello\";\n"
+        "    let s2 :: string = s1;\n"
+        "    return #s2 as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // A string owns its buffer, so copying the descriptor must not alias it: the copy helper
+    // allocates a fresh buffer and terminates it instead of memcpy'ing the 16-byte pair.
+    assert_ir_contains(cg.get(), "call void @pp.copy.");
+    assert_ir_contains(cg.get(), "%str_copy_bytes = add i64 %src_str_len, 1");
+    assert_ir_contains(cg.get(), "%str_copy_data = call ptr @malloc(i64 %str_copy_bytes)");
+}
+
+TEST(CodeGenTest, StructLiteralCopiesOwnedLvalueField) {
+    const char* source =
+        "struct Person { name :: string; age :: int32; }\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"abc\";\n"
+        "    let p :: Person = Person { .name = a, .age = 1 };\n"
+        "    return #p.name as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // An owning field initialized from an l-value is copied into the aggregate, never aliased.
+    assert_ir_contains(cg.get(), "%struct_init_tmp = alloca");
+    assert_ir_contains(cg.get(), "call void @pp.copy.");
+    assert_ir_contains(cg.get(), "ptr %struct_init_field_ptr");
+}
+
+TEST(CodeGenTest, CollectionLiteralCopiesOwnedLvalueElement) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"abc\";\n"
+        "    let l :: [string] = [string; a];\n"
+        "    return #l[0u] as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // An owning element initialized from an l-value is copied into the backing buffer.
+    assert_ir_contains(cg.get(), "call void @pp.copy.");
+    assert_ir_contains(cg.get(), "ptr %list_elem_ptr");
+}
+
+TEST(CodeGenTest, ReturnMoveClearsTheReturnedLocalNotAnotherOne) {
+    const char* source =
+        "func mk :: () -> string {\n"
+        "    let a :: string = \"aaa\";\n"
+        "    let b :: string = \"bbb\";\n"
+        "    return b;\n"
+        "}\n"
+        "func main :: () -> int32 {\n"
+        "    let x :: string = mk();\n"
+        "    return #x as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Returning an owned local moves it: the value is read out before the source slot is cleared, and
+    // the cleared slot is the returned variable, not merely the first local of the same type.
+    assert_ir_contains(cg.get(), "%return_moved_value = load %pp.string, ptr %b");
+    assert_ir_contains(cg.get(), "store %pp.string zeroinitializer, ptr %b");
+}
+
+TEST(CodeGenTest, ReturnCopiesOwnedElement) {
+    const char* source =
+        "func pick :: () -> string {\n"
+        "    let l :: [string] = [string; \"abc\"];\n"
+        "    return l[0u];\n"
+        "}\n"
+        "func main :: () -> int32 {\n"
+        "    let x :: string = pick();\n"
+        "    return #x as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The list still owns the element, so it must be copied out before the list is dropped.
+    assert_ir_contains(cg.get(), "%return_copy_slot = alloca %pp.string");
+    assert_ir_contains(cg.get(), "%return_copied_value = load %pp.string, ptr %return_copy_slot");
+    assert_ir_not_contains(cg.get(), "%return_moved_value");
+}
+
+TEST(CodeGenTest, ByValueOwnedArgumentTransfersOwnership) {
+    const char* source =
+        "func sink :: (s :: string) -> void { }\n"
+        "func main :: () -> int32 {\n"
+        "    sink(\"x\" + \"y\");\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // A PP callee drops its by-value owning parameter, so the caller must not drop the materialized
+    // argument again.
+    assert_ir_contains(cg.get(), "%arg_tmp = alloca %pp.string");
+    assert_ir_not_contains(cg.get(), "(ptr %arg_tmp)");
+}
+
+TEST(CodeGenTest, ReturnFromNestedBlockAfterOuterLocal) {
+    const char* source =
+        "func f :: () -> string {\n"
+        "    let outer :: string = \"o\";\n"
+        "    { return \"x\"; }\n"
+        "}\n"
+        "func main :: () -> int32 {\n"
+        "    let x :: string = f();\n"
+        "    return #x as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // A return inside a nested block must not leak drop entries from the returning function into the
+    // next emitted function body (which previously produced non-dominating uses).
+    assert_ir_contains(cg.get(), "define %pp.string @f()");
+    assert_ir_contains(cg.get(), "define i32 @main()");
+}
+
+TEST(CodeGenTest, StatementAfterReturnIsSkipped) {
+    const char* source =
+        "func f :: () -> int32 {\n"
+        "    { return 1; }\n"
+        "    let x :: int32 = 2;\n"
+        "    return x;\n"
+        "}\n"
+        "func main :: () -> int32 { return f(); }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The statement after the return is unreachable and must not be emitted into a terminated block.
+    assert_ir_not_contains(cg.get(), "%x = alloca i32");
+}
+
+TEST(CodeGenTest, BreakDropsLoopBodyLocals) {
+    const char* source =
+        "func f :: () -> int32 {\n"
+        "    for (let i :: int32 = 0; i < 4; i += 1) {\n"
+        "        let s :: string = \"abcdef\";\n"
+        "        if (i == 2) { break; }\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // One drop on the break path, one when the body ends normally.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
+TEST(CodeGenTest, ContinueDropsLoopBodyLocals) {
+    const char* source =
+        "func f :: () -> int32 {\n"
+        "    for (let i :: int32 = 0; i < 4; i += 1) {\n"
+        "        let s :: string = \"abcdef\";\n"
+        "        if (i == 2) { continue; }\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // One drop on the continue path, one when the body ends normally.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
+TEST(CodeGenTest, TemporaryOwnedValueIsDropped) {
+    const char* source =
+        "func f :: () -> string { return \"abcd\"; }\n"
+        "func main :: () -> int32 {\n"
+        "    let n :: uint32 = #f();\n"
+        "    return n as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // An owned value that is only read is parked in a temporary and released at the end of the statement.
+    assert_ir_contains(cg.get(), "%owned_temp = alloca %pp.string");
+    assert_ir_contains(cg.get(), "call void @pp.drop.");
+}
+
+TEST(CodeGenTest, RvalueListIndexMaterializesBase) {
+    const char* source =
+        "func mk :: () -> [string] { return [string; \"e0\", \"e1\"]; }\n"
+        "func main :: () -> int32 {\n"
+        "    let s :: string = mk()[1u];\n"
+        "    return #s as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The base is materialized so the real index is applied, the element is copied out of it, and the
+    // base is released at the end of the statement.
+    assert_ir_contains(cg.get(), "%index_base_tmp = alloca %pp.list");
+    assert_ir_contains(cg.get(), "%index_elem_copy = alloca %pp.string");
+    assert_ir_contains(cg.get(), "(ptr %index_base_tmp)");
+}
+
+TEST(CodeGenTest, PushRvalueMovesIntoList) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let l :: [string] = [string; \"a\"];\n"
+        "    list_push(l, \"b\" + \"c\");\n"
+        "    return #l as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // An r-value element transfers ownership into the list; no copy helper is needed.
+    assert_ir_not_contains(cg.get(), "call void @pp.copy.");
+}
+
+TEST(CodeGenTest, ListPopMovesElementOut) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let l :: [string] = [string; \"aa\", \"bb\"];\n"
+        "    let s :: string = list_pop(l);\n"
+        "    return #s as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The popped slot leaves the list's live range, so its value is moved out, not copied.
+    assert_ir_contains(cg.get(), "%pop_elem = load %pp.string");
+    assert_ir_not_contains(cg.get(), "call void @pp.copy.");
+}
+
+TEST(CodeGenTest, MemberAccessOnOwnedRvalueMovesField) {
+    const char* source =
+        "struct P { name :: string; tag :: string; }\n"
+        "func mk :: () -> P { return P { .name = \"nm\", .tag = \"tg\" }; }\n"
+        "func main :: () -> int32 {\n"
+        "    let s :: string = mk().name;\n"
+        "    return #s as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The accessed field is moved out and its slot cleared, so the aggregate drop releases the rest.
+    assert_ir_contains(cg.get(), "%member_base_tmp = alloca %P");
+    assert_ir_contains(cg.get(), "%member_field_ptr = getelementptr inbounds nuw %P, ptr %member_base_tmp");
+    assert_ir_contains(cg.get(), "store %pp.string zeroinitializer, ptr %member_field_ptr");
+}
+
+TEST(CodeGenTest, ReferenceAssignmentOwnsReferent) {
+    const char* source =
+        "func set_from :: (r :: string&, src :: const string&) -> void {\n"
+        "    r = src;\n"
+        "}\n"
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"aa\";\n"
+        "    let b :: string = \"bb\";\n"
+        "    set_from(a, b);\n"
+        "    return #a as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Writing through a reference stores into the referent: the overwritten value is dropped and
+    // the source is copied, instead of emitting a store of the reference type.
+    assert_ir_contains(cg.get(), "%ref_deref = load ptr, ptr %r");
+    assert_ir_contains(cg.get(), "call void @pp.drop.");
+    assert_ir_contains(cg.get(), "call void @pp.copy.");
+}
+
+TEST(CodeGenTest, CompoundAssignRhsTemporaryIsDropped) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let s :: string = \"ab\";\n"
+        "    s += \"cd\";\n"
+        "    return #s as int32;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The right-hand side is read but never owned by the assignment, so it is released afterwards.
+    assert_ir_contains(cg.get(), "%owned_temp = alloca %pp.string");
+    assert_ir_contains(cg.get(), "(ptr %owned_temp)");
+}
+
+TEST(CodeGenTest, StringEqualityUsesLengthAndMemcmp) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"hello\";\n"
+        "    let b :: string = \"world\";\n"
+        "    if (a == b) { return 1; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Comparison is length-first, then a length-aware byte compare; the empty-string path skips memcmp so
+    // a {nullptr, 0} string never reaches libc.
+    assert_ir_contains(cg.get(), "str_len_eq");
+    assert_ir_contains(cg.get(), "str.eq.leneq");
+    assert_ir_contains(cg.get(), "str.eq.body");
+    assert_ir_contains(cg.get(), "str.eq.end");
+    assert_ir_contains(cg.get(), "%str_memcmp = call i32 @memcmp");
+    assert_ir_contains(cg.get(), "%str_bytes_eq = icmp eq i32 %str_memcmp, 0");
+}
+
+TEST(CodeGenTest, StringInequalityInvertsEquality) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"hello\";\n"
+        "    let b :: string = \"world\";\n"
+        "    if (a != b) { return 1; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // '!=' reuses the equality computation and negates its result.
+    assert_ir_contains(cg.get(), "%str_eq = phi i1");
+    assert_ir_contains(cg.get(), "%str_ne = xor i1 %str_eq, true");
+}
+
+TEST(CodeGenTest, StringEqualityEmptyLiteralSkipsMemcmpCall) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"\";\n"
+        "    if (a == \"\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The zero-length guard is a real branch, not a select, so the memcmp call is only reachable when both
+    // payloads are non-empty.
+    assert_ir_contains(cg.get(), "%str_len_zero = icmp eq i64");
+    assert_ir_contains(cg.get(), "br i1 %str_len_zero, label %str.eq.end, label %str.eq.body");
+}

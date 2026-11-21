@@ -2,25 +2,28 @@ ROOT := ../..
 PPLANG := $(ROOT)/bin/pplang
 PP_STD := $(ROOT)/lib/pp_std
 
-SRCS := main.pp
-HELPER_SRC := handle_demo.c
-HELPER_OBJ := handle_demo.o
+SRCS := $(wildcard *.pp)
+PPIS  := $(wildcard *.ppi)
 TARGET := handle_demo
-
-PPCFLAGSEXTRA ?=
 
 all: $(TARGET)
 
 $(PPLANG):
 	$(MAKE) -C $(ROOT)
 
-$(HELPER_OBJ): $(HELPER_SRC)
-	clang -g -O0 -I$(PP_STD)/include -c $(HELPER_SRC) -o $(HELPER_OBJ)
+$(PP_STD)/bin/pp_std.a:
+	$(MAKE) -C $(PP_STD)
 
-$(TARGET): $(PPLANG) $(SRCS) $(HELPER_OBJ)
-	$(PPLANG) $(PPCFLAGSEXTRA) $(SRCS) $(HELPER_OBJ) -o $@
+BASE_PPI := --ppi $(PP_STD)/extern/pp_io.ppi
+PPI_FLAGS := $(foreach f,$(PPIS),--ppi $(f))
+
+# Extra flags passed to pplang (e.g. -g, -O2)
+PPCFLAGSEXTRA ?=
+
+$(TARGET): $(PPLANG) $(SRCS) $(PPIS) $(PP_STD)/bin/pp_std.a
+	$(PPLANG) $(BASE_PPI) $(PPI_FLAGS) $(PPCFLAGSEXTRA) $(SRCS) $(PP_STD)/bin/pp_std.a -o $@
 
 clean:
-	rm -f $(TARGET) $(HELPER_OBJ) pp_handle_demo.txt
+	rm -f $(TARGET) *.txt
 
 .PHONY: all clean

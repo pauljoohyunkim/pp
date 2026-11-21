@@ -1,0 +1,4 @@
+
+typedef [uint8 : 16u] IV_COUNTER;
+
+extern func increment_iv_counter :: (nctr :: IV_COUNTER&) -> void;

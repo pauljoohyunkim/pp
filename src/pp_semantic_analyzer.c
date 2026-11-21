@@ -143,6 +143,10 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
 static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_handle_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_enum_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_flag_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_Node* expr, PPTypeKind underlying,
+                                         const PP_EnumMember* members, size_t member_count, unsigned long long* out);
 
 /* Pass II */
 static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa);
@@ -199,6 +203,7 @@ static int pp_semantic_analyzer_check_struct_initializer_expression(PP_SemanticA
                                                                     PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
                                                       PP_AST_Node* expr);
+static int pp_semantic_analyzer_check_qualified_constant_expression(PP_SemanticAnalyzer* sa, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_collection_initializer_expression(PP_SemanticAnalyzer* sa,
                                                                         PPSymbolTable* symbol_table, PP_AST_Node* expr);
 static int pp_semantic_analyzer_check_list_push(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
@@ -641,6 +646,39 @@ static int pp_semantic_check_static_string_size_mismatch(PP_SemanticAnalyzer* sa
     return 1;
 }
 
+/** @brief True when the (already decayed) type is a primitive integer kind.
+ * Call only on a decayed type: const/reference are not unwrapped here, and enum/flag newtypes are
+ * deliberately not integer primitives. */
+static bool pp_semantic_type_is_decayed_integer_primitive(const PPType* type) {
+    return type != NULL && pp_type_kind_is_integer(type->kind);
+}
+
+/** @brief Resolves `Type::Member` for an enum/flag type. Returns false when the type is unknown, is not an
+ * enum/flag, or the member does not exist. `Flag::none` is synthetic and yields 0. */
+static bool pp_semantic_lookup_qualified_constant_value(PP_SemanticAnalyzer* sa, const char* type_name,
+                                                        const char* member, unsigned long long* out_value,
+                                                        const PPType** out_type) {
+    assert(sa);
+    assert(type_name);
+    assert(member);
+    assert(out_value);
+
+    const PPType* type = pp_global_type_table_find_by_name(sa->gtt, type_name);
+    if (!type) type = pp_global_type_table_find_alias(sa->gtt, type_name);
+    if (!type || !pp_type_is_enum_or_flag(type)) return false;
+    if (out_type) *out_type = type;
+
+    if (pp_type_is_flag(type) && strcmp(member, "none") == 0) {
+        *out_value = 0;
+        return true;
+    }
+
+    const PP_EnumMember* found = pp_type_find_enum_member(type, member);
+    if (!found) return false;
+    *out_value = found->value;
+    return true;
+}
+
 static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_Node* simple_expr_node, size_t* val) {
     assert(sa);
     assert(simple_expr_node);
@@ -655,10 +693,11 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
             }
             const char* lex = simple_expr_node->literal.lexeme;
             PPTypeKind k = pp_type_parse_int_literal_suffix(lex, NULL);
-            bool is_unsigned = pp_type_kind_is_unsigned(k);
-            if (!is_unsigned) {
+            // Size literals must be one of the supported unsigned integer types (uint8 .. uint64); a signed
+            // literal or an unsupported unsigned width such as uint128 fails this membership test.
+            if (!pp_type_kind_is_unsigned_up_to_64(k)) {
                 pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
-                                         "For array size expression, literals can only be unsigned integer");
+                                         "For array size expression, literals must be uint8, uint16, uint32 or uint64");
                 goto error_cleanup;
             }
             char numbuf[PP_INT_LITERAL_NUMBUF_SIZE] = {0};
@@ -676,6 +715,40 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                 goto error_cleanup;
             }
             *val = (size_t)parsed_val;
+            return 1;
+        } break;
+        case PP_AST_QualifiedConstantNode: {
+            unsigned long long constant_value = 0;
+            const PPType* constant_type = NULL;
+            if (!pp_semantic_lookup_qualified_constant_value(sa, simple_expr_node->qualified_constant.type_name,
+                                                             simple_expr_node->qualified_constant.member,
+                                                             &constant_value, &constant_type)) {
+                pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
+                                         "Array size expression '%s::%s' is not a known enum or flag constant",
+                                         simple_expr_node->qualified_constant.type_name,
+                                         simple_expr_node->qualified_constant.member);
+                goto error_cleanup;
+            }
+            // A size is non-negative by construction: a constant of a signed enum could name a negative value,
+            // so only flags and enums with an unsigned underlying type are usable as sizes.
+            {
+                const PPType* constant_underlying = (constant_type && constant_type->kind == PP_TK_Newtype)
+                                                        ? constant_type->type.pp_type_newtype.underlying
+                                                        : NULL;
+                if (!constant_underlying || pp_type_kind_is_signed(constant_underlying->kind)) {
+                    pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
+                                             "Array size constant '%s::%s' must have an unsigned underlying type",
+                                             simple_expr_node->qualified_constant.type_name,
+                                             simple_expr_node->qualified_constant.member);
+                    goto error_cleanup;
+                }
+            }
+            if (constant_value > SIZE_MAX) {
+                pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
+                                         "Array size constant out of range for size_t");
+                goto error_cleanup;
+            }
+            *val = (size_t)constant_value;
             return 1;
         } break;
         case PP_AST_BinaryExpressionNode: {
@@ -1128,6 +1201,12 @@ static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa) {
             case PP_AST_HandleDeclarationNode:
                 pp_semantic_analyzer_build_global_table_handle_decl(sa, decl);
                 break;
+            case PP_AST_EnumDeclarationNode:
+                pp_semantic_analyzer_build_global_table_enum_decl(sa, decl);
+                break;
+            case PP_AST_FlagDeclarationNode:
+                pp_semantic_analyzer_build_global_table_flag_decl(sa, decl);
+                break;
             default:
                 assert(0 && "Semantic Analyzer Pass 1 default case. This should have been handled at parser.");
                 abort();
@@ -1142,8 +1221,8 @@ error_cleanup:
 
 static bool pp_semantic_analyzer_is_operator_symbol(const char* name) {
     if (!name) return false;
-    const char* const operator_symbols[] = {"+",  "-",  "*",  "/",  "%", "&", "|",  "^",
-                                            "<<", ">>", "==", "!=", "<", ">", "<=", ">="};
+    const char* const operator_symbols[] = {"+",  "-",  "*",  "/", "%", "&",  "|",  "^", "<<",
+                                            ">>", "==", "!=", "<", ">", "<=", ">=", "~"};
     for (size_t i = 0; i < sizeof(operator_symbols) / sizeof(operator_symbols[0]); i++) {
         if (strcmp(name, operator_symbols[i]) == 0) return true;
     }
@@ -1335,6 +1414,7 @@ static int pp_builtin_binary_supported(const char* op, PPTypeKind lk, PPTypeKind
     if (strcmp(op, "==") == 0 || strcmp(op, "!=") == 0) {
         if (lk == PP_TK_Bool && rk == PP_TK_Bool) return 1;
         if (lk == PP_TK_Float && rk == PP_TK_Float) return 1;
+        if (lk == PP_TK_String && rk == PP_TK_String) return 1;
         const PPTypeKind kinds[] = {PP_TK_Int8,   PP_TK_UInt8, PP_TK_Int16,  PP_TK_UInt16, PP_TK_Int32,
                                     PP_TK_UInt32, PP_TK_Int64, PP_TK_UInt64, PP_TK_Int128, PP_TK_UInt128};
         for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
@@ -1372,6 +1452,7 @@ static int pp_builtin_unary_supported(const char* op, PPTypeKind lk) {
         return 0;
     }
     if (strcmp(op, "!") == 0) { return lk == PP_TK_Bool; }
+    if (strcmp(op, "~") == 0) { return pp_type_kind_is_integer(lk); }
     return 0;
 }
 
@@ -1464,6 +1545,17 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
         decayed_p[i] = decayed;
     }
 
+    // Enum and flag types are closed sets: their operators are built in, so a user operator may not mention
+    // them at all. Rejecting at declaration also prevents silently overriding built-in ==/!=/|/&/^/~ through the
+    // decoration's resolved_operator_callable lookup.
+    if (pp_semantic_analyzer_is_operator_symbol(node->callable_declaration.name) &&
+        ((decayed_p[0] && pp_type_is_enum_or_flag(decayed_p[0])) ||
+         (decayed_p[1] && pp_type_is_enum_or_flag(decayed_p[1])))) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Operator '%s' cannot be declared for enum or flag types.",
+                                 node->callable_declaration.name);
+        goto error_cleanup;
+    }
+
     if (pp_semantic_analyzer_is_operator_symbol(node->callable_declaration.name) &&
         node->callable_declaration.param_count >= 2 && decayed_p[0] && decayed_p[1]) {
         if (pp_builtin_binary_supported(node->callable_declaration.name, decayed_p[0]->kind, decayed_p[1]->kind)) {
@@ -1476,7 +1568,9 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
 
     if (pp_semantic_analyzer_is_operator_symbol(node->callable_declaration.name) &&
         node->callable_declaration.param_count == 1 && decayed_p[0]) {
-        if (pp_builtin_unary_supported(node->callable_declaration.name, decayed_p[0]->kind)) {
+        const bool redefines_builtin_unary =
+            pp_builtin_unary_supported(node->callable_declaration.name, decayed_p[0]->kind);
+        if (redefines_builtin_unary) {
             pp_error_list_push_error(sa->error_list, node->loc,
                                      "Operator '%s' cannot redefine supported built-in unary operator.",
                                      node->callable_declaration.name);
@@ -1840,6 +1934,29 @@ static int pp_semantic_analyzer_build_global_table_extern_operator_decl(PP_Seman
                                      node->extern_callable_declaration.name);
             goto error_cleanup;
         }
+        // Enum and flag operators are built in, so an extern operator may not mention them either.
+        const PPType* decayed_param = pp_type_decay(sa->gtt, param_type);
+        if (!decayed_param) goto error_cleanup;
+        if (pp_type_is_enum_or_flag(decayed_param)) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Operator '%s' cannot be declared for enum or flag types.",
+                                     node->extern_callable_declaration.name);
+            goto error_cleanup;
+        }
+    }
+    // Builtin operator pairs are reserved: an extern operator may not silently take them over through the
+    // decoration's resolved_operator_callable lookup, which would bypass the generated builtin semantics.
+    if (node->extern_callable_declaration.param_count == 2) {
+        const PPType* decayed_p0 = pp_type_decay(sa->gtt, tmp_func->type.pp_type_operator.param_types[0]);
+        if (!decayed_p0) goto error_cleanup;
+        const PPType* decayed_p1 = pp_type_decay(sa->gtt, tmp_func->type.pp_type_operator.param_types[1]);
+        if (!decayed_p1) goto error_cleanup;
+        if (pp_builtin_binary_supported(node->extern_callable_declaration.name, decayed_p0->kind, decayed_p1->kind)) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Operator '%s' cannot redefine supported built-in operator pair.",
+                                     node->extern_callable_declaration.name);
+            goto error_cleanup;
+        }
     }
     if (pp_type_is_reference(return_type)) {
         pp_error_list_push_error(sa->error_list, node->loc, "Operator '%s' return type must be non-reference.",
@@ -2143,6 +2260,363 @@ error_cleanup:
     return 0;
 }
 
+/** @brief True when a flag value is a valid composite: a single bit, or the OR of the earlier members that
+ * intersect it. Keeps composite members (e.g. `ReadWrite = Read | Write`) legal while rejecting arbitrary
+ * values. */
+static bool pp_semantic_flag_value_is_combination(const PP_EnumMember* members, size_t member_count,
+                                                  unsigned long long value) {
+    if (value == 0) return false;
+    if ((value & (value - 1)) == 0) return true;
+
+    unsigned long long combined = 0;
+    for (size_t i = 0; i < member_count; i++) {
+        if ((members[i].value & value) != 0) combined |= members[i].value;
+    }
+    return combined == value;
+}
+
+/** @brief Name of an integer primitive kind, for member-value diagnostics. */
+static const char* pp_semantic_integer_kind_name(PPTypeKind kind) {
+    switch (kind) {
+        case PP_TK_Int8:
+            return "int8";
+        case PP_TK_UInt8:
+            return "uint8";
+        case PP_TK_Int16:
+            return "int16";
+        case PP_TK_UInt16:
+            return "uint16";
+        case PP_TK_Int32:
+            return "int32";
+        case PP_TK_UInt32:
+            return "uint32";
+        case PP_TK_Int64:
+            return "int64";
+        case PP_TK_UInt64:
+            return "uint64";
+        case PP_TK_Int128:
+            return "int128";
+        case PP_TK_UInt128:
+            return "uint128";
+        default:
+            return "non-integer";
+    }
+}
+
+/** @brief Bit width of an integer primitive kind (0 when the kind is not an integer primitive). */
+static unsigned int pp_semantic_integer_kind_width(PPTypeKind kind) {
+    switch (kind) {
+        case PP_TK_Int8:
+        case PP_TK_UInt8:
+            return 8;
+        case PP_TK_Int16:
+        case PP_TK_UInt16:
+            return 16;
+        case PP_TK_Int32:
+        case PP_TK_UInt32:
+            return 32;
+        case PP_TK_Int64:
+        case PP_TK_UInt64:
+            return 64;
+        default:
+            return 0;
+    }
+}
+
+/** @brief Mask of the value bits of a kind. Member values are kept inside this range, so the operations on them
+ * behave like arithmetic in the underlying type (modular for unsigned, two's complement for signed). */
+static unsigned long long pp_semantic_integer_value_mask(PPTypeKind kind) {
+    unsigned int width = pp_semantic_integer_kind_width(kind);
+    if (width == 0) return 0;
+    if (width >= 64) return UINT64_MAX;
+    return (1ULL << width) - 1;
+}
+
+/** @brief Interpret the low `width` bits of `bits` as a signed value of `kind`. */
+static long long pp_semantic_signed_value(PPTypeKind kind, unsigned long long bits) {
+    unsigned int width = pp_semantic_integer_kind_width(kind);
+    if (width == 0 || width >= 64) return (long long)bits;
+    unsigned long long sign_bit = 1ULL << (width - 1);
+    unsigned long long mask = (1ULL << width) - 1;
+    return (bits & sign_bit) ? (long long)(bits | ~mask) : (long long)bits;
+}
+
+/** @brief Largest value representable by the signed kind `kind`. */
+static long long pp_semantic_signed_max(PPTypeKind kind) {
+    unsigned int width = pp_semantic_integer_kind_width(kind);
+    if (width == 0 || width >= 64) return INT64_MAX;
+    return (1LL << (width - 1)) - 1;
+}
+
+/** @brief Compare two member values in the value domain of `kind` (signed kinds compare as signed). */
+static int pp_semantic_int_value_compare(PPTypeKind kind, unsigned long long a, unsigned long long b) {
+    if (pp_type_kind_is_signed(kind)) {
+        long long sa = pp_semantic_signed_value(kind, a);
+        long long sb = pp_semantic_signed_value(kind, b);
+        return (sa < sb) ? -1 : (sa > sb ? 1 : 0);
+    }
+    return (a < b) ? -1 : (a > b ? 1 : 0);
+}
+
+/** @brief Whether a non-negative literal value fits the value range of `kind`. A literal is checked before it is
+ * masked, so `300uss` (uint8) is an error rather than a silently wrapped 44. */
+static bool pp_semantic_int_literal_fits(PPTypeKind kind, unsigned long long value) {
+    switch (kind) {
+        case PP_TK_Int8:
+            return value <= INT8_MAX;
+        case PP_TK_UInt8:
+            return value <= UINT8_MAX;
+        case PP_TK_Int16:
+            return value <= INT16_MAX;
+        case PP_TK_UInt16:
+            return value <= UINT16_MAX;
+        case PP_TK_Int32:
+            return value <= INT32_MAX;
+        case PP_TK_UInt32:
+            return value <= UINT32_MAX;
+        case PP_TK_Int64:
+            return value <= (unsigned long long)INT64_MAX;
+        case PP_TK_UInt64:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/**
+ * Enum/Flag constant evaluation checklist (typed):
+ * [x] Every explicit member value is a constant expression whose type is exactly the underlying type.
+ * [x] An integer literal must carry the suffix of the underlying type; a char literal is a uint8 constant and
+ *     therefore requires a uint8 underlying type.
+ * [x] Unary '-' and '~', binary + - * / % << >> | & ^ with zero-division and shift-range checks.
+ * [x] Results are masked to the width of the underlying type, i.e. modular/two's-complement arithmetic.
+ * [x] Negative values are representable when the underlying type is signed.
+ * [x] Anything else is rejected (earlier members of the same flag body are the only identifiers).
+ */
+static int pp_semantic_eval_int_constant(PP_SemanticAnalyzer* sa, const PP_AST_Node* expr, PPTypeKind underlying,
+                                         const PP_EnumMember* members, size_t member_count, unsigned long long* out) {
+    assert(sa);
+    assert(expr);
+    assert(out);
+
+    const unsigned long long value_mask = pp_semantic_integer_value_mask(underlying);
+    const unsigned int width = pp_semantic_integer_kind_width(underlying);
+    const bool is_signed = pp_type_kind_is_signed(underlying);
+
+    switch (expr->node_type) {
+        case PP_AST_LiteralNode: {
+            if (expr->literal.literal_type == PP_TT_CHAR_LITERAL) {
+                // Character literals are uint8 constants, so only a uint8-backed enum or flag can use them.
+                if (underlying != PP_TK_UInt8) {
+                    pp_error_list_push_error(sa->error_list, expr->loc,
+                                             "Character literal member values require a uint8 underlying type, not "
+                                             "'%s'",
+                                             pp_semantic_integer_kind_name(underlying));
+                    goto error_cleanup;
+                }
+                const char* lexeme = expr->literal.lexeme;
+                if (!lexeme || lexeme[0] != '\'' || strlen(lexeme) < 3) {
+                    pp_error_list_push_error(sa->error_list, expr->loc, "Invalid char literal");
+                    goto error_cleanup;
+                }
+                unsigned long long char_value = 0;
+                if (lexeme[1] == '\\') {
+                    switch (lexeme[2]) {
+                        case 'n':
+                            char_value = '\n';
+                            break;
+                        case 't':
+                            char_value = '\t';
+                            break;
+                        case 'r':
+                            char_value = '\r';
+                            break;
+                        case '0':
+                            char_value = 0;
+                            break;
+                        case '\'':
+                            char_value = '\'';
+                            break;
+                        case '\\':
+                            char_value = '\\';
+                            break;
+                        case 'x': {
+                            if (strlen(lexeme) < 5) {
+                                pp_error_list_push_error(sa->error_list, expr->loc, "Invalid escape in char literal");
+                                goto error_cleanup;
+                            }
+                            char hex[3] = {lexeme[3], lexeme[4], 0};
+                            char* hex_end = NULL;
+                            long hex_value = strtol(hex, &hex_end, 16);
+                            if (hex_end == hex) {
+                                pp_error_list_push_error(sa->error_list, expr->loc, "Invalid escape in char literal");
+                                goto error_cleanup;
+                            }
+                            char_value = (unsigned long long)(unsigned char)hex_value;
+                            break;
+                        }
+                        default:
+                            char_value = (unsigned long long)(unsigned char)lexeme[2];
+                            break;
+                    }
+                } else {
+                    char_value = (unsigned long long)(unsigned char)lexeme[1];
+                }
+                *out = char_value;
+                return 1;
+            }
+
+            if (expr->literal.literal_type != PP_TT_INTEGER_LITERAL) {
+                pp_error_list_push_error(sa->error_list, expr->loc, "Value must be a constant integer expression");
+                goto error_cleanup;
+            }
+
+            char numbuf[PP_INT_LITERAL_NUMBUF_SIZE] = {0};
+            PPTypeKind literal_kind = pp_type_parse_int_literal_suffix(expr->literal.lexeme, numbuf);
+            if (literal_kind != underlying) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "Member value type '%s' does not match the underlying type '%s'",
+                                         pp_semantic_integer_kind_name(literal_kind),
+                                         pp_semantic_integer_kind_name(underlying));
+                goto error_cleanup;
+            }
+
+            char* endptr = NULL;
+            errno = 0;
+            // PP has no octal literals: only the 0x/0X prefix selects base 16, a leading zero stays decimal.
+            const int base = (numbuf[0] == '0' && (numbuf[1] == 'x' || numbuf[1] == 'X')) ? 16 : 10;
+            unsigned long long value = strtoull(numbuf, &endptr, base);
+            if (errno != 0 || endptr == numbuf || (endptr && *endptr != '\0')) {
+                pp_error_list_push_error(sa->error_list, expr->loc, "Could not parse constant integer literal");
+                goto error_cleanup;
+            }
+            if (!pp_semantic_int_literal_fits(underlying, value)) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "Member value is out of range for the underlying type '%s'",
+                                         pp_semantic_integer_kind_name(underlying));
+                goto error_cleanup;
+            }
+            *out = value;
+            return 1;
+        } break;
+        case PP_AST_IdentifierNode: {
+            // Earlier members of the same flag body are visible, so composites such as
+            // `ReadWrite = Read | Write` are expressible.
+            const char* name = expr->identifier.identifier;
+            for (size_t i = 0; i < member_count; i++) {
+                if (members[i].name && name && strcmp(members[i].name, name) == 0) {
+                    *out = members[i].value;
+                    return 1;
+                }
+            }
+            pp_error_list_push_error(sa->error_list, expr->loc, "Value must be a constant integer expression");
+            goto error_cleanup;
+        } break;
+        case PP_AST_UnaryExpressionNode: {
+            unsigned long long operand = 0;
+            if (!pp_semantic_eval_int_constant(sa, expr->unary_expression.operand, underlying, members, member_count,
+                                               &operand))
+                goto error_cleanup;
+            switch (expr->unary_expression.op) {
+                case PP_TT_MINUS:
+                    *out = (0ULL - operand) & value_mask;
+                    return 1;
+                case PP_TT_TILDE:
+                    *out = (~operand) & value_mask;
+                    return 1;
+                default:
+                    pp_error_list_push_error(sa->error_list, expr->loc, "Value must be a constant integer expression");
+                    goto error_cleanup;
+            }
+        } break;
+        case PP_AST_BinaryExpressionNode: {
+            unsigned long long left = 0;
+            unsigned long long right = 0;
+            if (!pp_semantic_eval_int_constant(sa, expr->binary_expression.left, underlying, members, member_count,
+                                               &left))
+                goto error_cleanup;
+            if (!pp_semantic_eval_int_constant(sa, expr->binary_expression.right, underlying, members, member_count,
+                                               &right))
+                goto error_cleanup;
+
+            unsigned long long result = 0;
+            switch (expr->binary_expression.op) {
+                case PP_TT_PLUS:
+                    result = left + right;
+                    break;
+                case PP_TT_MINUS:
+                    result = left - right;
+                    break;
+                case PP_TT_STAR:
+                    result = left * right;
+                    break;
+                case PP_TT_SLASH:
+                    if (right == 0) {
+                        pp_error_list_push_error(sa->error_list, expr->loc, "Division by zero in constant value");
+                        goto error_cleanup;
+                    }
+                    if (is_signed) {
+                        result = (unsigned long long)(pp_semantic_signed_value(underlying, left) /
+                                                      pp_semantic_signed_value(underlying, right));
+                    } else {
+                        result = left / right;
+                    }
+                    break;
+                case PP_TT_PERCENT:
+                    if (right == 0) {
+                        pp_error_list_push_error(sa->error_list, expr->loc, "Modulo by zero in constant value");
+                        goto error_cleanup;
+                    }
+                    if (is_signed) {
+                        result = (unsigned long long)(pp_semantic_signed_value(underlying, left) %
+                                                      pp_semantic_signed_value(underlying, right));
+                    } else {
+                        result = left % right;
+                    }
+                    break;
+                case PP_TT_LESS_LESS:
+                    if (right >= width) {
+                        pp_error_list_push_error(sa->error_list, expr->loc, "Shift amount too large in constant value");
+                        goto error_cleanup;
+                    }
+                    result = left << right;
+                    break;
+                case PP_TT_GREATER_GREATER:
+                    if (right >= width) {
+                        pp_error_list_push_error(sa->error_list, expr->loc, "Shift amount too large in constant value");
+                        goto error_cleanup;
+                    }
+                    if (is_signed) {
+                        result = (unsigned long long)(pp_semantic_signed_value(underlying, left) >> right);
+                    } else {
+                        result = left >> right;
+                    }
+                    break;
+                case PP_TT_BAR:
+                    result = left | right;
+                    break;
+                case PP_TT_AMPERSAND:
+                    result = left & right;
+                    break;
+                case PP_TT_CARET:
+                    result = left ^ right;
+                    break;
+                default:
+                    pp_error_list_push_error(sa->error_list, expr->loc, "Value must be a constant integer expression");
+                    goto error_cleanup;
+            }
+            *out = result & value_mask;
+            return 1;
+        } break;
+        default:
+            pp_error_list_push_error(sa->error_list, expr->loc, "Value must be a constant integer expression");
+            goto error_cleanup;
+    }
+
+error_cleanup:
+    return 0;
+}
+
 /* Pass 1 - Newtype Declaration Checklist:
  * [x] Ensure base type is defined
  * [x] Ensure base type is not const or reference
@@ -2210,6 +2684,315 @@ static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnaly
     return 1;
 
 error_cleanup:
+    pp_type_free(nt);
+    return 0;
+}
+
+/*
+ * Enum Declaration Checklist (Pass 1):
+ * [x] Reject duplicate type name (aliases and named types share the namespace).
+ * [x] Resolve the explicit underlying type; it must be an integer primitive.
+ * [x] Reject const / reference underlying.
+ * [x] Reject duplicate member names.
+ * [x] Evaluate explicit member values as integer constant expressions.
+ * [x] Auto values: first 0, then previous + 1.
+ * [x] Values must be strictly increasing and fit the underlying type.
+ * [x] Intern a PP_TK_Newtype tagged PP_ENUM_KIND_ENUM and register it as a named type.
+ */
+static int pp_semantic_analyzer_build_global_table_enum_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    PPType* nt = NULL;
+    PP_EnumMember* members = NULL;
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_EnumDeclarationNode);
+
+    const char* enum_name = node->enum_declaration.identifier;
+    unsigned int member_count = node->enum_declaration.member_count;
+
+    if (pp_global_type_table_find_alias(sa->gtt, enum_name) || pp_global_type_table_find_by_name(sa->gtt, enum_name)) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Type '%s' previously defined", enum_name);
+        goto error_cleanup;
+    }
+
+    const PPType* underlying = pp_type_from_type_node(sa, node->enum_declaration.underlying_type);
+    if (!underlying) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Invalid underlying type for enum '%s'", enum_name);
+        goto error_cleanup;
+    }
+
+    if (pp_type_is_const(underlying) || pp_type_is_reference(underlying)) {
+        pp_error_list_push_error(sa->error_list, node->loc,
+                                 "Underlying type for enum '%s' cannot be const or a reference", enum_name);
+        goto error_cleanup;
+    }
+
+    if (!pp_type_kind_is_integer(underlying->kind)) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Underlying type for enum '%s' must be an integer type",
+                                 enum_name);
+        goto error_cleanup;
+    }
+
+    // Member values are evaluated as 64-bit unsigned quantities, so a wider underlying type would be
+    // nominally supported only.
+    if (underlying->kind == PP_TK_Int128 || underlying->kind == PP_TK_UInt128) {
+        pp_error_list_push_error(sa->error_list, node->loc,
+                                 "Underlying type for enum '%s' must be a 64-bit-or-smaller integer type", enum_name);
+        goto error_cleanup;
+    }
+
+    if (member_count > 0) {
+        members = (PP_EnumMember*)calloc(member_count, sizeof(PP_EnumMember));
+        if (!members) {
+            pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate members for enum '%s'", enum_name);
+            goto error_cleanup;
+        }
+    }
+
+    unsigned long long previous_value = 0;
+    bool has_previous = false;
+    unsigned long long value = 0;
+
+    for (unsigned int i = 0; i < member_count; i++) {
+        const char* member_name = node->enum_declaration.member_names[i];
+        for (unsigned int j = 0; j < i; j++) {
+            if (strcmp(members[j].name, member_name) == 0) {
+                pp_error_list_push_error(sa->error_list, node->loc, "Duplicate enum member '%s' in enum '%s'",
+                                         member_name, enum_name);
+                goto error_cleanup;
+            }
+        }
+
+        if (node->enum_declaration.member_value_exprs[i]) {
+            if (!pp_semantic_eval_int_constant(sa, node->enum_declaration.member_value_exprs[i], underlying->kind,
+                                               members, i, &value)) {
+                goto error_cleanup;
+            }
+        } else if (!has_previous) {
+            value = 0;
+        } else if (pp_type_kind_is_signed(underlying->kind)) {
+            long long previous_signed = pp_semantic_signed_value(underlying->kind, previous_value);
+            if (previous_signed == pp_semantic_signed_max(underlying->kind)) {
+                pp_error_list_push_error(sa->error_list, node->loc,
+                                         "Enum member '%s' value overflows the underlying type", member_name);
+                goto error_cleanup;
+            }
+            value = pp_semantic_integer_value_mask(underlying->kind) & (unsigned long long)(previous_signed + 1);
+        } else {
+            unsigned long long max_unsigned = pp_semantic_integer_value_mask(underlying->kind);
+            if (previous_value == max_unsigned) {
+                pp_error_list_push_error(sa->error_list, node->loc,
+                                         "Enum member '%s' value overflows the underlying type", member_name);
+                goto error_cleanup;
+            }
+            value = previous_value + 1;
+        }
+
+        if (has_previous && pp_semantic_int_value_compare(underlying->kind, value, previous_value) <= 0) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Enum member '%s' value must be strictly greater than the previous member",
+                                     member_name);
+            goto error_cleanup;
+        }
+
+        members[i].name = member_name;
+        members[i].value = value;
+        previous_value = value;
+        has_previous = true;
+    }
+
+    nt = pp_type_create(PP_TK_Newtype);
+    if (!nt) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate type for enum '%s'", enum_name);
+        goto error_cleanup;
+    }
+    nt->type.pp_type_newtype.name = enum_name;
+    nt->type.pp_type_newtype.underlying = underlying;
+    nt->type.pp_type_newtype.enum_kind = PP_ENUM_KIND_ENUM;
+    nt->type.pp_type_newtype.members = members;
+    nt->type.pp_type_newtype.member_count = member_count;
+    members = NULL;  // ownership transferred to the type
+
+    const PPType* interned = pp_global_type_table_intern(sa->gtt, nt);
+    if (!interned) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Failed to intern enum '%s'", enum_name);
+        goto error_cleanup;
+    }
+    nt = NULL;  // ownership transferred to GTT
+
+    if (!pp_global_type_table_register_named(sa->gtt, enum_name, interned)) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Failed to register enum '%s'", enum_name);
+        goto error_cleanup;
+    }
+
+    return 1;
+
+error_cleanup:
+    free(members);
+    pp_type_free(nt);
+    return 0;
+}
+
+/*
+ * Flag Declaration Checklist (Pass 1):
+ * [x] Reject duplicate type name (aliases and named types share the namespace).
+ * [x] Resolve the explicit underlying type; it must be an unsigned integer primitive.
+ * [x] Reject const / reference underlying.
+ * [x] Reject duplicate member names and the reserved member name 'none'.
+ * [x] Evaluate explicit member values as integer constant expressions.
+ * [x] Auto values: first 1, then the next power of two greater than the previous member.
+ * [x] Explicit 0 is rejected; composites must be a single bit or the OR of earlier members.
+ * [x] Values must be strictly increasing and fit the underlying type.
+ * [x] Intern a PP_TK_Newtype tagged PP_ENUM_KIND_FLAG and register it as a named type.
+ */
+static int pp_semantic_analyzer_build_global_table_flag_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    PPType* nt = NULL;
+    PP_EnumMember* members = NULL;
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_FlagDeclarationNode);
+
+    const char* flag_name = node->flag_declaration.identifier;
+    unsigned int member_count = node->flag_declaration.member_count;
+
+    if (pp_global_type_table_find_alias(sa->gtt, flag_name) || pp_global_type_table_find_by_name(sa->gtt, flag_name)) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Type '%s' previously defined", flag_name);
+        goto error_cleanup;
+    }
+
+    const PPType* underlying = pp_type_from_type_node(sa, node->flag_declaration.underlying_type);
+    if (!underlying) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Invalid underlying type for flag '%s'", flag_name);
+        goto error_cleanup;
+    }
+
+    if (pp_type_is_const(underlying) || pp_type_is_reference(underlying)) {
+        pp_error_list_push_error(sa->error_list, node->loc,
+                                 "Underlying type for flag '%s' cannot be const or a reference", flag_name);
+        goto error_cleanup;
+    }
+
+    if (!pp_type_kind_is_integer(underlying->kind)) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Underlying type for flag '%s' must be an integer type",
+                                 flag_name);
+        goto error_cleanup;
+    }
+
+    if (!pp_type_kind_is_unsigned(underlying->kind)) {
+        pp_error_list_push_error(sa->error_list, node->loc,
+                                 "Underlying type for flag '%s' must be an unsigned integer type", flag_name);
+        goto error_cleanup;
+    }
+
+    // Member values are evaluated as 64-bit unsigned quantities, so a wider underlying type would be
+    // nominally supported only.
+    if (underlying->kind == PP_TK_UInt128) {
+        pp_error_list_push_error(sa->error_list, node->loc,
+                                 "Underlying type for flag '%s' must be a 64-bit-or-smaller integer type", flag_name);
+        goto error_cleanup;
+    }
+
+    if (member_count > 0) {
+        members = (PP_EnumMember*)calloc(member_count, sizeof(PP_EnumMember));
+        if (!members) {
+            pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate members for flag '%s'", flag_name);
+            goto error_cleanup;
+        }
+    }
+
+    unsigned long long previous_value = 0;
+    bool has_previous = false;
+    unsigned long long value = 0;
+    bool is_explicit = false;
+
+    for (unsigned int i = 0; i < member_count; i++) {
+        const char* member_name = node->flag_declaration.member_names[i];
+        if (strcmp(member_name, "none") == 0) {
+            pp_error_list_push_error(sa->error_list, node->loc, "Flag member name 'none' is reserved in flag '%s'",
+                                     flag_name);
+            goto error_cleanup;
+        }
+        for (unsigned int j = 0; j < i; j++) {
+            if (strcmp(members[j].name, member_name) == 0) {
+                pp_error_list_push_error(sa->error_list, node->loc, "Duplicate flag member '%s' in flag '%s'",
+                                         member_name, flag_name);
+                goto error_cleanup;
+            }
+        }
+
+        is_explicit = node->flag_declaration.member_value_exprs[i] != NULL;
+        if (is_explicit) {
+            if (!pp_semantic_eval_int_constant(sa, node->flag_declaration.member_value_exprs[i], underlying->kind,
+                                               members, i, &value)) {
+                goto error_cleanup;
+            }
+        } else if (!has_previous) {
+            value = 1;
+        } else {
+            if (previous_value >= (UINT64_MAX >> 1) + 1) {
+                pp_error_list_push_error(sa->error_list, node->loc,
+                                         "Flag member '%s' value overflows the underlying type", member_name);
+                goto error_cleanup;
+            }
+            unsigned long long next_value = 1;
+            while (next_value <= previous_value) next_value <<= 1;
+            value = next_value;
+        }
+
+        if (!pp_semantic_int_literal_fits(underlying->kind, value)) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Flag member '%s' value is out of range for the underlying type", member_name);
+            goto error_cleanup;
+        }
+
+        if (has_previous && pp_semantic_int_value_compare(underlying->kind, value, previous_value) <= 0) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Flag member '%s' value must be strictly greater than the previous member",
+                                     member_name);
+            goto error_cleanup;
+        }
+
+        if (is_explicit && !pp_semantic_flag_value_is_combination(members, i, value)) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Flag member '%s' value must be a single bit or a combination of earlier "
+                                     "members",
+                                     member_name);
+            goto error_cleanup;
+        }
+
+        members[i].name = member_name;
+        members[i].value = value;
+        previous_value = value;
+        has_previous = true;
+    }
+
+    nt = pp_type_create(PP_TK_Newtype);
+    if (!nt) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate type for flag '%s'", flag_name);
+        goto error_cleanup;
+    }
+    nt->type.pp_type_newtype.name = flag_name;
+    nt->type.pp_type_newtype.underlying = underlying;
+    nt->type.pp_type_newtype.enum_kind = PP_ENUM_KIND_FLAG;
+    nt->type.pp_type_newtype.members = members;
+    nt->type.pp_type_newtype.member_count = member_count;
+    members = NULL;  // ownership transferred to the type
+
+    const PPType* interned = pp_global_type_table_intern(sa->gtt, nt);
+    if (!interned) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Failed to intern flag '%s'", flag_name);
+        goto error_cleanup;
+    }
+    nt = NULL;  // ownership transferred to GTT
+
+    if (!pp_global_type_table_register_named(sa->gtt, flag_name, interned)) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Failed to register flag '%s'", flag_name);
+        goto error_cleanup;
+    }
+
+    return 1;
+
+error_cleanup:
+    free(members);
     pp_type_free(nt);
     return 0;
 }
@@ -2566,6 +3349,12 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
                 break;
             case PP_AST_HandleDeclarationNode:
                 pp_semantic_analyzer_full_analyze_handle_decl(sa, decl);
+                break;
+            case PP_AST_EnumDeclarationNode:
+                // Nothing to do
+                break;
+            case PP_AST_FlagDeclarationNode:
+                // Nothing to do
                 break;
             case PP_AST_ExternCallableDeclarationNode:
                 // Skip extern declarations in Pass 2
@@ -3563,6 +4352,11 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
         goto error_cleanup;
     }
 
+    // Flags are closed under |, & and ^, so the corresponding compound forms are legal on a flag l-value.
+    const bool flag_compound = pp_type_is_flag(decayed_lhs_type) && pp_type_equal(decayed_lhs_type, decayed_rhs_type) &&
+                               (node->assignment.op == PP_TT_AMPERSAND_EQUAL ||
+                                node->assignment.op == PP_TT_BAR_EQUAL || node->assignment.op == PP_TT_CARET_EQUAL);
+
     // Validate compound assignment operators against allowed primitive combinations
     switch (node->assignment.op) {
         case PP_TT_EQUAL:
@@ -3659,6 +4453,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
             }
             break;
         case PP_TT_AMPERSAND_EQUAL:
+            if (flag_compound) break;
             if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
                 (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
                 (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
@@ -3676,6 +4471,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
             }
             break;
         case PP_TT_BAR_EQUAL:
+            if (flag_compound) break;
             if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
                 (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
                 (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
@@ -3693,6 +4489,7 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
             }
             break;
         case PP_TT_CARET_EQUAL:
+            if (flag_compound) break;
             if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
                 (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
                 (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
@@ -3985,6 +4782,9 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
         case PP_AST_CastExpressionNode:
             if (!pp_semantic_analyzer_check_cast_expression(sa, symbol_table, expr)) goto error_cleanup;
             break;
+        case PP_AST_QualifiedConstantNode:
+            if (!pp_semantic_analyzer_check_qualified_constant_expression(sa, expr)) goto error_cleanup;
+            break;
         case PP_AST_CollectionInitializerNode:
             if (!pp_semantic_analyzer_check_collection_initializer_expression(sa, symbol_table, expr))
                 goto error_cleanup;
@@ -4005,6 +4805,56 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
     return 1;
 
 error_cleanup:
+    return 0;
+}
+
+/* Qualified Constant Expression Checklist (`Type::Member`):
+ * [x] Early exit if decoration already set
+ * [x] Resolve the type name in the global type table (named types, then aliases)
+ * [x] The type must be an enum or a flag
+ * [x] Resolve the member (Flag::none is synthetic and yields 0)
+ * [x] Decorate as a constexpr rvalue carrying the constant value
+ */
+static int pp_semantic_analyzer_check_qualified_constant_expression(PP_SemanticAnalyzer* sa, PP_AST_Node* expr) {
+    PP_AST_Decoration* decoration = NULL;
+    assert(sa);
+    assert(expr);
+    assert(expr->node_type == PP_AST_QualifiedConstantNode);
+
+    if (expr->qualified_constant.decoration) return 1;
+
+    const char* type_name = expr->qualified_constant.type_name;
+    const char* member = expr->qualified_constant.member;
+
+    const PPType* type = pp_global_type_table_find_by_name(sa->gtt, type_name);
+    if (!type) type = pp_global_type_table_find_alias(sa->gtt, type_name);
+    if (!type) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "Unknown type '%s' in qualified constant", type_name);
+        goto error_cleanup;
+    }
+
+    if (!pp_type_is_enum_or_flag(type)) {
+        pp_error_list_push_error(sa->error_list, expr->loc,
+                                 "Type '%s' is not an enum or flag; '::' is only supported for enum and flag types",
+                                 type_name);
+        goto error_cleanup;
+    }
+
+    unsigned long long value = 0;
+    if (!pp_semantic_lookup_qualified_constant_value(sa, type_name, member, &value, NULL)) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "Type '%s' has no member '%s'", type_name, member);
+        goto error_cleanup;
+    }
+
+    decoration = pp_ast_decoration_create(type, PP_VALUE_CATEGORY_RVALUE, true, false);
+    NULL_POINTER_ERROR_HANDLE(decoration);
+    decoration->is_enum_constant = true;
+    decoration->enum_constant_value = value;
+    expr->qualified_constant.decoration = decoration;
+    return 1;
+
+error_cleanup:
+    pp_ast_decoration_free(decoration);
     return 0;
 }
 
@@ -4223,6 +5073,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
                                                         PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* binary_type = NULL;
+    bool binary_type_owned = true;
     assert(sa);
     assert(symbol_table);
     assert(expr);
@@ -4252,6 +5103,42 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
     if (!decayed_rhs_type) {
         pp_error_list_push_error(sa->error_list, expr->loc, "Decaying type failure");
         goto error_cleanup;
+    }
+
+    // Enum and flag values are nominal: both operands must carry the same declared type. Enums only
+    // compare for equality; flags additionally support the bitwise set operators, closed over the same type.
+    if (pp_type_is_enum_or_flag(decayed_lhs_type) || pp_type_is_enum_or_flag(decayed_rhs_type)) {
+        if (!pp_type_equal(decayed_lhs_type, decayed_rhs_type)) {
+            pp_error_list_push_error(sa->error_list, expr->loc, "Enum and flag operands must have the same type.");
+            goto error_cleanup;
+        }
+        switch (expr->binary_expression.op) {
+            case PP_TT_EQUAL_EQUAL:
+            case PP_TT_EXCLAMATION_EQUAL:
+                binary_type = pp_type_create(PP_TK_Bool);
+                break;
+            case PP_TT_BAR:
+            case PP_TT_AMPERSAND:
+            case PP_TT_CARET:
+                if (!pp_type_is_flag(decayed_lhs_type)) {
+                    pp_error_list_push_error(sa->error_list, expr->loc,
+                                             "Enum values support no operators other than == and !=.");
+                    goto error_cleanup;
+                }
+                binary_type = (PPType*)decayed_lhs_type;  // borrowed from the GTT
+                binary_type_owned = false;
+                break;
+            default:
+                if (pp_type_is_flag(decayed_lhs_type)) {
+                    pp_error_list_push_error(sa->error_list, expr->loc,
+                                             "Flag values support only ==, !=, |, &, and ^.");
+                } else {
+                    pp_error_list_push_error(sa->error_list, expr->loc,
+                                             "Enum values support no operators other than == and !=.");
+                }
+                goto error_cleanup;
+        }
+        goto builtin_binary_done;
     }
 
     // Callable values support identity comparison (== / !=) only, and both operands must
@@ -4298,6 +5185,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
                 (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
                 (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128) ||
+                (decayed_lhs_type->kind == PP_TK_String && decayed_rhs_type->kind == PP_TK_String) ||
                 (decayed_lhs_type->kind == PP_TK_Pointer && decayed_rhs_type->kind == PP_TK_Pointer &&
                  pp_type_equal(decayed_lhs_type, decayed_rhs_type))) {
                 binary_type = pp_type_create(PP_TK_Bool);
@@ -4453,7 +5341,8 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
             const PPType* ret_type = op_sym->type->type.pp_type_function.return_type;
             const PPType* interned_ret_type = pp_global_type_table_intern(sa->gtt, ret_type);
             if (!interned_ret_type) goto error_cleanup;
-            binary_type = (PPType*)interned_ret_type;
+            binary_type = (PPType*)interned_ret_type;  // borrowed from the GTT
+            binary_type_owned = false;
         }
     }
 builtin_binary_done:
@@ -4538,7 +5427,7 @@ builtin_binary_done:
 
 error_cleanup:
     pp_ast_decoration_free(decoration);
-    pp_type_free(binary_type);
+    if (binary_type_owned) pp_type_free(binary_type);
     return 0;
 }
 
@@ -4562,6 +5451,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                                                        PP_AST_Node* expr) {
     PP_AST_Decoration* decoration = NULL;
     PPType* unary_type = NULL;
+    bool unary_type_owned = true;
     assert(sa);
     assert(symbol_table);
     assert(expr);
@@ -4610,6 +5500,9 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
         case PP_TT_EXCLAMATION:
             op_spelling = "!";
             break;
+        case PP_TT_TILDE:
+            op_spelling = "~";
+            break;
         default:
             op_spelling = NULL;
             break;
@@ -4653,6 +5546,18 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                 unary_type = pp_type_create(PP_TK_Bool);
             } else {
                 pp_error_list_push_error(sa->error_list, expr->loc, "Unary operator '!' requires Bool");
+                goto error_cleanup;
+            }
+            break;
+        case PP_TT_TILDE:
+            if (pp_type_is_flag(decayed_operand_type)) {
+                unary_type = (PPType*)decayed_operand_type;  // borrowed from the GTT
+                unary_type_owned = false;
+            } else if (pp_type_kind_is_integer(decayed_operand_type->kind)) {
+                unary_type = pp_type_create(decayed_operand_type->kind);
+            } else {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "Unary operator '~' requires an integer or flag operand");
                 goto error_cleanup;
             }
             break;
@@ -4733,7 +5638,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
 
 error_cleanup:
     pp_ast_decoration_free(decoration);
-    pp_type_free(unary_type);
+    if (unary_type_owned) pp_type_free(unary_type);
     return 0;
 }
 
@@ -4819,6 +5724,61 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
             resolved_type = pp_global_type_table_find_alias(sa->gtt, type_name);
             if (!resolved_type) {
                 pp_error_list_push_error(sa->error_list, expr->loc, "Unknown integer literal type '%s'", type_name);
+                goto error_cleanup;
+            }
+            break;
+        }
+        case PP_TT_CHAR_LITERAL: {
+            resolved_type = pp_global_type_table_find_alias(sa->gtt, "uint8");
+            assert(resolved_type);
+            /* Validate char literal content */
+            const char* lex = expr->literal.lexeme;
+            assert(lex);
+            size_t len = strlen(lex);
+            if (len < 3 || lex[0] != '\'' || lex[len - 1] != '\'') {
+                pp_error_list_push_error(sa->error_list, expr->loc, "Invalid char literal");
+                goto error_cleanup;
+            }
+            size_t inner_len = len - 2;
+            size_t i = 1;
+            size_t decoded_len = 0;
+            while (i < len - 1) {
+                char c = lex[i];
+                if (c == '\\') {
+                    if (i + 1 >= len - 1) {
+                        pp_error_list_push_error(sa->error_list, expr->loc, "Invalid escape in char literal");
+                        goto error_cleanup;
+                    }
+                    char esc = lex[i + 1];
+                    if (esc == 'n' || esc == 't' || esc == 'r' || esc == '0' || esc == '\'' || esc == '\\') {
+                        decoded_len++;
+                        i += 2;
+                        continue;
+                    } else if (esc == 'x') {
+                        if (i + 3 >= len - 1) {
+                            pp_error_list_push_error(sa->error_list, expr->loc, "Invalid hex escape in char literal");
+                            goto error_cleanup;
+                        }
+                        char h1 = lex[i + 2];
+                        char h2 = lex[i + 3];
+                        if (!isxdigit((unsigned char)h1) || !isxdigit((unsigned char)h2)) {
+                            pp_error_list_push_error(sa->error_list, expr->loc, "Invalid hex digits in char literal");
+                            goto error_cleanup;
+                        }
+                        decoded_len++;
+                        i += 4;
+                        continue;
+                    } else {
+                        pp_error_list_push_error(sa->error_list, expr->loc, "Invalid escape in char literal");
+                        goto error_cleanup;
+                    }
+                } else {
+                    decoded_len++;
+                    i++;
+                }
+            }
+            if (decoded_len != 1) {
+                pp_error_list_push_error(sa->error_list, expr->loc, "Char literal must represent a single character");
                 goto error_cleanup;
             }
             break;
@@ -5089,8 +6049,11 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     const PPType* decayed_index_type = pp_type_decay(sa->gtt, index_decoration->resolved_type);
     NULL_POINTER_ERROR_HANDLE(decayed_index_type);
 
-    if (decayed_index_type->kind != PP_TK_UInt32) {
-        pp_error_list_push_error(sa->error_list, expr->loc, "Array/list index must be unsigned 32-bit integer.");
+    // The index must be one of the supported unsigned integer types (uint8 .. uint64). Codegen zero-extends
+    // values narrower than 64 bits to the pointer width so high-bit indices cannot become negative offsets.
+    if (!pp_type_kind_is_unsigned_up_to_64(decayed_index_type->kind)) {
+        pp_error_list_push_error(sa->error_list, expr->loc,
+                                 "Array/list index must be uint8, uint16, uint32 or uint64.");
         goto error_cleanup;
     }
 
@@ -5462,10 +6425,41 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
 
     bool cast_ok = false;
 
-    // v1 callable casts: only lambda[...] -> func[...] with an identical signature.
-    // Everything else involving a callable type is rejected (func -> lambda,
-    // lambda -> lambda, func -> func, callable <-> non-callable).
-    if (pp_type_is_callable(decayed_expr_type) || pp_type_is_callable(decayed_target_type)) {
+    // Enum and flag casts are nominal. An identity cast is a no-op, a nominal value can be read as an integer, and
+    // an integer can be reinterpreted as a flag (every bit pattern is a valid flag value). Integers cannot be cast
+    // into an enum, whose value set is closed.
+    const bool expr_is_nominal = pp_type_is_enum_or_flag(decayed_expr_type);
+    const bool target_is_nominal = pp_type_is_enum_or_flag(decayed_target_type);
+    if (expr_is_nominal || target_is_nominal) {
+        if (expr_is_nominal && target_is_nominal) {
+            if (!pp_type_equal(decayed_expr_type, decayed_target_type)) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "Casting between different enum or flag types is not allowed.");
+                goto error_cleanup;
+            }
+            cast_ok = true;
+        } else if (expr_is_nominal) {
+            cast_ok = pp_semantic_type_is_decayed_integer_primitive(decayed_target_type);
+            if (!cast_ok) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "Casting an enum or flag is only allowed to an integer type.");
+                goto error_cleanup;
+            }
+        } else if (pp_type_is_flag(decayed_target_type)) {
+            cast_ok = pp_semantic_type_is_decayed_integer_primitive(decayed_expr_type);
+            if (!cast_ok) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "Casting to a flag is only allowed from an integer type.");
+                goto error_cleanup;
+            }
+        } else {
+            pp_error_list_push_error(sa->error_list, expr->loc, "Casting from an integer to an enum is not allowed.");
+            goto error_cleanup;
+        }
+    } else if (pp_type_is_callable(decayed_expr_type) || pp_type_is_callable(decayed_target_type)) {
+        // v1 callable casts: only lambda[...] -> func[...] with an identical signature.
+        // Everything else involving a callable type is rejected (func -> lambda,
+        // lambda -> lambda, func -> func, callable <-> non-callable).
         if (pp_type_is_callable(decayed_expr_type) && pp_type_is_callable(decayed_target_type) &&
             decayed_expr_type->kind == PP_TK_Lambda && decayed_target_type->kind == PP_TK_Function) {
             cast_ok = pp_semantic_callable_signature_equal(decayed_expr_type, decayed_target_type);

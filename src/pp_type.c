@@ -46,6 +46,9 @@ void pp_type_free(PPType* type) {
                     pp_struct_layout_free((PP_StructLayout*)type->type.pp_type_struct.layout);
                 }
                 break;
+            case PP_TK_Newtype:
+                free(type->type.pp_type_newtype.members);
+                break;
             case PP_TK_Function:
             case PP_TK_Lambda:
             case PP_TK_Operator:
@@ -143,6 +146,25 @@ bool pp_type_is_handle(const PPType* type) {
     if (type == NULL) return false;
 
     return type->kind == PP_TK_Newtype && type->type.pp_type_newtype.drop_func_name != NULL;
+}
+
+bool pp_type_is_enum(const PPType* type) {
+    return type != NULL && type->kind == PP_TK_Newtype && type->type.pp_type_newtype.enum_kind == PP_ENUM_KIND_ENUM;
+}
+
+bool pp_type_is_flag(const PPType* type) {
+    return type != NULL && type->kind == PP_TK_Newtype && type->type.pp_type_newtype.enum_kind == PP_ENUM_KIND_FLAG;
+}
+
+bool pp_type_is_enum_or_flag(const PPType* type) { return pp_type_is_enum(type) || pp_type_is_flag(type); }
+
+const PP_EnumMember* pp_type_find_enum_member(const PPType* type, const char* name) {
+    if (!pp_type_is_enum_or_flag(type) || !name) return NULL;
+    for (size_t i = 0; i < type->type.pp_type_newtype.member_count; i++) {
+        const PP_EnumMember* member = &type->type.pp_type_newtype.members[i];
+        if (member->name == name || strcmp(member->name, name) == 0) return member;
+    }
+    return NULL;
 }
 
 bool pp_type_is_pointer(const PPType* type) {
@@ -300,6 +322,9 @@ static bool pp_type_is_copyable_impl(const PPType* type, const PPType** stack, i
             const PPType* elem = type->type.pp_type_list.element_type;
             return pp_type_is_copyable_impl(elem, stack, depth + 1);
         }
+        case PP_TK_String:
+            // Owned but deep-copyable: the code generator clones the buffer.
+            return true;
         case PP_TK_Pointer: {
             const PPType* pointee = type->type.pp_type_pointer.pointee;
             return pp_type_is_copyable_impl(pointee, stack, depth + 1);
@@ -377,7 +402,11 @@ static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType*
         case PP_TK_List:
             return false;
         case PP_TK_String:
-            return true;
+            // A string owns its heap buffer, so a copy must clone the buffer:
+            // treat it as non-trivial here and let the code generator emit a
+            // deep copy. Marking this trivial yields a shallow descriptor copy
+            // while the drop still frees the buffer (double free).
+            return false;
         default:
             return false;
     }
@@ -391,7 +420,14 @@ PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeri
         return PP_TK_Int32;
     }
     size_t pos = 0;
-    while (pos < len && isdigit((unsigned char)lexeme[pos])) pos++;
+    bool is_hex = false;
+    if (len >= 2 && lexeme[0] == '0' && (lexeme[1] == 'x' || lexeme[1] == 'X')) {
+        is_hex = true;
+        pos = 2;
+        while (pos < len && isxdigit((unsigned char)lexeme[pos])) pos++;
+    } else {
+        while (pos < len && isdigit((unsigned char)lexeme[pos])) pos++;
+    }
     bool is_unsigned = false;
     if (pos < len && tolower((unsigned char)lexeme[pos]) == 'u') {
         is_unsigned = true;

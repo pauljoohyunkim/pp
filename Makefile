@@ -16,11 +16,22 @@ UNITTEST_OBJS=$(patsubst $(TESTS)/%.cpp,$(OBJ)/unittest_%.o,$(UNITTEST_SRCS))
 UNITTEST_LDLIBS=$(shell pkg-config --libs gtest)
 UNITTEST_DEPS=$(UNITTEST_SRCS:.cpp=.d)
 LDLIBS=$(shell llvm-config --libs)
+BINARY=pplang
 
-pplang: $(BIN)/pplang
+PREFIX ?= /usr/local
+BINDIR = $(PREFIX)/bin
+
+pplang: $(BIN)/$(BINARY)
 unittest: $(BIN)/unittest
 
-$(BIN)/pplang: $(OBJS) $(OBJ)/pplang.o
+install: $(BINARY)
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(BIN)/$(BINARY) $(DESTDIR)$(BINDIR)/$<
+
+uninstall:
+	$(RM) $(DESTDIR)$(BINDIR)/$(BINARY)
+
+$(BIN)/$(BINARY): $(OBJS) $(OBJ)/$(BINARY).o
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BIN)/unittest: $(OBJS) $(UNITTEST_OBJS)
@@ -37,4 +48,4 @@ $(OBJ)/%.o: $(SRC)/%.c
 clean:
 	$(RM) -f $(OBJ)/* $(BIN)/* $(DEPS) $(UNITTEST_DEPS)
 
-.PHONY: unittest clean
+.PHONY: $(BINARY) unittest clean install uninstall

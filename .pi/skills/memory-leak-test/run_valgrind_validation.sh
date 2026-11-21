@@ -13,6 +13,9 @@ ROOT=${1:-$(cd "$SCRIPT_DIR/../../.." && pwd)}
 LOGDIR=${LOGDIR:-/tmp}
 LOG="$LOGDIR/pp_valgrind_summary.log"
 VG="valgrind --leak-check=full --error-exitcode=1"
+# Selftest runs use a distinct error exit code so a valgrind-detected error cannot be
+# mistaken for the non-zero exit code a negative test expects from the demo itself.
+VG_SELFTEST="valgrind --leak-check=full --error-exitcode=99"
 FAIL=0
 
 : >"$LOG"
@@ -61,19 +64,50 @@ for d in "$ROOT"/demo/*/; do
         fi
 
         # Locate the produced demo binary. Checking for the artifact (instead of
-        # trusting make's exit status) catches driver exit-code bugs.
-        bin=$(find "$d" -maxdepth 1 -type f -perm -u+x ! -name '*.pp' ! -name '*.ppi' | head -1)
+        # trusting make's exit status) catches driver exit-code bugs. selftest.sh is
+        # excluded: it may be executable and would otherwise win the search.
+        bin=$(find "$d" -maxdepth 1 -type f -perm -u+x ! -name '*.pp' ! -name '*.ppi' ! -name '*.sh' | head -1)
         if [ -z "$bin" ]; then say "$name[$mode]: no binary found"; FAIL=1; continue; fi
 
         RLOG="$LOGDIR/pp_valgrind_${name}_${mode}_run.log"
-        if timeout 300 $VG "$bin" </dev/null >"$RLOG" 2>&1; then
-            say "$name[$mode]: run PASS"
+        LOGSTEM="$LOGDIR/pp_valgrind_${name}_${mode}_run"
+        SELFTEST="$d/selftest.sh"
+        rm -f "$LOGSTEM".*.log
+        if [ -f "$SELFTEST" ]; then
+            # A demo that needs input files or arguments ships a selftest.sh. Do not run
+            # the script under valgrind: that traces only the shell. Instead hand the
+            # script a wrapper that puts valgrind around each demo binary invocation,
+            # logging one file per invocation so every call can be checked.
+            VGW="$LOGDIR/pp_valgrind_${name}_${mode}_vgwrap.sh"
+            TEMPDIR=$(mktemp -d)
+            cat >"$VGW" <<WRAP
+#!/bin/sh
+exec $VG_SELFTEST --log-file="$LOGSTEM.%p.log" "$bin" "\$@"
+WRAP
+            chmod +x "$VGW"
+            if PP_DEMO_BIN="$VGW" PP_SELFTEST_TMPDIR="$TEMPDIR" timeout 300 sh "$SELFTEST" </dev/null >"$RLOG" 2>&1; then
+                say "$name[$mode]: selftest PASS"
+            else
+                say "$name[$mode]: selftest FAIL (rc=$?) - see $RLOG"
+                FAIL=1
+            fi
+            rm -rf "$TEMPDIR" "$VGW"
+            if ! ls "$LOGSTEM".*.log >/dev/null 2>&1; then
+                say "$name[$mode]: selftest never ran the demo binary"
+                FAIL=1
+            fi
+            RUNLOGS=$(ls "$LOGSTEM".*.log 2>/dev/null)
         else
-            say "$name[$mode]: run FAIL (rc=$?) - see $RLOG"
-            FAIL=1
+            if timeout 300 $VG "$bin" </dev/null >"$RLOG" 2>&1; then
+                say "$name[$mode]: run PASS"
+            else
+                say "$name[$mode]: run FAIL (rc=$?) - see $RLOG"
+                FAIL=1
+            fi
+            RUNLOGS="$RLOG"
         fi
 
-        for log in "$CLOG" "$RLOG"; do
+        for log in "$CLOG" $RUNLOGS; do
             if ! grep -q "no leaks are possible" "$log"; then
                 say "$name[$mode]: LEAK in $(basename "$log")"
                 grep -E "definitely lost|indirectly lost" "$log" | tee -a "$LOG"

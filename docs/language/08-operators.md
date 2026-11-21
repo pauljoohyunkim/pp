@@ -22,6 +22,19 @@ let v :: int32 = $p;           // int32_t v = *p;
 let n :: ptr[int32] = nullptr[int32];
 ```
 
+## Built-in string operators
+
+`string` is a `{ptr, len}` pair, so its built-in operators are not pointer or integer operations:
+
+* `a + b` – concatenation, allocates a new owned string.
+* `a == b`, `a != b` – equality yields `bool`. The comparison checks length first and then compares the
+  payloads byte-wise for exactly `len` bytes, so embedded NUL bytes are compared correctly (unlike `strcmp`).
+  Two empty strings compare equal without any byte comparison; a `{nullptr, 0}` string is therefore safe.
+* `#s` – length in bytes as `uint32`.
+* `s[i]` – byte at index `i` as `uint8`.
+
+These are builtin and cannot be replaced by user-defined operators; `operator == :: (const string&, const string&) -> bool` is rejected.
+
 ## User-defined operators
 
 Custom operators are declared with `operator`:
@@ -37,6 +50,8 @@ operator + :: (a :: const Vec&, b :: const Vec&) -> Vec {
 * Parameters must be `const T&`. Mutable references are forbidden.
 * Return type must be by value. Returning a reference is rejected.
 * Built-in operators for core types cannot be redefined. Example: `operator + :: (int32, int32) -> int32` is rejected.
+  The same applies to the built-in unary `~` on integer primitives and flags, which is why `~` is overloadable
+  for other types (e.g. `operator ~ :: (v :: const W&) -> W`).
 * Operator bodies may only call lambdas or other operators, not regular functions.
 * Operators support overload resolution by type. Overloads must differ in parameter types.
 

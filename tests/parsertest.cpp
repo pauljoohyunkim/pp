@@ -1447,3 +1447,88 @@ TEST(ParserTest, GoodHandleDeclarationPtr) {
     EXPECT_EQ(parse_result, 1);
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
+
+TEST(ParserTest, CharLiteralParsing) {
+    const char* source = "func main :: () -> uint8 { let c :: uint8 = 'A'; return c; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, HexLiteralParsing) {
+    const char* source = "func main :: () -> uint32 { let v :: uint32 = 0x41u; return v; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodEnumDeclaration) {
+    const char* source =
+        "enum OpenMode :: uint8 {\n"
+        "    Read,\n"
+        "    Write,\n"
+        "    Append = 5uss,\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, GoodFlagsDeclarationNoTrailingComma) {
+    const char* source = "flag OpenFlags :: uint32 { Create, Truncate, Sync = 1u << 10u }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, BadEnumDeclarationMissingComma) {
+    const char* source = "enum A :: uint8 { X Y }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_TRUE(parse_result != 1 || lexer_errors + parser_errors > 0);
+}
+
+TEST(ParserTest, GoodQualifiedConstantAccess) {
+    const char* source =
+        "enum OpenMode :: uint8 { Read, Write }\n"
+        "func main :: () -> uint8 { let m :: OpenMode = OpenMode::Read; return m as uint8; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, BadQualifiedConstantNonIdentifierBase) {
+    const char* source =
+        "struct S { f :: uint8; }\n"
+        "func main :: () -> uint8 { let s :: S = S { .f = 1u }; let m :: uint8 = s.f::Read; return m; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_TRUE(parse_result != 1 || lexer_errors + parser_errors > 0);
+}
+
+TEST(ParserTest, GoodTildeUnary) {
+    const char* source = "func main :: () -> uint32 { let v :: uint32 = ~1u; return v; }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, BadEnumDeclarationMissingMemberValue) {
+    const char* source = "enum A :: uint8 { X = }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_TRUE(parse_result != 1 || lexer_errors + parser_errors > 0);
+}
+
+TEST(ParserTest, BadFlagDeclarationMissingMemberValue) {
+    const char* source = "flag F :: uint32 { A = 1u, B = }";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_TRUE(parse_result != 1 || lexer_errors + parser_errors > 0);
+}
