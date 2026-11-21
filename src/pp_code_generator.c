@@ -1298,6 +1298,14 @@ static LLVMTargetDataRef pp_code_generator_target_data_create(void) {
     return target_data;
 }
 
+/* A DW_TAG_member for an aggregate type. A raw type in a composite type's element list produces no
+ * component, so every field of a struct/list/string goes through this helper. */
+static LLVMMetadataRef pp_code_generator_di_member(PP_CodeGenerator* cg, const char* name, uint64_t size_bits,
+                                                   uint32_t align_bits, uint64_t offset_bits, LLVMMetadataRef type_di) {
+    return LLVMDIBuilderCreateMemberType(cg->di_builder, cg->di_compile_unit, name, strlen(name), cg->di_file, 0,
+                                         size_bits, align_bits, offset_bits, LLVMDIFlagZero, type_di);
+}
+
 static LLVMMetadataRef pp_code_generator_di_basic_type(PP_CodeGenerator* cg, const char* name, uint64_t size_in_bits,
                                                        LLVMDWARFTypeEncoding encoding) {
     return LLVMDIBuilderCreateBasicType(cg->di_builder, name, strlen(name), size_in_bits, encoding, LLVMDIFlagZero);
@@ -1552,11 +1560,8 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
                         field_align_bits = LLVMABIAlignmentOfType(target_data, llvm_field_type) * 8;
                         field_offset_bits = LLVMOffsetOfElement(target_data, llvm_type, (unsigned)i) * 8;
                     }
-                    /* A raw type metadata entry would not become a DW_TAG_member: gdb needs the member DIE. */
-                    members[i] =
-                        LLVMDIBuilderCreateMemberType(cg->di_builder, cg->di_compile_unit, field->field_name,
-                                                      strlen(field->field_name), cg->di_file, 0, field_size_bits,
-                                                      field_align_bits, field_offset_bits, LLVMDIFlagZero, field_di);
+                    members[i] = pp_code_generator_di_member(cg, field->field_name, field_size_bits, field_align_bits,
+                                                             field_offset_bits, field_di);
                 }
                 if (target_data) {
                     LLVMDisposeTargetData(target_data);
@@ -1577,31 +1582,44 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             break;
         }
         case PP_TK_String: {
-            LLVMMetadataRef elems_stack[2];
-            LLVMMetadataRef ptr_di =
+            /* Layout mirrors pp_string_t: { uint8* ptr; uint64 len; } */
+            LLVMMetadataRef members_stack[2];
+            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
+            LLVMMetadataRef i8_ptr_di =
                 LLVMDIBuilderCreatePointerType(cg->di_builder,
                                                pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64,
                                                64, 0, NULL, 0);
-            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
-            elems_stack[0] = ptr_di;
-            elems_stack[1] = i64_di;
+            members_stack[0] = pp_code_generator_di_member(cg, "ptr", 64, 64, 0, i8_ptr_di);
+            members_stack[1] = pp_code_generator_di_member(cg, "len", 64, 64, 64, i64_di);
+            /* SizeInBits is in bits: a byte count here makes gdb treat the members as out of bounds. */
             result = LLVMDIBuilderCreateStructType(cg->di_builder, cg->di_compile_unit, "pp.string", 9, cg->di_file, 0,
-                                                   16, 64, LLVMDIFlagZero, NULL, elems_stack, 2, 0, NULL, NULL, 0);
+                                                   128, 64, LLVMDIFlagZero, NULL, members_stack, 2, 0, NULL, NULL, 0);
             break;
         }
         case PP_TK_List: {
-            LLVMMetadataRef elems_stack[4];
-            LLVMMetadataRef ptr_di =
+            /* Layout mirrors pp_list_t: { void* data; uint64 len, cap, elem_size; }.
+             * data is typed as element* so elements can be expanded with "p *l.data@l.len". */
+            LLVMMetadataRef members_stack[4];
+            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
+            LLVMMetadataRef element_di = pp_code_generator_get_di_type(cg, t->type.pp_type_list.element_type);
+            LLVMMetadataRef data_di = NULL;
+            LLVMMetadataRef i8_ptr_di =
                 LLVMDIBuilderCreatePointerType(cg->di_builder,
                                                pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64,
                                                64, 0, NULL, 0);
-            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
-            elems_stack[0] = ptr_di;
-            elems_stack[1] = i64_di;
-            elems_stack[2] = i64_di;
-            elems_stack[3] = i64_di;
+            if (element_di) {
+                data_di = LLVMDIBuilderCreatePointerType(cg->di_builder, element_di, 64, 64, 0, NULL, 0);
+            } else {
+                /* A list of its own type recurses; the in-progress guard yields no element type. */
+                data_di = i8_ptr_di;
+            }
+            members_stack[0] = pp_code_generator_di_member(cg, "data", 64, 64, 0, data_di);
+            members_stack[1] = pp_code_generator_di_member(cg, "len", 64, 64, 64, i64_di);
+            members_stack[2] = pp_code_generator_di_member(cg, "cap", 64, 64, 128, i64_di);
+            members_stack[3] = pp_code_generator_di_member(cg, "elem_size", 64, 64, 192, i64_di);
+            /* SizeInBits is in bits: a byte count here makes gdb treat the members as out of bounds. */
             result = LLVMDIBuilderCreateStructType(cg->di_builder, cg->di_compile_unit, "pp.list", 7, cg->di_file, 0,
-                                                   32, 64, LLVMDIFlagZero, NULL, elems_stack, 4, 0, NULL, NULL, 0);
+                                                   256, 64, LLVMDIFlagZero, NULL, members_stack, 4, 0, NULL, NULL, 0);
             break;
         }
         case PP_TK_Function:
