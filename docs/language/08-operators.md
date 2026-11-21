@@ -22,6 +22,19 @@ let v :: int32 = $p;           // int32_t v = *p;
 let n :: ptr[int32] = nullptr[int32];
 ```
 
+## Built-in string operators
+
+`string` is a `{ptr, len}` pair, so its built-in operators are not pointer or integer operations:
+
+* `a + b` – concatenation, allocates a new owned string.
+* `a == b`, `a != b` – equality yields `bool`. The comparison checks length first and then compares the
+  payloads byte-wise for exactly `len` bytes, so embedded NUL bytes are compared correctly (unlike `strcmp`).
+  Two empty strings compare equal without any byte comparison; a `{nullptr, 0}` string is therefore safe.
+* `#s` – length in bytes as `uint32`.
+* `s[i]` – byte at index `i` as `uint8`.
+
+These are builtin and cannot be replaced by user-defined operators; `operator == :: (const string&, const string&) -> bool` is rejected.
+
 ## User-defined operators
 
 Custom operators are declared with `operator`:

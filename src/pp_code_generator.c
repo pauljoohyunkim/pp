@@ -1139,6 +1139,11 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
         LLVMTypeRef free_param = i8ptr_type;
         LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), &free_param, 1, 0);
         if (!LLVMGetNamedFunction(cg->mod, "free")) LLVMAddFunction(cg->mod, "free", free_type);
+
+        // memcmp backs builtin string == / !=. Declared with the C signature: i32 (i8*, i8*, i64).
+        LLVMTypeRef memcmp_params[3] = {i8ptr_type, i8ptr_type, i64_type};
+        LLVMTypeRef memcmp_type = LLVMFunctionType(LLVMInt32TypeInContext(cg->ctx), memcmp_params, 3, 0);
+        if (!LLVMGetNamedFunction(cg->mod, "memcmp")) LLVMAddFunction(cg->mod, "memcmp", memcmp_type);
     }
 
     return cg;
@@ -3349,6 +3354,66 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
     return llvm_val;
 }
 
+/* Builtin string equality. Strings are {ptr, len} structs, so equality is a length check plus memcmp over the
+ * payload. memcmp is only called when both lengths are non-zero and equal, which keeps {NULL, 0} strings (zero
+ * initialised or from malloc(0)) out of libc, where memcmp(NULL, NULL, 0) would be undefined behaviour.
+ * Returns an i1 equality result; the caller inverts it for '!='. */
+static LLVMValueRef pp_code_generator_generate_string_equality(PP_CodeGenerator* cg, LLVMValueRef llvm_lhs,
+                                                               LLVMValueRef llvm_rhs) {
+    assert(cg);
+    assert(llvm_lhs);
+    assert(llvm_rhs);
+
+    LLVMContextRef ctx = cg->ctx;
+    LLVMBuilderRef builder = cg->builder;
+    LLVMTypeRef i1_type = LLVMInt1TypeInContext(ctx);
+    LLVMTypeRef i32_type = LLVMInt32TypeInContext(ctx);
+    LLVMTypeRef i64_type = LLVMInt64TypeInContext(ctx);
+    LLVMTypeRef i8ptr_type = LLVMPointerTypeInContext(ctx, 0);
+
+    LLVMValueRef lhs_ptr = LLVMBuildExtractValue(builder, llvm_lhs, 0, "str_lhs_ptr");
+    LLVMValueRef lhs_len = LLVMBuildExtractValue(builder, llvm_lhs, 1, "str_lhs_len");
+    LLVMValueRef rhs_ptr = LLVMBuildExtractValue(builder, llvm_rhs, 0, "str_rhs_ptr");
+    LLVMValueRef rhs_len = LLVMBuildExtractValue(builder, llvm_rhs, 1, "str_rhs_len");
+
+    LLVMBasicBlockRef lhs_block = LLVMGetInsertBlock(builder);
+    assert(lhs_block);
+    LLVMValueRef llvm_func = LLVMGetBasicBlockParent(lhs_block);
+    assert(llvm_func);
+    LLVMBasicBlockRef len_eq_block = LLVMAppendBasicBlockInContext(ctx, llvm_func, "str.eq.leneq");
+    LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx, llvm_func, "str.eq.body");
+    LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx, llvm_func, "str.eq.end");
+
+    // Different lengths are unequal; only equal lengths need the empty check and the byte comparison.
+    LLVMValueRef len_eq = LLVMBuildICmp(builder, LLVMIntEQ, lhs_len, rhs_len, "str_len_eq");
+    LLVMBuildCondBr(builder, len_eq, len_eq_block, merge_block);
+
+    // Equal lengths: empty strings compare equal without touching memcmp.
+    LLVMPositionBuilderAtEnd(builder, len_eq_block);
+    LLVMValueRef is_empty = LLVMBuildICmp(builder, LLVMIntEQ, lhs_len, LLVMConstInt(i64_type, 0, 0), "str_len_zero");
+    LLVMBuildCondBr(builder, is_empty, merge_block, body_block);
+
+    // Both non-empty: length-aware byte comparison (NUL-safe, unlike strcmp).
+    LLVMPositionBuilderAtEnd(builder, body_block);
+    LLVMValueRef memcmp_fn = LLVMGetNamedFunction(cg->mod, "memcmp");
+    assert(memcmp_fn);
+    LLVMTypeRef memcmp_params[3] = {i8ptr_type, i8ptr_type, i64_type};
+    LLVMTypeRef memcmp_type = LLVMFunctionType(i32_type, memcmp_params, 3, 0);
+    LLVMValueRef memcmp_args[3] = {lhs_ptr, rhs_ptr, lhs_len};
+    LLVMValueRef cmp = LLVMBuildCall2(builder, memcmp_type, memcmp_fn, memcmp_args, 3, "str_memcmp");
+    LLVMValueRef bytes_eq = LLVMBuildICmp(builder, LLVMIntEQ, cmp, LLVMConstInt(i32_type, 0, 0), "str_bytes_eq");
+    LLVMBasicBlockRef body_end_block = LLVMGetInsertBlock(builder);
+    LLVMBuildBr(builder, merge_block);
+
+    LLVMPositionBuilderAtEnd(builder, merge_block);
+    LLVMValueRef phi = LLVMBuildPhi(builder, i1_type, "str_eq");
+    LLVMValueRef incoming_vals[3] = {LLVMConstInt(i1_type, 0, 0), is_empty, bytes_eq};
+    LLVMBasicBlockRef incoming_blocks[3] = {lhs_block, len_eq_block, body_end_block};
+    LLVMAddIncoming(phi, incoming_vals, incoming_blocks, 3);
+
+    return phi;
+}
+
 static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     assert(cg);
@@ -3702,6 +3767,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 llvm_val = LLVMBuildICmp(cg->builder, LLVMIntEQ, llvm_lhs, llvm_rhs, "eqtmp");
             } else if (llvm_lhs_type_kind == LLVMPointerTypeKind && llvm_rhs_type_kind == LLVMPointerTypeKind) {
                 llvm_val = LLVMBuildICmp(cg->builder, LLVMIntEQ, llvm_lhs, llvm_rhs, "eqtmp");
+            } else if (lhs_type->kind == PP_TK_String && rhs_type->kind == PP_TK_String) {
+                llvm_val = pp_code_generator_generate_string_equality(cg, llvm_lhs, llvm_rhs);
             }
             break;
         case PP_TT_EXCLAMATION_EQUAL:
@@ -3711,6 +3778,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 llvm_val = LLVMBuildICmp(cg->builder, LLVMIntNE, llvm_lhs, llvm_rhs, "neqtmp");
             } else if (llvm_lhs_type_kind == LLVMPointerTypeKind && llvm_rhs_type_kind == LLVMPointerTypeKind) {
                 llvm_val = LLVMBuildICmp(cg->builder, LLVMIntNE, llvm_lhs, llvm_rhs, "neqtmp");
+            } else if (lhs_type->kind == PP_TK_String && rhs_type->kind == PP_TK_String) {
+                LLVMValueRef eq = pp_code_generator_generate_string_equality(cg, llvm_lhs, llvm_rhs);
+                llvm_val = LLVMBuildXor(cg->builder, eq, LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 1, 0), "str_ne");
             }
             break;
         default:

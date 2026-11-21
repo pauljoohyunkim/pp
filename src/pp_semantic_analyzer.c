@@ -1414,6 +1414,7 @@ static int pp_builtin_binary_supported(const char* op, PPTypeKind lk, PPTypeKind
     if (strcmp(op, "==") == 0 || strcmp(op, "!=") == 0) {
         if (lk == PP_TK_Bool && rk == PP_TK_Bool) return 1;
         if (lk == PP_TK_Float && rk == PP_TK_Float) return 1;
+        if (lk == PP_TK_String && rk == PP_TK_String) return 1;
         const PPTypeKind kinds[] = {PP_TK_Int8,   PP_TK_UInt8, PP_TK_Int16,  PP_TK_UInt16, PP_TK_Int32,
                                     PP_TK_UInt32, PP_TK_Int64, PP_TK_UInt64, PP_TK_Int128, PP_TK_UInt128};
         for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
@@ -1939,6 +1940,20 @@ static int pp_semantic_analyzer_build_global_table_extern_operator_decl(PP_Seman
         if (pp_type_is_enum_or_flag(decayed_param)) {
             pp_error_list_push_error(sa->error_list, node->loc,
                                      "Operator '%s' cannot be declared for enum or flag types.",
+                                     node->extern_callable_declaration.name);
+            goto error_cleanup;
+        }
+    }
+    // Builtin operator pairs are reserved: an extern operator may not silently take them over through the
+    // decoration's resolved_operator_callable lookup, which would bypass the generated builtin semantics.
+    if (node->extern_callable_declaration.param_count == 2) {
+        const PPType* decayed_p0 = pp_type_decay(sa->gtt, tmp_func->type.pp_type_operator.param_types[0]);
+        if (!decayed_p0) goto error_cleanup;
+        const PPType* decayed_p1 = pp_type_decay(sa->gtt, tmp_func->type.pp_type_operator.param_types[1]);
+        if (!decayed_p1) goto error_cleanup;
+        if (pp_builtin_binary_supported(node->extern_callable_declaration.name, decayed_p0->kind, decayed_p1->kind)) {
+            pp_error_list_push_error(sa->error_list, node->loc,
+                                     "Operator '%s' cannot redefine supported built-in operator pair.",
                                      node->extern_callable_declaration.name);
             goto error_cleanup;
         }
@@ -5170,6 +5185,7 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
                 (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
                 (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
                 (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128) ||
+                (decayed_lhs_type->kind == PP_TK_String && decayed_rhs_type->kind == PP_TK_String) ||
                 (decayed_lhs_type->kind == PP_TK_Pointer && decayed_rhs_type->kind == PP_TK_Pointer &&
                  pp_type_equal(decayed_lhs_type, decayed_rhs_type))) {
                 binary_type = pp_type_create(PP_TK_Bool);
