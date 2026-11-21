@@ -2551,3 +2551,44 @@ TEST(SemanticTest, LeadingZeroDecimalIsNotOctal) {
                            "func main :: () -> int32 { return E::Ten as int32; }\n",
                            "010uss is ten and 0x10uss is sixteen, so the members increase");
 }
+
+TEST(SemanticTest, StringEqualityAccepted) {
+    expect_semantic_accept("func main :: () -> int32 {\n"
+                           "    let a :: string = \"e\";\n"
+                           "    let b :: string = \"d\";\n"
+                           "    if (a == b) { return 1; }\n"
+                           "    if (a != b) { return 2; }\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "builtin == and != on strings yield bool");
+}
+
+TEST(SemanticTest, StringEqualityWithLiteralAndConstAccepted) {
+    expect_semantic_accept("func main :: (args :: [string]) -> int32 {\n"
+                           "    let c :: const string = \"e\";\n"
+                           "    if (args[0u] == \"e\" && c != \"d\") { return 1; }\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "const string and string literal operands decay to string");
+}
+
+TEST(SemanticTest, StringEqualityWithMismatchedTypeRejected) {
+    expect_semantic_reject("func main :: () -> int32 {\n"
+                           "    let a :: string = \"e\";\n"
+                           "    if (a == 5u) { return 1; }\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "string == uint32 is still a type error");
+}
+
+TEST(SemanticTest, StringEqualityOperatorDeclarationRejected) {
+    expect_semantic_reject("func main :: () -> int32 { return 0; }\n"
+                           "operator == :: (a :: const string&, b :: const string&) -> bool { return false; }\n",
+                           "builtin string equality cannot be replaced by a user operator");
+}
+
+TEST(SemanticTest, ExternStringEqualityOperatorDeclarationRejected) {
+    expect_semantic_reject("extern operator == :: (a :: const string&, b :: const string&) -> bool;\n"
+                           "func main :: () -> int32 { return 0; }\n",
+                           "builtin string equality cannot be replaced by an extern operator");
+}

@@ -1139,6 +1139,11 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
         LLVMTypeRef free_param = i8ptr_type;
         LLVMTypeRef free_type = LLVMFunctionType(LLVMVoidTypeInContext(cg->ctx), &free_param, 1, 0);
         if (!LLVMGetNamedFunction(cg->mod, "free")) LLVMAddFunction(cg->mod, "free", free_type);
+
+        // memcmp backs builtin string == / !=. Declared with the C signature: i32 (i8*, i8*, i64).
+        LLVMTypeRef memcmp_params[3] = {i8ptr_type, i8ptr_type, i64_type};
+        LLVMTypeRef memcmp_type = LLVMFunctionType(LLVMInt32TypeInContext(cg->ctx), memcmp_params, 3, 0);
+        if (!LLVMGetNamedFunction(cg->mod, "memcmp")) LLVMAddFunction(cg->mod, "memcmp", memcmp_type);
     }
 
     return cg;
@@ -1259,6 +1264,46 @@ static int pp_code_generator_generate_continue(PP_CodeGenerator* cg, const PP_AS
     pp_code_generator_emit_drops_since(cg, loop_ctx->drop_stack_mark);
     LLVMBuildBr(cg->builder, loop_ctx->continue_bb);
     return 1;
+}
+
+/* ABI layout for size/alignment/offset queries.
+ *
+ * The module carries a data layout only once the object is emitted, so codegen builds the layout from a
+ * native target machine instead. The caller owns the returned layout and releases it with
+ * LLVMDisposeTargetData(). Returns NULL when the native target is unavailable. */
+static LLVMTargetDataRef pp_code_generator_target_data_create(void) {
+    char* triple = NULL;
+    char* err = NULL;
+    LLVMTargetRef target = NULL;
+    LLVMTargetMachineRef target_machine = NULL;
+    LLVMTargetDataRef target_data = NULL;
+
+    LLVMInitializeNativeTarget();
+    triple = LLVMGetDefaultTargetTriple();
+    if (triple == NULL) return NULL;
+
+    if (LLVMGetTargetFromTriple(triple, &target, &err)) {
+        if (err) LLVMDisposeMessage(err);
+        LLVMDisposeMessage(triple);
+        return NULL;
+    }
+
+    target_machine = LLVMCreateTargetMachine(target, triple, "generic", "", LLVMCodeGenLevelDefault, LLVMRelocPIC,
+                                             LLVMCodeModelDefault);
+    LLVMDisposeMessage(triple);
+    if (target_machine == NULL) return NULL;
+
+    target_data = LLVMCreateTargetDataLayout(target_machine);
+    LLVMDisposeTargetMachine(target_machine);
+    return target_data;
+}
+
+/* A DW_TAG_member for an aggregate type. A raw type in a composite type's element list produces no
+ * component, so every field of a struct/list/string goes through this helper. */
+static LLVMMetadataRef pp_code_generator_di_member(PP_CodeGenerator* cg, const char* name, uint64_t size_bits,
+                                                   uint32_t align_bits, uint64_t offset_bits, LLVMMetadataRef type_di) {
+    return LLVMDIBuilderCreateMemberType(cg->di_builder, cg->di_compile_unit, name, strlen(name), cg->di_file, 0,
+                                         size_bits, align_bits, offset_bits, LLVMDIFlagZero, type_di);
 }
 
 static LLVMMetadataRef pp_code_generator_di_basic_type(PP_CodeGenerator* cg, const char* name, uint64_t size_in_bits,
@@ -1463,9 +1508,9 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             const PPType* ref_to = t->type.pp_type_reference.reference_to;
             LLVMMetadataRef ref_di = pp_code_generator_get_di_type(cg, ref_to);
             if (ref_di) {
-                uint64_t size_bits = 64;
-                uint32_t align_bits = 64;
-                result = LLVMDIBuilderCreatePointerType(cg->di_builder, ref_di, size_bits, align_bits, 0, NULL, 0);
+                /* The language auto-dereferences a reference, so describe it as DW_TAG_reference_type (0x10).
+                 * As a pointer type, "p ctx.key" would become a member access on a pointer and fail. */
+                result = LLVMDIBuilderCreateReferenceType(cg->di_builder, 0x10, ref_di);
             }
             break;
         }
@@ -1491,15 +1536,38 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             const char* name = t->type.pp_type_struct.name ? t->type.pp_type_struct.name : "<anonymous>";
             const PP_StructLayout* layout = t->type.pp_type_struct.layout;
             size_t field_count = layout ? layout->field_count : 0;
+            LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, t);
+            LLVMTargetDataRef target_data = NULL;
             if (field_count > 0) {
                 members = (LLVMMetadataRef*)calloc(field_count, sizeof(LLVMMetadataRef));
                 NULL_POINTER_ERROR_HANDLE(members);
+                /* Field offsets need the struct body, which is not set for opaque/recursive placeholders. */
+                if (llvm_type && !LLVMIsOpaqueStruct(llvm_type)) {
+                    target_data = pp_code_generator_target_data_create();
+                }
                 for (size_t i = 0; i < field_count; i++) {
-                    members[i] = pp_code_generator_get_di_type(cg, layout->fields[i].field_type);
-                    if (!members[i]) { members[i] = pp_code_generator_di_void_type(cg); }
+                    const PPStructField* field = &layout->fields[i];
+                    LLVMMetadataRef field_di = pp_code_generator_get_di_type(cg, field->field_type);
+                    LLVMTypeRef llvm_field_type = NULL;
+                    uint64_t field_size_bits = 0;
+                    uint32_t field_align_bits = 0;
+                    uint64_t field_offset_bits = 0;
+                    /* A struct may contain itself through a pointer; the in-progress guard returns no type. */
+                    if (!field_di) { field_di = pp_code_generator_di_void_type(cg); }
+                    if (target_data) { llvm_field_type = pp_environment_backend_lookup_type(cg, field->field_type); }
+                    if (target_data && llvm_field_type) {
+                        field_size_bits = (uint64_t)LLVMStoreSizeOfType(target_data, llvm_field_type) * 8;
+                        field_align_bits = LLVMABIAlignmentOfType(target_data, llvm_field_type) * 8;
+                        field_offset_bits = LLVMOffsetOfElement(target_data, llvm_type, (unsigned)i) * 8;
+                    }
+                    members[i] = pp_code_generator_di_member(cg, field->field_name, field_size_bits, field_align_bits,
+                                                             field_offset_bits, field_di);
+                }
+                if (target_data) {
+                    LLVMDisposeTargetData(target_data);
+                    target_data = NULL;
                 }
             }
-            LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, t);
             uint64_t size_bits = 0;
             uint32_t align_bits = 0;
             if (llvm_type) {
@@ -1514,31 +1582,44 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             break;
         }
         case PP_TK_String: {
-            LLVMMetadataRef elems_stack[2];
-            LLVMMetadataRef ptr_di =
+            /* Layout mirrors pp_string_t: { uint8* ptr; uint64 len; } */
+            LLVMMetadataRef members_stack[2];
+            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
+            LLVMMetadataRef i8_ptr_di =
                 LLVMDIBuilderCreatePointerType(cg->di_builder,
                                                pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64,
                                                64, 0, NULL, 0);
-            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
-            elems_stack[0] = ptr_di;
-            elems_stack[1] = i64_di;
+            members_stack[0] = pp_code_generator_di_member(cg, "ptr", 64, 64, 0, i8_ptr_di);
+            members_stack[1] = pp_code_generator_di_member(cg, "len", 64, 64, 64, i64_di);
+            /* SizeInBits is in bits: a byte count here makes gdb treat the members as out of bounds. */
             result = LLVMDIBuilderCreateStructType(cg->di_builder, cg->di_compile_unit, "pp.string", 9, cg->di_file, 0,
-                                                   16, 64, LLVMDIFlagZero, NULL, elems_stack, 2, 0, NULL, NULL, 0);
+                                                   128, 64, LLVMDIFlagZero, NULL, members_stack, 2, 0, NULL, NULL, 0);
             break;
         }
         case PP_TK_List: {
-            LLVMMetadataRef elems_stack[4];
-            LLVMMetadataRef ptr_di =
+            /* Layout mirrors pp_list_t: { void* data; uint64 len, cap, elem_size; }.
+             * data is typed as element* so elements can be expanded with "p *l.data@l.len". */
+            LLVMMetadataRef members_stack[4];
+            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
+            LLVMMetadataRef element_di = pp_code_generator_get_di_type(cg, t->type.pp_type_list.element_type);
+            LLVMMetadataRef data_di = NULL;
+            LLVMMetadataRef i8_ptr_di =
                 LLVMDIBuilderCreatePointerType(cg->di_builder,
                                                pp_code_generator_di_basic_type(cg, "i8", 8, PP_DW_ATE_SIGNED_CHAR), 64,
                                                64, 0, NULL, 0);
-            LLVMMetadataRef i64_di = pp_code_generator_di_basic_type(cg, "i64", 64, PP_DW_ATE_SIGNED);
-            elems_stack[0] = ptr_di;
-            elems_stack[1] = i64_di;
-            elems_stack[2] = i64_di;
-            elems_stack[3] = i64_di;
+            if (element_di) {
+                data_di = LLVMDIBuilderCreatePointerType(cg->di_builder, element_di, 64, 64, 0, NULL, 0);
+            } else {
+                /* A list of its own type recurses; the in-progress guard yields no element type. */
+                data_di = i8_ptr_di;
+            }
+            members_stack[0] = pp_code_generator_di_member(cg, "data", 64, 64, 0, data_di);
+            members_stack[1] = pp_code_generator_di_member(cg, "len", 64, 64, 64, i64_di);
+            members_stack[2] = pp_code_generator_di_member(cg, "cap", 64, 64, 128, i64_di);
+            members_stack[3] = pp_code_generator_di_member(cg, "elem_size", 64, 64, 192, i64_di);
+            /* SizeInBits is in bits: a byte count here makes gdb treat the members as out of bounds. */
             result = LLVMDIBuilderCreateStructType(cg->di_builder, cg->di_compile_unit, "pp.list", 7, cg->di_file, 0,
-                                                   32, 64, LLVMDIFlagZero, NULL, elems_stack, 4, 0, NULL, NULL, 0);
+                                                   256, 64, LLVMDIFlagZero, NULL, members_stack, 4, 0, NULL, NULL, 0);
             break;
         }
         case PP_TK_Function:
@@ -1643,24 +1724,16 @@ error_cleanup:
 }
 
 static uint64_t pp_code_generator_type_store_size(PP_CodeGenerator* cg, LLVMTypeRef type) {
+    LLVMTargetDataRef target_data = NULL;
+    uint64_t size = 0;
     (void)cg;
-    LLVMInitializeNativeTarget();
-    char* triple = LLVMGetDefaultTargetTriple();
-    LLVMTargetRef target = NULL;
-    char* err = NULL;
-    if (LLVMGetTargetFromTriple(triple, &target, &err)) {
-        if (err) LLVMDisposeMessage(err);
-        if (triple) LLVMDisposeMessage(triple);
-        return 0;
-    }
-    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(target, triple, "generic", "", LLVMCodeGenLevelDefault,
-                                                      LLVMRelocPIC, LLVMCodeModelDefault);
-    LLVMTargetDataRef dl = LLVMCreateTargetDataLayout(tm);
-    size_t sz = LLVMStoreSizeOfType(dl, type);
-    LLVMDisposeTargetData(dl);
-    LLVMDisposeTargetMachine(tm);
-    if (triple) LLVMDisposeMessage(triple);
-    return (uint64_t)sz;
+
+    target_data = pp_code_generator_target_data_create();
+    if (target_data == NULL) return 0;
+
+    size = (uint64_t)LLVMStoreSizeOfType(target_data, type);
+    LLVMDisposeTargetData(target_data);
+    return size;
 }
 
 static LLVMValueRef pp_code_generator_entry_alloca(PP_CodeGenerator* cg, LLVMTypeRef type, const char* name) {
@@ -3299,6 +3372,66 @@ static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSy
     return llvm_val;
 }
 
+/* Builtin string equality. Strings are {ptr, len} structs, so equality is a length check plus memcmp over the
+ * payload. memcmp is only called when both lengths are non-zero and equal, which keeps {NULL, 0} strings (zero
+ * initialised or from malloc(0)) out of libc, where memcmp(NULL, NULL, 0) would be undefined behaviour.
+ * Returns an i1 equality result; the caller inverts it for '!='. */
+static LLVMValueRef pp_code_generator_generate_string_equality(PP_CodeGenerator* cg, LLVMValueRef llvm_lhs,
+                                                               LLVMValueRef llvm_rhs) {
+    assert(cg);
+    assert(llvm_lhs);
+    assert(llvm_rhs);
+
+    LLVMContextRef ctx = cg->ctx;
+    LLVMBuilderRef builder = cg->builder;
+    LLVMTypeRef i1_type = LLVMInt1TypeInContext(ctx);
+    LLVMTypeRef i32_type = LLVMInt32TypeInContext(ctx);
+    LLVMTypeRef i64_type = LLVMInt64TypeInContext(ctx);
+    LLVMTypeRef i8ptr_type = LLVMPointerTypeInContext(ctx, 0);
+
+    LLVMValueRef lhs_ptr = LLVMBuildExtractValue(builder, llvm_lhs, 0, "str_lhs_ptr");
+    LLVMValueRef lhs_len = LLVMBuildExtractValue(builder, llvm_lhs, 1, "str_lhs_len");
+    LLVMValueRef rhs_ptr = LLVMBuildExtractValue(builder, llvm_rhs, 0, "str_rhs_ptr");
+    LLVMValueRef rhs_len = LLVMBuildExtractValue(builder, llvm_rhs, 1, "str_rhs_len");
+
+    LLVMBasicBlockRef lhs_block = LLVMGetInsertBlock(builder);
+    assert(lhs_block);
+    LLVMValueRef llvm_func = LLVMGetBasicBlockParent(lhs_block);
+    assert(llvm_func);
+    LLVMBasicBlockRef len_eq_block = LLVMAppendBasicBlockInContext(ctx, llvm_func, "str.eq.leneq");
+    LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx, llvm_func, "str.eq.body");
+    LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx, llvm_func, "str.eq.end");
+
+    // Different lengths are unequal; only equal lengths need the empty check and the byte comparison.
+    LLVMValueRef len_eq = LLVMBuildICmp(builder, LLVMIntEQ, lhs_len, rhs_len, "str_len_eq");
+    LLVMBuildCondBr(builder, len_eq, len_eq_block, merge_block);
+
+    // Equal lengths: empty strings compare equal without touching memcmp.
+    LLVMPositionBuilderAtEnd(builder, len_eq_block);
+    LLVMValueRef is_empty = LLVMBuildICmp(builder, LLVMIntEQ, lhs_len, LLVMConstInt(i64_type, 0, 0), "str_len_zero");
+    LLVMBuildCondBr(builder, is_empty, merge_block, body_block);
+
+    // Both non-empty: length-aware byte comparison (NUL-safe, unlike strcmp).
+    LLVMPositionBuilderAtEnd(builder, body_block);
+    LLVMValueRef memcmp_fn = LLVMGetNamedFunction(cg->mod, "memcmp");
+    assert(memcmp_fn);
+    LLVMTypeRef memcmp_params[3] = {i8ptr_type, i8ptr_type, i64_type};
+    LLVMTypeRef memcmp_type = LLVMFunctionType(i32_type, memcmp_params, 3, 0);
+    LLVMValueRef memcmp_args[3] = {lhs_ptr, rhs_ptr, lhs_len};
+    LLVMValueRef cmp = LLVMBuildCall2(builder, memcmp_type, memcmp_fn, memcmp_args, 3, "str_memcmp");
+    LLVMValueRef bytes_eq = LLVMBuildICmp(builder, LLVMIntEQ, cmp, LLVMConstInt(i32_type, 0, 0), "str_bytes_eq");
+    LLVMBasicBlockRef body_end_block = LLVMGetInsertBlock(builder);
+    LLVMBuildBr(builder, merge_block);
+
+    LLVMPositionBuilderAtEnd(builder, merge_block);
+    LLVMValueRef phi = LLVMBuildPhi(builder, i1_type, "str_eq");
+    LLVMValueRef incoming_vals[3] = {LLVMConstInt(i1_type, 0, 0), is_empty, bytes_eq};
+    LLVMBasicBlockRef incoming_blocks[3] = {lhs_block, len_eq_block, body_end_block};
+    LLVMAddIncoming(phi, incoming_vals, incoming_blocks, 3);
+
+    return phi;
+}
+
 static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     assert(cg);
@@ -3652,6 +3785,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 llvm_val = LLVMBuildICmp(cg->builder, LLVMIntEQ, llvm_lhs, llvm_rhs, "eqtmp");
             } else if (llvm_lhs_type_kind == LLVMPointerTypeKind && llvm_rhs_type_kind == LLVMPointerTypeKind) {
                 llvm_val = LLVMBuildICmp(cg->builder, LLVMIntEQ, llvm_lhs, llvm_rhs, "eqtmp");
+            } else if (lhs_type->kind == PP_TK_String && rhs_type->kind == PP_TK_String) {
+                llvm_val = pp_code_generator_generate_string_equality(cg, llvm_lhs, llvm_rhs);
             }
             break;
         case PP_TT_EXCLAMATION_EQUAL:
@@ -3661,6 +3796,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                 llvm_val = LLVMBuildICmp(cg->builder, LLVMIntNE, llvm_lhs, llvm_rhs, "neqtmp");
             } else if (llvm_lhs_type_kind == LLVMPointerTypeKind && llvm_rhs_type_kind == LLVMPointerTypeKind) {
                 llvm_val = LLVMBuildICmp(cg->builder, LLVMIntNE, llvm_lhs, llvm_rhs, "neqtmp");
+            } else if (lhs_type->kind == PP_TK_String && rhs_type->kind == PP_TK_String) {
+                LLVMValueRef eq = pp_code_generator_generate_string_equality(cg, llvm_lhs, llvm_rhs);
+                llvm_val = LLVMBuildXor(cg->builder, eq, LLVMConstInt(LLVMInt1TypeInContext(cg->ctx), 1, 0), "str_ne");
             }
             break;
         default:

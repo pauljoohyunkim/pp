@@ -21,6 +21,9 @@ Heap strings:
 let s :: string = "hello";
 ```
 
+`string` supports `+` (concatenation), `==` / `!=` (length-aware byte equality), `#s` (byte length) and
+`s[i]` (byte access, `uint8`). See [Operators](08-operators.md).
+
 ## Modifiers
 
 * `const T` – immutable value

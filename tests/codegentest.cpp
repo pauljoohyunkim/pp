@@ -3026,3 +3026,62 @@ TEST(CodeGenTest, CompoundAssignRhsTemporaryIsDropped) {
     assert_ir_contains(cg.get(), "%owned_temp = alloca %pp.string");
     assert_ir_contains(cg.get(), "(ptr %owned_temp)");
 }
+
+TEST(CodeGenTest, StringEqualityUsesLengthAndMemcmp) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"hello\";\n"
+        "    let b :: string = \"world\";\n"
+        "    if (a == b) { return 1; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Comparison is length-first, then a length-aware byte compare; the empty-string path skips memcmp so
+    // a {nullptr, 0} string never reaches libc.
+    assert_ir_contains(cg.get(), "str_len_eq");
+    assert_ir_contains(cg.get(), "str.eq.leneq");
+    assert_ir_contains(cg.get(), "str.eq.body");
+    assert_ir_contains(cg.get(), "str.eq.end");
+    assert_ir_contains(cg.get(), "%str_memcmp = call i32 @memcmp");
+    assert_ir_contains(cg.get(), "%str_bytes_eq = icmp eq i32 %str_memcmp, 0");
+}
+
+TEST(CodeGenTest, StringInequalityInvertsEquality) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"hello\";\n"
+        "    let b :: string = \"world\";\n"
+        "    if (a != b) { return 1; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // '!=' reuses the equality computation and negates its result.
+    assert_ir_contains(cg.get(), "%str_eq = phi i1");
+    assert_ir_contains(cg.get(), "%str_ne = xor i1 %str_eq, true");
+}
+
+TEST(CodeGenTest, StringEqualityEmptyLiteralSkipsMemcmpCall) {
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: string = \"\";\n"
+        "    if (a == \"\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The zero-length guard is a real branch, not a select, so the memcmp call is only reachable when both
+    // payloads are non-empty.
+    assert_ir_contains(cg.get(), "%str_len_zero = icmp eq i64");
+    assert_ir_contains(cg.get(), "br i1 %str_len_zero, label %str.eq.end, label %str.eq.body");
+}

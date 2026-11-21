@@ -1,0 +1,1 @@
+extern func rand_bytes :: (buf :: ptr[uint8], N :: uint32) -> void;
