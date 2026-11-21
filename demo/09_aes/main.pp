@@ -5,11 +5,19 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
 
     let filename :: string = args[1u];
     pp_print_string(filename);
-
     pp_print_string("\n");
 
-    let buffer :: [uint8 : 16u];
-    rand_bytes(@buffer as ptr[uint8], 16u);
+    let iv_ctr :: [uint8 : 16u];
+    rand_bytes(@iv_ctr as uint64 as ptr[uint8], 12u);
+    //increment_iv_counter(iv_ctr);
+
+    let ctx :: AESCtx = AESCtx {
+        .mode = AESMode::AES256,
+        .key = [uint8 : 15u * 4u * 4u; 0x00uss,0x01uss,0x02uss,0x03uss,0x04uss,0x05uss,0x06uss,0x07uss,0x08uss,0x09uss,0x0auss,0x0buss,0x0cuss,0x0duss,0x0euss,0x0fuss,0x10uss,0x11uss,0x12uss,0x13uss,0x14uss,0x15uss,0x16uss,0x17uss,0x18uss,0x19uss,0x1auss,0x1buss,0x1cuss,0x1duss,0x1euss,0x1fuss],
+        .block = [uint8 : 16u; 0x00uss, 0x11uss, 0x22uss, 0x33uss, 0x44uss, 0x55uss, 0x66uss, 0x77uss, 0x88uss, 0x99uss, 0xAAuss, 0xBBuss, 0xCCuss, 0xDDuss, 0xEEuss, 0xFFuss]
+    };
+    aes_enc(ctx);
+    
 
     return 0;
 }

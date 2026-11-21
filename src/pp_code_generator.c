@@ -1261,6 +1261,38 @@ static int pp_code_generator_generate_continue(PP_CodeGenerator* cg, const PP_AS
     return 1;
 }
 
+/* ABI layout for size/alignment/offset queries.
+ *
+ * The module carries a data layout only once the object is emitted, so codegen builds the layout from a
+ * native target machine instead. The caller owns the returned layout and releases it with
+ * LLVMDisposeTargetData(). Returns NULL when the native target is unavailable. */
+static LLVMTargetDataRef pp_code_generator_target_data_create(void) {
+    char* triple = NULL;
+    char* err = NULL;
+    LLVMTargetRef target = NULL;
+    LLVMTargetMachineRef target_machine = NULL;
+    LLVMTargetDataRef target_data = NULL;
+
+    LLVMInitializeNativeTarget();
+    triple = LLVMGetDefaultTargetTriple();
+    if (triple == NULL) return NULL;
+
+    if (LLVMGetTargetFromTriple(triple, &target, &err)) {
+        if (err) LLVMDisposeMessage(err);
+        LLVMDisposeMessage(triple);
+        return NULL;
+    }
+
+    target_machine = LLVMCreateTargetMachine(target, triple, "generic", "", LLVMCodeGenLevelDefault, LLVMRelocPIC,
+                                             LLVMCodeModelDefault);
+    LLVMDisposeMessage(triple);
+    if (target_machine == NULL) return NULL;
+
+    target_data = LLVMCreateTargetDataLayout(target_machine);
+    LLVMDisposeTargetMachine(target_machine);
+    return target_data;
+}
+
 static LLVMMetadataRef pp_code_generator_di_basic_type(PP_CodeGenerator* cg, const char* name, uint64_t size_in_bits,
                                                        LLVMDWARFTypeEncoding encoding) {
     return LLVMDIBuilderCreateBasicType(cg->di_builder, name, strlen(name), size_in_bits, encoding, LLVMDIFlagZero);
@@ -1463,9 +1495,9 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             const PPType* ref_to = t->type.pp_type_reference.reference_to;
             LLVMMetadataRef ref_di = pp_code_generator_get_di_type(cg, ref_to);
             if (ref_di) {
-                uint64_t size_bits = 64;
-                uint32_t align_bits = 64;
-                result = LLVMDIBuilderCreatePointerType(cg->di_builder, ref_di, size_bits, align_bits, 0, NULL, 0);
+                /* The language auto-dereferences a reference, so describe it as DW_TAG_reference_type (0x10).
+                 * As a pointer type, "p ctx.key" would become a member access on a pointer and fail. */
+                result = LLVMDIBuilderCreateReferenceType(cg->di_builder, 0x10, ref_di);
             }
             break;
         }
@@ -1491,15 +1523,41 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             const char* name = t->type.pp_type_struct.name ? t->type.pp_type_struct.name : "<anonymous>";
             const PP_StructLayout* layout = t->type.pp_type_struct.layout;
             size_t field_count = layout ? layout->field_count : 0;
+            LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, t);
+            LLVMTargetDataRef target_data = NULL;
             if (field_count > 0) {
                 members = (LLVMMetadataRef*)calloc(field_count, sizeof(LLVMMetadataRef));
                 NULL_POINTER_ERROR_HANDLE(members);
+                /* Field offsets need the struct body, which is not set for opaque/recursive placeholders. */
+                if (llvm_type && !LLVMIsOpaqueStruct(llvm_type)) {
+                    target_data = pp_code_generator_target_data_create();
+                }
                 for (size_t i = 0; i < field_count; i++) {
-                    members[i] = pp_code_generator_get_di_type(cg, layout->fields[i].field_type);
-                    if (!members[i]) { members[i] = pp_code_generator_di_void_type(cg); }
+                    const PPStructField* field = &layout->fields[i];
+                    LLVMMetadataRef field_di = pp_code_generator_get_di_type(cg, field->field_type);
+                    LLVMTypeRef llvm_field_type = NULL;
+                    uint64_t field_size_bits = 0;
+                    uint32_t field_align_bits = 0;
+                    uint64_t field_offset_bits = 0;
+                    /* A struct may contain itself through a pointer; the in-progress guard returns no type. */
+                    if (!field_di) { field_di = pp_code_generator_di_void_type(cg); }
+                    if (target_data) { llvm_field_type = pp_environment_backend_lookup_type(cg, field->field_type); }
+                    if (target_data && llvm_field_type) {
+                        field_size_bits = (uint64_t)LLVMStoreSizeOfType(target_data, llvm_field_type) * 8;
+                        field_align_bits = LLVMABIAlignmentOfType(target_data, llvm_field_type) * 8;
+                        field_offset_bits = LLVMOffsetOfElement(target_data, llvm_type, (unsigned)i) * 8;
+                    }
+                    /* A raw type metadata entry would not become a DW_TAG_member: gdb needs the member DIE. */
+                    members[i] =
+                        LLVMDIBuilderCreateMemberType(cg->di_builder, cg->di_compile_unit, field->field_name,
+                                                      strlen(field->field_name), cg->di_file, 0, field_size_bits,
+                                                      field_align_bits, field_offset_bits, LLVMDIFlagZero, field_di);
+                }
+                if (target_data) {
+                    LLVMDisposeTargetData(target_data);
+                    target_data = NULL;
                 }
             }
-            LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, t);
             uint64_t size_bits = 0;
             uint32_t align_bits = 0;
             if (llvm_type) {
@@ -1643,24 +1701,16 @@ error_cleanup:
 }
 
 static uint64_t pp_code_generator_type_store_size(PP_CodeGenerator* cg, LLVMTypeRef type) {
+    LLVMTargetDataRef target_data = NULL;
+    uint64_t size = 0;
     (void)cg;
-    LLVMInitializeNativeTarget();
-    char* triple = LLVMGetDefaultTargetTriple();
-    LLVMTargetRef target = NULL;
-    char* err = NULL;
-    if (LLVMGetTargetFromTriple(triple, &target, &err)) {
-        if (err) LLVMDisposeMessage(err);
-        if (triple) LLVMDisposeMessage(triple);
-        return 0;
-    }
-    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(target, triple, "generic", "", LLVMCodeGenLevelDefault,
-                                                      LLVMRelocPIC, LLVMCodeModelDefault);
-    LLVMTargetDataRef dl = LLVMCreateTargetDataLayout(tm);
-    size_t sz = LLVMStoreSizeOfType(dl, type);
-    LLVMDisposeTargetData(dl);
-    LLVMDisposeTargetMachine(tm);
-    if (triple) LLVMDisposeMessage(triple);
-    return (uint64_t)sz;
+
+    target_data = pp_code_generator_target_data_create();
+    if (target_data == NULL) return 0;
+
+    size = (uint64_t)LLVMStoreSizeOfType(target_data, type);
+    LLVMDisposeTargetData(target_data);
+    return size;
 }
 
 static LLVMValueRef pp_code_generator_entry_alloca(PP_CodeGenerator* cg, LLVMTypeRef type, const char* name) {
