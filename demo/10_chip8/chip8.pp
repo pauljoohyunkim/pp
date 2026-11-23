@@ -8,10 +8,15 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
     machine.pc += 2us;
     if (opcode == 0x00E0u as uint16) {
         // Clear screen
+        for (let i :: uint16 = 0us; i < WIDTH * HEIGHT; i += 1us) {
+            machine.display[i] = 0uss;
+        }
         pp_system("clear");
         return;
     } else if (opcode == 0x00EEu as uint16) {
         // Return from subroutine
+        // A RET without a matching CALL would pop an empty list, which aborts.
+        if (#machine.stack == 0u) { return; }
         machine.pc = list_pop(machine.stack);
         return;
     } else if (extract_4bit(opcode, 0uss) == 1uss) {
@@ -26,6 +31,7 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         
         // Save the current address (Note that program counter has already moved, so it needs to return to CURRENT PC)
         list_push(machine.stack, machine.pc);
+        machine.pc = opcode & 0xFFFus;
         return;
     } else if (extract_4bit(opcode, 0uss) == 3uss) {
         // 3XNN
@@ -45,7 +51,7 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
             // Advance program counter.
             machine.pc += 2us;
         }
-    } else if (extract_4bit(opcode, 0uss) == 5uss && opcode & 0x0Fus == 0us) {
+    } else if (extract_4bit(opcode, 0uss) == 5uss && (opcode & 0x000Fus) == 0us) {
         // 5XY0
         // Skips next instruction if VX == VY
         let x :: uint8 = extract_4bit(opcode, 1uss);
@@ -91,41 +97,41 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
             // 8XY4
             // VX += VY
             // With carry
+            // The result and the flag must be computed before anything is stored:
+            // writing VF first would clobber the result when X == 0xF.
             let sum :: uint16 = machine.v[x] as uint16 + machine.v[y] as uint16;
-            if (sum >= 256us) {
-                machine.v[0xFu] = 1uss;
-            } else {
-                machine.v[0xFu] = 0uss;
-            }
+            let carry :: uint8 = 0uss;
+            if (sum >= 256us) { carry = 1uss; }
             machine.v[x] = (sum & 0xFFus) as uint8;
+            machine.v[0xFu] = carry;
         } else if (l4b == 5uss) {
             // 8XY5
             // VX -= VY
-            if (machine.v[x] >= machine.v[y]) {
-                machine.v[0xFu] = 1uss;
-            } else {
-                machine.v[0xFu] = 0uss;
-            }
-            machine.v[x] -= machine.v[y];
+            let result :: uint8 = machine.v[x] - machine.v[y];
+            let borrow :: uint8 = 0uss;
+            if (machine.v[x] >= machine.v[y]) { borrow = 1uss; }
+            machine.v[x] = result;
+            machine.v[0xFu] = borrow;
         } else if (l4b == 6uss) {
             // 8XY6
             // VX >>= 1
-            machine.v[0xFu] = machine.v[x] & 1uss;
+            let lsb :: uint8 = machine.v[x] & 1uss;
             machine.v[x] >>= 1uss;
+            machine.v[0xFu] = lsb;
         } else if (l4b == 7uss) {
             // 8XY7
             // VX = VY - VX
-            if (machine.v[y] >= machine.v[x]) {
-                machine.v[0xFu] = 1uss;
-            } else {
-                machine.v[0xFu] = 0uss;
-            }
-            
-            machine.v[x] = machine.v[y] - machine.v[x];
+            let result :: uint8 = machine.v[y] - machine.v[x];
+            let borrow :: uint8 = 0uss;
+            if (machine.v[y] >= machine.v[x]) { borrow = 1uss; }
+            machine.v[x] = result;
+            machine.v[0xFu] = borrow;
         } else if (l4b == 0xEuss) {
-            // 8XY8
-            machine.v[0xFu] = machine.v[x] >> 7uss;
+            // 8XYE
+            // VX <<= 1
+            let msb :: uint8 = machine.v[x] >> 7uss;
             machine.v[x] <<= 1uss;
+            machine.v[0xFu] = msb;
         }
     } else if (extract_4bit(opcode, 0uss) == 9uss && extract_4bit(opcode, 3uss) == 0uss) {
         // 9XY0
@@ -138,26 +144,31 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         // EX9E
         // Skip next instruction if key with the value of VX is pressed
         let x :: uint8 = extract_4bit(opcode, 1uss);
-        if (machine.keys[machine.v[x]] != 0uss) {
+        // VX is an arbitrary byte; mask it like the keypad so the index stays in bounds.
+        if (machine.keys[machine.v[x] & 0xFuss] != 0uss) {
             machine.pc += 2us;
         }
     } else if (extract_4bit(opcode, 0uss) == 0xEuss && (opcode & 0xFFus) == 0xA1us) {
         // EXA1
         // Skip next instruction if key with the value of VX is not pressed
         let x :: uint8 = extract_4bit(opcode, 1uss);
-        if (machine.keys[machine.v[x]] == 0uss) {
+        if (machine.keys[machine.v[x] & 0xFuss] == 0uss) {
             machine.pc += 2us;
         }
     } else if (extract_4bit(opcode, 0uss) == 0xAuss) {
         // I = NNN
         machine.I = opcode & 0xFFFus;
-    } else if (extract_4bit(opcode, 1uss) == 0xBuss) {
+    } else if (extract_4bit(opcode, 0uss) == 0xBuss) {
+        // BNNN
         // PC = V0 + NNN
         machine.pc = (opcode & 0xFFFus) + machine.v[0u] as uint16;
-    } else if (extract_4bit(opcode, 1uss) == 0xCuss) {
+    } else if (extract_4bit(opcode, 0uss) == 0xCuss) {
+        // CXNN
+        // VX = rand() & NN
         let x :: uint8 = extract_4bit(opcode, 1uss);
-        machine.v[x] = (pp_unsafe_rand() & 0xFF) as uint8;
-    } else if (extract_4bit(opcode, 1uss) == 0xDuss) {
+        let val :: uint8 = (opcode & 0xFFus) as uint8;
+        machine.v[x] = ((pp_unsafe_rand() & 0xFF) as uint8) & val;
+    } else if (extract_4bit(opcode, 0uss) == 0xDuss) {
         // DXYN
         // draw(VX, VY, N)
 
@@ -170,14 +181,14 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         let N :: uint8 = extract_4bit(opcode, 3uss);
 
         for (let j :: uint8 = 0uss; j < N; j += 1uss) {
-            let py :: uint16 = y_offset + j as uint16;
-            if (py >= HEIGHT) { break; }
+            // CHIP-8 sprites wrap vertically rather than clipping.
+            let py :: uint16 = (y_offset + j as uint16) % HEIGHT;
 
             let sprite_byte :: uint8 = machine.memory[machine.I + j as uint16];
 
             for (let i :: uint8 = 0uss; i < 8uss; i += 1uss) {
-                let px :: uint16 = x_offset + i as uint16;
-                if (px >= WIDTH) { break; }
+                // CHIP-8 sprites wrap horizontally too.
+                let px :: uint16 = (x_offset + i as uint16) % WIDTH;
 
                 let bit :: uint8 = (sprite_byte >> (7uss - i)) & 1uss;
                 if (bit != 0uss) {
