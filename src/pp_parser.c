@@ -71,6 +71,7 @@ static PP_AST_Node* pp_parser_create_handle_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_enum_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_flag_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_global_variable_declaration(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_constant_declaration(PP_Parser* parser);
 static int pp_parser_parse_param_list(PP_Parser* parser, PP_AST_Node*** out_params, unsigned int* out_count,
                                       unsigned int* out_capacity);
 static int pp_parser_parse_signature(PP_Parser* parser, const char** out_name, PP_AST_Node*** out_params,
@@ -244,6 +245,7 @@ static bool pp_parser_is_sync_token(PP_TokenType token_type) {
         case PP_TT_NEWTYPE:
         case PP_TT_ENUM:
         case PP_TT_FLAG:
+        case PP_TT_CONSTANT:
         case PP_TT_SEMICOLON:
         case PP_TT_RIGHT_CURLY_BRACKET:
             return true;
@@ -342,6 +344,9 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                 break;
             case PP_TT_LET:
                 decl = pp_parser_create_global_variable_declaration(parser);
+                break;
+            case PP_TT_CONSTANT:
+                decl = pp_parser_create_constant_declaration(parser);
                 break;
             default:
                 pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),
@@ -1559,6 +1564,68 @@ error_cleanup:
 
 static PP_AST_Node* pp_parser_create_global_variable_declaration(PP_Parser* parser) {
     return pp_parser_create_variable_declaration(parser);
+}
+
+static PP_AST_Node* pp_parser_create_constant_declaration(PP_Parser* parser) {
+    PP_AST_Node* node = NULL;
+    PP_AST_Node* type_expr = NULL;
+    PP_AST_Node* initializer = NULL;
+    PP_Token* decl_tok = NULL;
+    PP_Token* ident_tok = NULL;
+    const char* identifier = NULL;
+
+    NULL_POINTER_ERROR_HANDLE(parser);
+
+    {
+        decl_tok = pp_parser_consume_token(parser, PP_TT_CONSTANT);
+        NULL_POINTER_ERROR_HANDLE(decl_tok);
+    }
+    {
+        ident_tok = pp_parser_consume_token(parser, PP_TT_IDENTIFIER);
+        NULL_POINTER_ERROR_HANDLE(ident_tok);
+    }
+    identifier = ident_tok->lexeme;
+    {
+        PP_Token* colon_colon_tok = pp_parser_consume_token(parser, PP_TT_COLON_COLON);
+        NULL_POINTER_ERROR_HANDLE(colon_colon_tok);
+    }
+
+    type_expr = pp_parser_create_type(parser);
+    NULL_POINTER_ERROR_HANDLE(type_expr);
+
+    if (pp_parser_peek_token_type(parser, 0) != PP_TT_EQUAL) {
+        pp_error_list_push_error(parser->error_list, pp_parser_current_loc(parser),
+                                 "Constant declaration requires an initializer");
+        goto error_cleanup;
+    }
+    {
+        PP_Token* eq_tok = pp_parser_consume_token(parser, PP_TT_EQUAL);
+        NULL_POINTER_ERROR_HANDLE(eq_tok);
+    }
+
+    initializer = pp_parser_create_expression_or_assignment(parser);
+    NULL_POINTER_ERROR_HANDLE(initializer);
+
+    node = pp_ast_node_create(PP_AST_ConstantDeclarationNode, decl_tok->loc);
+    NULL_POINTER_ERROR_HANDLE(node);
+    node->constant_declaration.identifier = identifier;
+    node->constant_declaration.type_expr = type_expr;
+    type_expr = NULL;
+    node->constant_declaration.initializer = initializer;
+    initializer = NULL;
+
+    {
+        PP_Token* semi_tok = pp_parser_consume_token(parser, PP_TT_SEMICOLON);
+        NULL_POINTER_ERROR_HANDLE(semi_tok);
+    }
+
+    return node;
+
+error_cleanup:
+    pp_ast_root_free(node);
+    pp_ast_root_free(type_expr);
+    pp_ast_root_free(initializer);
+    return NULL;
 }
 
 static PP_AST_Node* pp_parser_create_function_declaration(PP_Parser* parser) {

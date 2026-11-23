@@ -429,6 +429,9 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     } else if (pp_lexer_exactly_match_keyword(lexer, "const")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_CONST, 5)) return 0;
                         advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "constant")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_CONSTANT, 8)) return 0;
+                        advance_pp(lexer, 8);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "void")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_VOID, 4)) return 0;
                         advance_pp(lexer, 4);

@@ -15,6 +15,7 @@
                               | <extern_operator_decl>
                               | <struct_decl>
                               | <variable_decl> ";"
+                              | <constant_decl> ";"
                               | <typedef_decl> ";"
                               | <newtype_decl> ";"
                               | <handle_decl> ";"
@@ -56,6 +57,7 @@
                               | <expression> ";"
 
 <variable_decl>             ::= "let" <param_decl> [ "=" <expression> ]
+<constant_decl>             ::= "constant" <identifier> "::" <type> "=" <expression>
 
 <assignment_stmt>           ::= <expression> <assignment_op> <expression>
 <assignment_op>             ::= "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="

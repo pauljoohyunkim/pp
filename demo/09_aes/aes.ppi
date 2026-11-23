@@ -1,3 +1,6 @@
+// Maximum expanded key size: AES-256 uses 60 words (15 * 4) of 4 bytes each.
+constant AES_EXPANDED_KEY_BYTES :: uint32 = 15u * 4u * 4u;
+
 enum AESMode :: uint32 {
     AES128 = 0u,
     AES192 = 1u,
@@ -6,7 +9,7 @@ enum AESMode :: uint32 {
 
 struct AESCtx {
     mode :: AESMode;
-    key :: [uint8 : 15u * 4u * 4u];
+    key :: [uint8 : AES_EXPANDED_KEY_BYTES];
     block :: [uint8 : 16u];
 }
 
