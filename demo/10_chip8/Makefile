@@ -3,8 +3,11 @@ PPLANG := $(ROOT)/bin/pplang
 PP_STD := $(ROOT)/lib/pp_std
 
 SRCS := $(wildcard *.pp)
+CSRCS := $(wildcard *.c)
+COBJS := $(CSRCS:.c=.o)
 PPIS  := $(wildcard *.ppi)
 TARGET := chip8_demo
+CFLAGS ?= -O2 -Wall
 
 all: $(TARGET)
 
@@ -21,10 +24,13 @@ PPI_FLAGS := $(foreach f,$(PPIS),--ppi $(f))
 # Extra flags passed to pplang (e.g. -g, -O2)
 PPCFLAGSEXTRA ?=
 
-$(TARGET): $(PPLANG) $(SRCS) $(PPIS) $(PP_STD)/bin/pp_std.a
-	$(PPLANG) $(BASE_PPI) $(PPI_FLAGS) $(PPCFLAGSEXTRA) $(SRCS) $(PP_STD)/bin/pp_std.a -o $@
+$(TARGET): $(PPLANG) $(SRCS) $(PPIS) $(COBJS) $(PP_STD)/bin/pp_std.a
+	$(PPLANG) $(BASE_PPI) $(PPI_FLAGS) $(PPCFLAGSEXTRA) $(SRCS) $(COBJS) $(PP_STD)/bin/pp_std.a -o $@
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(COBJS)
 
 .PHONY: all clean

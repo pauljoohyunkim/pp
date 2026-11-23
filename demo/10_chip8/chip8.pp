@@ -134,6 +134,20 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         if (machine.v[x] != machine.v[y]) {
             machine.pc += 2us;
         }
+    } else if (extract_4bit(opcode, 0uss) == 0xEuss && (opcode & 0xFFus) == 0x9Eus) {
+        // EX9E
+        // Skip next instruction if key with the value of VX is pressed
+        let x :: uint8 = extract_4bit(opcode, 1uss);
+        if (machine.keys[machine.v[x]] != 0uss) {
+            machine.pc += 2us;
+        }
+    } else if (extract_4bit(opcode, 0uss) == 0xEuss && (opcode & 0xFFus) == 0xA1us) {
+        // EXA1
+        // Skip next instruction if key with the value of VX is not pressed
+        let x :: uint8 = extract_4bit(opcode, 1uss);
+        if (machine.keys[machine.v[x]] == 0uss) {
+            machine.pc += 2us;
+        }
     } else if (extract_4bit(opcode, 0uss) == 0xAuss) {
         // I = NNN
         machine.I = opcode & 0xFFFus;

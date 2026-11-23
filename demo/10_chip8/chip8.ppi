@@ -10,6 +10,7 @@ struct Chip8Machine {
     sound_timer :: uint8;                   // When nonzero, sound is made. Can be set only.
     pc :: uint16;                           // Program counter
     display :: [uint8 : WIDTH * HEIGHT];    // Display
+    keys :: [uint8 : 16u];                  // Keypad state 0/1, refreshed by pp_term_poll_keys
 }
 
 typedef uint16 OPCODE;
