@@ -156,13 +156,13 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         let N :: uint8 = extract_4bit(opcode, 3uss);
 
         for (let j :: uint8 = 0uss; j < N; j += 1uss) {
-            let py :: uint16 = y_offset + j as uin16;
+            let py :: uint16 = y_offset + j as uint16;
             if (py >= HEIGHT) { break; }
 
             let sprite_byte :: uint8 = machine.memory[machine.I + j as uint16];
 
             for (let i :: uint8 = 0uss; i < 8uss; i += 1uss) {
-                let px :: uint16 = x_offset + i;
+                let px :: uint16 = x_offset + i as uint16;
                 if (px >= WIDTH) { break; }
 
                 let bit :: uint8 = (sprite_byte >> (7uss - i)) & 1uss;

@@ -1087,7 +1087,11 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 break;
         }
         if (!temp_type && !gtt_lookedup_type) {
-            pp_error_list_push_error(sa->error_list, type_node->loc, "Failed to create type");
+            if (base_kind == PP_AST_TYPE_KIND_IDENTIFIER && base_identifier) {
+                pp_error_list_push_error(sa->error_list, type_node->loc, "Unknown type '%s'", base_identifier);
+            } else {
+                pp_error_list_push_error(sa->error_list, type_node->loc, "Failed to create type");
+            }
             goto error_cleanup;
         }
 
@@ -6540,6 +6544,7 @@ error_cleanup:
  * [x] Early exit if expr->cast_expression.decoration already set
  * [x] Recursively check inner expression via pp_semantic_analyzer_check_expression
  * [x] Retrieve target type via pp_type_from_type_node
+ * [x] Unresolved target type is a user error: push error and return 0 (no assert)
  * [x] Reject casting to reference type with error push
  * [x] Reject casting to const type with error push
  * [x] Decay expression type and target type via pp_type_decay
@@ -6567,8 +6572,12 @@ static int pp_semantic_analyzer_check_cast_expression(PP_SemanticAnalyzer* sa, P
     const PP_AST_Decoration* expr_decoration = pp_ast_get_decoration(expr->cast_expression.expression);
     assert(expr_decoration);
 
+    // An unresolved type name is a user error, not an internal invariant: report it and keep going.
     const PPType* target_type = pp_type_from_type_node(sa, expr->cast_expression.type_expr);
-    assert(target_type);
+    if (!target_type) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "Failed to resolve cast target type");
+        goto error_cleanup;
+    }
 
     if (pp_type_is_top_level_const(target_type)) {
         pp_error_list_push_error(sa->error_list, expr->loc, "Casting to const is not allowed.");

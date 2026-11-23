@@ -2727,3 +2727,14 @@ TEST(SemanticTest, ConstantArraySizeForwardReferenceRejected) {
     expect_semantic_reject("let a :: [int32 : LATER];\nconstant LATER :: uint64 = 4ul;\n",
                            "an array size constant must be declared before the array type");
 }
+
+TEST(SemanticTest, CastToUnknownTypeNameRejected) {
+    // Regression: a misspelled cast target type used to trip `assert(target_type)` in
+    // pp_semantic_analyzer_check_cast_expression, aborting the compiler instead of reporting an error.
+    expect_semantic_reject("func main :: () -> int32 {\n"
+                           "    let a :: uint16 = 1us;\n"
+                           "    let b :: uint16 = a as uin16;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "cast to an unknown type name");
+}
