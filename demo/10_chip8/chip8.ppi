@@ -1,0 +1,14 @@
+constant MEMORY_SIZE :: uint16 = 8192us;
+struct Chip8Machine {
+    memory :: [uint8 : MEMORY_SIZE];
+    v :: [uint8 : 16u];         // V0 ~ VF (Registers)
+    I :: uint16;                // 12-bit register
+    stack :: [uint16];          // Return address register
+    delay_timer :: uint8;       // Timing the events of game. Can be set and read.
+    sound_timer :: uint8;       // When nonzero, sound is made. Can be set only.
+    pc :: uint16;               // Program counter
+}
+
+typedef uint16 OPCODE;
+
+extern func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void;
