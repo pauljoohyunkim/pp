@@ -141,6 +141,39 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         // PC = V0 + NNN
         machine.pc = (opcode & 0xFFFus) + machine.v[0u] as uint16;
     } else if (extract_4bit(opcode, 1uss) == 0xCuss) {
-        
+        let x :: uint8 = extract_4bit(opcode, 1uss);
+        machine.v[x] = (pp_unsafe_rand() & 0xFF) as uint8;
+    } else if (extract_4bit(opcode, 1uss) == 0xDuss) {
+        // DXYN
+        // draw(VX, VY, N)
+
+        machine.v[0xFu] = 0uss;
+
+        let x :: uint8 = extract_4bit(opcode, 1uss);
+        let y :: uint8 = extract_4bit(opcode, 2uss);
+        let x_offset :: uint16 = machine.v[x] as uint16 % WIDTH;
+        let y_offset :: uint16 = machine.v[y] as uint16 % HEIGHT;
+        let N :: uint8 = extract_4bit(opcode, 3uss);
+
+        for (let j :: uint8 = 0uss; j < N; j += 1uss) {
+            let py :: uint16 = y_offset + j as uin16;
+            if (py >= HEIGHT) { break; }
+
+            let sprite_byte :: uint8 = machine.memory[machine.I + j as uint16];
+
+            for (let i :: uint8 = 0uss; i < 8uss; i += 1uss) {
+                let px :: uint16 = x_offset + i;
+                if (px >= WIDTH) { break; }
+
+                let bit :: uint8 = (sprite_byte >> (7uss - i)) & 1uss;
+                if (bit != 0uss) {
+                    let idx :: uint16 = py * WIDTH + px;
+                    if (machine.display[idx] != 0uss) {
+                        machine.v[0xFu] = 1uss;
+                    }
+                    machine.display[idx] ^= 1uss;
+                }
+            }
+        }
     }
 }

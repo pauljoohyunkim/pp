@@ -4,6 +4,8 @@ func main :: () -> int32 {
         .pc = 0x200us
     };
 
+    pp_seed_unsafe_rand();
+
     chip8.memory[0x200u] = 0x00uss;
     chip8.memory[0x201u] = 0xE0uss;
 
