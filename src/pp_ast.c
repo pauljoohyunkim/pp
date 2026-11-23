@@ -121,6 +121,12 @@ static void pp_ast_root_free_internal(PP_AST_Node* node) {
             pp_ast_root_free_internal(node->variable_declaration.initializer);
             break;
         }
+        case PP_AST_ConstantDeclarationNode: {
+            /* constant_declaration.identifier is pool-owned const char* - do not free */
+            pp_ast_root_free_internal(node->constant_declaration.type_expr);
+            pp_ast_root_free_internal(node->constant_declaration.initializer);
+            break;
+        }
         case PP_AST_AssignmentNode: {
             pp_ast_root_free_internal(node->assignment.lhs);
             pp_ast_root_free_internal(node->assignment.rhs);
@@ -373,6 +379,14 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
             pp_ast_root_print(node->variable_declaration.var_decl, depth + 1);
             if (node->variable_declaration.initializer)
                 pp_ast_root_print(node->variable_declaration.initializer, depth + 1);
+            break;
+        case PP_AST_ConstantDeclarationNode:
+            printf("ConstantDeclaration %s\n",
+                   node->constant_declaration.identifier ? node->constant_declaration.identifier : "");
+            if (node->constant_declaration.type_expr)
+                pp_ast_root_print(node->constant_declaration.type_expr, depth + 1);
+            if (node->constant_declaration.initializer)
+                pp_ast_root_print(node->constant_declaration.initializer, depth + 1);
             break;
         case PP_AST_AssignmentNode: {
             const char* op_name = pp_token_to_human_name(node->assignment.op);

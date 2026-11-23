@@ -79,7 +79,7 @@ lambda rcon :: (i :: uint32) -> WORD {
     return [uint8 : 4u; rc[i]];
 }
 
-lambda read_word_from_flattened_array :: (buf :: const [uint8 : 15u*4u*4u]&, idx :: uint32) -> WORD {
+lambda read_word_from_flattened_array :: (buf :: const [uint8 : AES_EXPANDED_KEY_BYTES]&, idx :: uint32) -> WORD {
     let word :: WORD;
     word[0u] = buf[idx];
     word[1u] = buf[idx+1u];
@@ -98,7 +98,7 @@ lambda XorWord :: (w1 :: const WORD&, w2 :: const WORD&) -> WORD {
     return word;
 }
 
-func write_word_to_flattened_array :: (buf :: [uint8 : 15u*4u*4u]&, idx :: uint32, word :: const WORD&) -> void {
+func write_word_to_flattened_array :: (buf :: [uint8 : AES_EXPANDED_KEY_BYTES]&, idx :: uint32, word :: const WORD&) -> void {
     buf[idx] = word[0u];
     buf[idx+1u] = word[1u];
     buf[idx+2u] = word[2u];

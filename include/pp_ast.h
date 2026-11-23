@@ -49,6 +49,7 @@ typedef enum {
     PP_AST_ProgramNode,
     PP_AST_StructDeclarationNode,
     PP_AST_VariableDeclarationNode,
+    PP_AST_ConstantDeclarationNode,
     PP_AST_AssignmentNode,
     PP_AST_ReturnStatementNode,
     PP_AST_IfStatementNode,
@@ -128,6 +129,12 @@ struct PP_AST_Node {
             PP_AST_Node* var_decl;    /* ParamDeclaration */
             PP_AST_Node* initializer; /* optional expression */
         } variable_declaration;
+
+        struct {                      /* ConstantDeclaration */
+            const char* identifier;   /* pool-owned */
+            PP_AST_Node* type_expr;   /* declared type */
+            PP_AST_Node* initializer; /* required constant expression */
+        } constant_declaration;
 
         struct { /* Assignment */
             PP_AST_Node* lhs;

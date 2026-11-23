@@ -14,6 +14,23 @@ let z :: float;
 * Initializer must be compile-time. (No dependency on variables or order of declaration.)
 * Reference cannot be declared at global scope.
 
+## Constant Declaration
+```
+constant SOME_CONSTANT :: uint64 = 1ul;
+constant OTHER :: float = 1.5;
+constant FLAG :: bool = true;
+```
+* Declares a named compile-time value at global scope.
+* Type must be a plain integer, `float`, or `bool` primitive (no `const`/reference modifier,
+  no enum/flag/newtype/struct/array/list/pointer/string/handle/callable).
+* Initializer is mandatory and must be constexpr and type-equal to the declared type.
+* A constant has **no storage and no link-time symbol**. References are folded during codegen,
+  which makes constants safe to declare in `.ppi` files shared by multiple translation units.
+* Immutable, non-addressable, and usable in any expression (including lambda bodies).
+* A constant initializer may reference only constants declared earlier in the source.
+* An unsigned integer constant (`uint8`…`uint64`) may be used as an array size; it must be
+  declared before the array type that uses it.
+
 ## Typedef & Newtype Declaration
 ```
 typedef int32 int;

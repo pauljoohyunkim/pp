@@ -140,6 +140,7 @@ static int pp_semantic_analyzer_build_global_table_extern_operator_decl(PP_Seman
 static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
+static int pp_semantic_analyzer_build_global_table_constant_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_typedef_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_newtype_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
 static int pp_semantic_analyzer_build_global_table_handle_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node);
@@ -161,6 +162,7 @@ static int pp_semantic_analyzer_full_analyze_pure_callable(PP_SemanticAnalyzer* 
 static int pp_semantic_analyzer_full_analyze_operator_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_lambda_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 static int pp_semantic_analyzer_full_analyze_global_variable_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
+static int pp_semantic_analyzer_full_analyze_constant_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node);
 
 /* Function Bodies */
 static int pp_semantic_analyzer_full_analyze_statement(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
@@ -751,6 +753,30 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
             *val = (size_t)constant_value;
             return 1;
         } break;
+        case PP_AST_IdentifierNode: {
+            const PPSymbol* constant_symbol =
+                pp_symbol_table_lookup(sa->gst, simple_expr_node->identifier.identifier, true);
+            if (!constant_symbol || !constant_symbol->is_constant_decl) {
+                pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
+                                         "Array size identifier '%s' is not a constant",
+                                         simple_expr_node->identifier.identifier);
+                goto error_cleanup;
+            }
+            if (!pp_type_kind_is_unsigned_up_to_64(constant_symbol->type->kind)) {
+                pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
+                                         "Array size constant '%s' must have an unsigned integer type "
+                                         "(uint8, uint16, uint32 or uint64)",
+                                         simple_expr_node->identifier.identifier);
+                goto error_cleanup;
+            }
+            if (!constant_symbol->constant_initializer) {
+                pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
+                                         "Constant '%s' must be declared before it is used as an array size",
+                                         simple_expr_node->identifier.identifier);
+                goto error_cleanup;
+            }
+            return pp_array_size_from_simple_expr(sa, constant_symbol->constant_initializer, val);
+        } break;
         case PP_AST_BinaryExpressionNode: {
             switch (simple_expr_node->binary_expression.op) {
                 case PP_TT_PLUS:
@@ -1191,6 +1217,9 @@ static int pp_semantic_analyzer_build_global_table(PP_SemanticAnalyzer* sa) {
                 break;
             case PP_AST_VariableDeclarationNode:
                 pp_semantic_analyzer_build_global_table_variable_decl(sa, decl);
+                break;
+            case PP_AST_ConstantDeclarationNode:
+                pp_semantic_analyzer_build_global_table_constant_decl(sa, decl);
                 break;
             case PP_AST_TypedefDeclarationNode:
                 pp_semantic_analyzer_build_global_table_typedef_decl(sa, decl);
@@ -2206,6 +2235,66 @@ static int pp_semantic_analyzer_build_global_table_variable_decl(PP_SemanticAnal
     if (!pp_symbol_table_push(sa->gst, node->variable_declaration.var_decl->param_declaration.identifier, symbol)) {
         pp_error_list_push_error(sa->error_list, node->loc, "Failed to register variable '%s'",
                                  node->variable_declaration.var_decl->param_declaration.identifier);
+        goto error_cleanup;
+    }
+    symbol = NULL;
+
+    return 1;
+error_cleanup:
+    pp_symbol_free(symbol);
+    return 0;
+}
+
+/* Pass 1 - Constant Declaration Checklist:
+ * [x] Validate inputs
+ * [x] Detect duplicate symbol in the global scope
+ * [x] The declared type must be a plain integer, float, or bool primitive
+ * [x] Initializer must be present (also enforced by the parser)
+ * [x] Create a constexpr global symbol marked is_constant_decl
+ * [x] Store the non-owning initializer pointer for array-size folding
+ */
+static int pp_semantic_analyzer_build_global_table_constant_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
+    PPSymbol* symbol = NULL;
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_ConstantDeclarationNode);
+    assert(node->constant_declaration.identifier);
+    assert(node->constant_declaration.type_expr);
+
+    const char* name = node->constant_declaration.identifier;
+
+    if (pp_symbol_table_lookup(sa->gst, name, false)) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Symbol '%s' previously defined.", name);
+        goto error_cleanup;
+    }
+
+    if (!node->constant_declaration.initializer) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Constant '%s' requires an initializer.", name);
+        goto error_cleanup;
+    }
+
+    const PPType* constant_type = pp_type_from_type_node(sa, node->constant_declaration.type_expr);
+    if (!constant_type) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Invalid type for constant '%s'", name);
+        goto error_cleanup;
+    }
+
+    if (!pp_type_is_numerical(constant_type) && constant_type->kind != PP_TK_Bool) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Constant '%s' must have an integer, float, or bool type",
+                                 name);
+        goto error_cleanup;
+    }
+
+    symbol = pp_symbol_create(constant_type, true, false, true, true, false);
+    if (!symbol) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Failed to allocate symbol for constant '%s'", name);
+        goto error_cleanup;
+    }
+    symbol->is_constant_decl = true;
+    symbol->constant_initializer = node->constant_declaration.initializer;
+
+    if (!pp_symbol_table_push(sa->gst, name, symbol)) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Failed to register constant '%s'", name);
         goto error_cleanup;
     }
     symbol = NULL;
@@ -3318,6 +3407,16 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
         }
     }
 
+    // Step 3.5: constants, in source order. Each constant may reference only constants declared
+    // earlier, which keeps folding deterministic and prevents cycles. Later steps therefore see a
+    // fully resolved set of constants.
+    for (size_t i = 0; i < sa->program->program.decl_count; i++) {
+        PP_AST_Node* decl = sa->program->program.decls[i];
+        if (decl->node_type == PP_AST_ConstantDeclarationNode) {
+            pp_semantic_analyzer_full_analyze_constant_decl(sa, decl);
+        }
+    }
+
     // Step 4: functions, lambdas, globals
     for (size_t i = 0; i < sa->program->program.decl_count; i++) {
         PP_AST_Node* decl = sa->program->program.decls[i];
@@ -3337,6 +3436,9 @@ static int pp_semantic_analyzer_full_analyze(PP_SemanticAnalyzer* sa) {
                 break;
             case PP_AST_VariableDeclarationNode:
                 pp_semantic_analyzer_full_analyze_global_variable_decl(sa, decl);
+                break;
+            case PP_AST_ConstantDeclarationNode:
+                // Already handled in step 3.5
                 break;
             case PP_AST_StructDeclarationNode:
                 // Already handled in steps 1 and 3
@@ -3803,6 +3905,62 @@ static int pp_semantic_analyzer_full_analyze_struct_decl_initializers(PP_Semanti
     }
 
     return 1;
+error_cleanup:
+    return 0;
+}
+
+/* Pass 2 - Constant Declaration Checklist:
+ * [x] Look up the constant symbol in the global table
+ * [x] Initializer must be present (also enforced by parser/Pass 1)
+ * [x] Check expression validity in the global scope
+ * [x] Require a constexpr initializer
+ * [x] Require the initializer type to match the declared type after decay
+ * [x] Re-confirm the non-owning initializer pointer used for codegen folding
+ */
+static int pp_semantic_analyzer_full_analyze_constant_decl(PP_SemanticAnalyzer* sa, PP_AST_Node* node) {
+    assert(sa);
+    assert(node);
+    assert(node->node_type == PP_AST_ConstantDeclarationNode);
+
+    const char* name = node->constant_declaration.identifier;
+    assert(name);
+
+    PPSymbol* constant_symbol = pp_symbol_table_lookup_mut(sa->gst, name, false);
+    NULL_POINTER_ERROR_HANDLE(constant_symbol);
+    assert(constant_symbol->is_constant_decl);
+
+    if (!node->constant_declaration.initializer) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Constant '%s' requires an initializer.", name);
+        goto error_cleanup;
+    }
+
+    if (!pp_semantic_analyzer_check_expression(sa, sa->gst, node->constant_declaration.initializer)) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Constant '%s' has an invalid initializer.", name);
+        goto error_cleanup;
+    }
+
+    const PP_AST_Decoration* initializer_decoration = pp_ast_get_decoration(node->constant_declaration.initializer);
+    NULL_POINTER_ERROR_HANDLE(initializer_decoration);
+
+    if (!initializer_decoration->is_constexpr) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Constant '%s' has a non constexpr initializer.", name);
+        goto error_cleanup;
+    }
+
+    const PPType* decayed_constant_type = pp_type_decay(sa->gtt, constant_symbol->type);
+    const PPType* decayed_initializer_type = pp_type_decay(sa->gtt, initializer_decoration->resolved_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_constant_type);
+    NULL_POINTER_ERROR_HANDLE(decayed_initializer_type);
+    if (!pp_type_equal(decayed_constant_type, decayed_initializer_type)) {
+        pp_error_list_push_error(sa->error_list, node->loc, "Type mismatch during constant declaration '%s'.", name);
+        goto error_cleanup;
+    }
+
+    constant_symbol->constant_initializer = node->constant_declaration.initializer;
+    constant_symbol->constant_value_available = true;
+
+    return 1;
+
 error_cleanup:
     return 0;
 }
@@ -5955,6 +6113,14 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
         goto error_cleanup;
     }
 
+    if (identifier_symbol->is_constant_decl && !identifier_symbol->constant_value_available) {
+        pp_error_list_push_error(sa->error_list, expr->loc,
+                                 "constant '%s' is used before its value is available; constants must be declared "
+                                 "before use",
+                                 expr->identifier.identifier);
+        goto error_cleanup;
+    }
+
     if (function_is_lambda && identifier_symbol->is_global) {
         const PPType* sym_type = identifier_symbol->type;
         /* Only declaration names are pure code. A function-typed global variable
@@ -5965,6 +6131,8 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
             pp_error_list_push_error(sa->error_list, expr->loc, "\"%s\" is a regular function used inside lambda",
                                      expr->identifier.identifier);
             goto error_cleanup;
+        } else if (identifier_symbol->is_constant_decl) {
+            /* Compile-time values are pure and may be read inside a lambda. */
         } else {
             if (pp_type_is_reference(sym_type)) {
                 pp_error_list_push_error(sa->error_list, expr->loc,
@@ -5984,12 +6152,12 @@ static int pp_semantic_analyzer_check_identifier_expression(PP_SemanticAnalyzer*
     const PPType* identifier_type = identifier_symbol->type;
     assert(identifier_type);
 
-    // A callable declaration name is a link-time constant, so it is constexpr;
-    // this is what lets `let g :: func[...] = named_func;` work at global scope.
+    // A callable declaration name is a link-time constant, so it is constexpr; a `constant` is a
+    // compile-time value. Both are rvalues and constexpr; neither has assignable storage.
+    const bool is_compile_time_value = identifier_symbol->is_callable_decl || identifier_symbol->is_constant_decl;
     decoration = pp_ast_decoration_create(identifier_type,
-                                          identifier_symbol->is_callable_decl ? PP_VALUE_CATEGORY_RVALUE
-                                                                              : PP_VALUE_CATEGORY_LVALUE,
-                                          identifier_symbol->is_callable_decl, identifier_symbol->is_escapable_ref);
+                                          is_compile_time_value ? PP_VALUE_CATEGORY_RVALUE : PP_VALUE_CATEGORY_LVALUE,
+                                          is_compile_time_value, identifier_symbol->is_escapable_ref);
     NULL_POINTER_ERROR_HANDLE(decoration);
 
     expr->identifier.decoration = decoration;

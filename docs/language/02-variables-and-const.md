@@ -72,6 +72,39 @@ operator + :: (a :: const Vec&, b :: const Vec&) -> Vec { ... }
 
 Mutable references are not allowed for operator parameters.
 
+## Constants
+
+`constant` declares a named compile-time value. Unlike a global variable, it has **no storage and
+no link-time symbol**: every reference is folded to its value during code generation. This makes
+constants safe to declare in `.ppi` files that are shared by several translation units.
+
+```pp
+constant MAX_ITEMS :: uint64 = 1024ul;
+constant PI_APPROX :: float = 3.14159;
+constant DEBUG :: bool = true;
+```
+
+Rules:
+
+* The declared type must be a plain integer, `float`, or `bool` primitive. `const`/`&` modifiers,
+  enums, flags, newtypes, structs, arrays, lists, pointers, strings, handles and callables are
+  rejected.
+* The initializer is mandatory and must be a `constexpr` expression exactly matching the declared
+  type.
+* A constant is immutable and cannot be assigned to or addressed (`@K` is rejected).
+* A constant initializer may reference only constants declared earlier in the source.
+* Constants may be used anywhere a value is expected, including inside lambda bodies.
+
+An unsigned integer constant may be used as an array size, but it must be declared before the
+array type that uses it:
+
+```pp
+constant N :: uint32 = 4u;
+let a :: [int32 : N] = [int32 : N; 1, 2, 3, 4];
+```
+
+Signed, `float`, and `bool` constants cannot be array sizes.
+
 ## Global variables
 
 Global variables must be initialized with a compile-time constant expression. Reference types are disallowed at global scope.

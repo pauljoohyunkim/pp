@@ -3085,3 +3085,68 @@ TEST(CodeGenTest, StringEqualityEmptyLiteralSkipsMemcmpCall) {
     assert_ir_contains(cg.get(), "%str_len_zero = icmp eq i64");
     assert_ir_contains(cg.get(), "br i1 %str_len_zero, label %str.eq.end, label %str.eq.body");
 }
+
+TEST(CodeGenTest, ConstantHasNoEmittedGlobal) {
+    const char* source = "constant K :: uint64 = 42ul;\n"
+                         "func main :: () -> uint64 { return K; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // The constant is folded and must not become an object-file symbol.
+    assert_ir_not_contains(cg.get(), "@K");
+    assert_ir_contains(cg.get(), "ret i64 42");
+}
+
+TEST(CodeGenTest, ConstantFoldsIntoGlobalInitializer) {
+    const char* source = "constant K :: uint64 = 42ul;\n"
+                         "let g :: uint64 = K + 1ul;\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_not_contains(cg.get(), "@K");
+    assert_ir_contains(cg.get(), "43");
+}
+
+TEST(CodeGenTest, FloatAndBoolConstantsFold) {
+    const char* source = "constant F :: float = 1.5;\n"
+                         "constant B :: bool = true;\n"
+                         "func main :: () -> bool {\n"
+                         "    if (F == 1.5 && B) { return true; }\n"
+                         "    return false;\n"
+                         "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_not_contains(cg.get(), "@F");
+    assert_ir_not_contains(cg.get(), "@B");
+}
+
+TEST(CodeGenTest, FloatConstantFoldsToLiteral) {
+    const char* source = "constant F :: float = 1.5;\n"
+                         "func main :: () -> float { return F; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_not_contains(cg.get(), "@F");
+    assert_ir_contains(cg.get(), "ret float 1.500000e+00");
+}
+
+TEST(CodeGenTest, BoolConstantFoldsToLiteral) {
+    const char* source = "constant B :: bool = true;\n"
+                         "func main :: () -> bool { return B; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_not_contains(cg.get(), "@B");
+    assert_ir_contains(cg.get(), "ret i1 true");
+}
