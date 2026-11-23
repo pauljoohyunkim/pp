@@ -122,8 +122,8 @@ void pp_term_close(void* handle) {
     chip8_term_restore();
 }
 
-int32_t pp_term_poll_keys(uint8_t* keys, uint64_t count) {
-    size_t n = (count < CHIP8_TERM_KEY_COUNT) ? (size_t)count : (size_t)CHIP8_TERM_KEY_COUNT;
+int32_t pp_term_poll_keys(uint8_t keys[16]) {
+    size_t n = CHIP8_TERM_KEY_COUNT;
     unsigned char ch;
     int32_t quit = 0;
     size_t i = 0;

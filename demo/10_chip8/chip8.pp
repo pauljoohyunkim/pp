@@ -18,13 +18,11 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         // A RET without a matching CALL would pop an empty list, which aborts.
         if (#machine.stack == 0u) { return; }
         machine.pc = list_pop(machine.stack);
-        return;
     } else if (extract_4bit(opcode, 0uss) == 1uss) {
         // 1NNN
         // goto NNN;
         let addr :: uint16 = opcode & 0xFFFus;
         machine.pc = addr;
-        return;
     } else if (extract_4bit(opcode, 0uss) == 2uss) {
         // 2NNN
         // call 0xNNN (*(0xNNN)())
@@ -32,7 +30,6 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         // Save the current address (Note that program counter has already moved, so it needs to return to CURRENT PC)
         list_push(machine.stack, machine.pc);
         machine.pc = opcode & 0xFFFus;
-        return;
     } else if (extract_4bit(opcode, 0uss) == 3uss) {
         // 3XNN
         // Skip next instruction if VX == NN
@@ -140,20 +137,21 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         if (machine.v[x] != machine.v[y]) {
             machine.pc += 2us;
         }
-    } else if (extract_4bit(opcode, 0uss) == 0xEuss && (opcode & 0xFFus) == 0x9Eus) {
-        // EX9E
-        // Skip next instruction if key with the value of VX is pressed
+    } else if (extract_4bit(opcode, 0uss) == 0xEuss) {
         let x :: uint8 = extract_4bit(opcode, 1uss);
-        // VX is an arbitrary byte; mask it like the keypad so the index stays in bounds.
-        if (machine.keys[machine.v[x] & 0xFuss] != 0uss) {
-            machine.pc += 2us;
-        }
-    } else if (extract_4bit(opcode, 0uss) == 0xEuss && (opcode & 0xFFus) == 0xA1us) {
-        // EXA1
-        // Skip next instruction if key with the value of VX is not pressed
-        let x :: uint8 = extract_4bit(opcode, 1uss);
-        if (machine.keys[machine.v[x] & 0xFuss] == 0uss) {
-            machine.pc += 2us;
+        let low :: uint8 = (opcode & 0xFFus) as uint8;
+        if (low == 0x9Euss) {
+            // EX9E
+            // Skip next instruction if key with the value of VX is pressed
+            if (machine.keys[machine.v[x] & 0xFuss] != 0uss) {
+                machine.pc += 2us;
+            }
+        } else if (low == 0xA1uss) {
+            // EXA1
+            // Skip next instruction if key with the value of VX is not pressed
+            if (machine.keys[machine.v[x] & 0xFuss] == 0uss) {
+                machine.pc += 2us;
+            }
         }
     } else if (extract_4bit(opcode, 0uss) == 0xAuss) {
         // I = NNN
@@ -198,6 +196,56 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
                     }
                     machine.display[idx] ^= 1uss;
                 }
+            }
+        }
+    } else if (extract_4bit(opcode, 0uss) == 0xFuss) {
+        let x :: uint8 = extract_4bit(opcode, 1uss);
+        let low :: uint8 = (opcode & 0xFFus) as uint8;
+        if (low == 0x07uss) {
+            // VX = get_delay()
+            machine.v[x] = machine.delay_timer;
+        } else if (low == 0x0Auss) {
+            // FX0A: VX = get_key() — wait for key press, store key index
+            let found :: bool = false;
+            let key_idx :: uint8 = 0uss;
+            while (!found) {
+                // Poll keyboard to update machine.keys
+                pp_term_poll_keys(machine.keys);
+                for (let i :: uint8 = 0uss; i < 16uss; i += 1uss) {
+                    if (machine.keys[i] != 0uss) {
+                        key_idx = i;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            machine.v[x] = key_idx;
+        } else if (low == 0x15uss) {
+            machine.delay_timer = machine.v[x];
+        } else if (low == 0x18uss) {
+            machine.sound_timer = machine.v[x];
+        } else if (low == 0x1Euss) {
+            machine.I += machine.v[x] as uint16;
+        } else if (low == 0x29uss) {
+            // FX29: Set I = location of sprite for digit VX
+            // Each digit sprite is 5 bytes, font starts at 0x000
+            machine.I = (machine.v[x] & 0xFuss) as uint16 * 5us;
+        } else if (low == 0x33uss) {
+            // FX33: Store BCD representation of VX at I, I+1, I+2
+            // VX is 0-255, store hundreds, tens, ones
+            let val :: uint8 = machine.v[x];
+            machine.memory[machine.I] = val / 100uss;
+            machine.memory[machine.I + 1us] = (val / 10uss) % 10uss;
+            machine.memory[machine.I + 2us] = val % 10uss;
+        } else if (low == 0x55uss) {
+            // FX55: Store V0..VX to memory starting at I
+            for (let i :: uint8 = 0uss; i <= x; i += 1uss) {
+                machine.memory[machine.I + i as uint16] = machine.v[i];
+            }
+        } else if (low == 0x65uss) {
+            // FX65: Load V0..VX from memory starting at I
+            for (let i :: uint8 = 0uss; i <= x; i += 1uss) {
+                machine.v[i] = machine.memory[machine.I + i as uint16];
             }
         }
     }
