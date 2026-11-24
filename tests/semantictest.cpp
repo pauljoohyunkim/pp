@@ -2592,3 +2592,149 @@ TEST(SemanticTest, ExternStringEqualityOperatorDeclarationRejected) {
                            "func main :: () -> int32 { return 0; }\n",
                            "builtin string equality cannot be replaced by an extern operator");
 }
+
+/* ---------------------------------------------------------------------------
+ * Constant declarations.
+ * ------------------------------------------------------------------------- */
+
+TEST(SemanticTest, ConstantValidPrimitivesAndUse) {
+    expect_semantic_accept("constant K :: uint64 = 42ul;\n"
+                           "constant F :: float = 1.5;\n"
+                           "constant B :: bool = true;\n"
+                           "let g :: uint64 = K + 1ul;\n"
+                           "func main :: () -> int32 {\n"
+                           "    if (F == 1.5 && B) { return 0; }\n"
+                           "    return 1;\n"
+                           "}\n",
+                           "integer/float/bool constants are valid and constexpr in expressions");
+}
+
+TEST(SemanticTest, ConstantReferencingEarlierConstant) {
+    expect_semantic_accept("constant BASE :: uint32 = 2u;\n"
+                           "constant N :: uint32 = BASE * 2u;\n"
+                           "let a :: [int32 : N];\n",
+                           "a constant may reference an earlier constant, including in array sizes");
+}
+
+TEST(SemanticTest, ConstantUsableInsideLambda) {
+    expect_semantic_accept("constant K :: uint64 = 1ul;\n"
+                           "lambda get :: () -> uint64 { return K; }\n",
+                           "constants are pure compile-time values usable in lambdas");
+}
+
+TEST(SemanticTest, ConstantAssignmentRejected) {
+    expect_semantic_reject("constant K :: uint64 = 1ul;\n"
+                           "func main :: () -> int32 { K = 2ul; return 0; }\n",
+                           "a constant is not assignable");
+}
+
+TEST(SemanticTest, ConstantAddressOfRejected) {
+    expect_semantic_reject("constant K :: uint64 = 1ul;\n"
+                           "func main :: () -> int32 { let p :: ptr[uint64] = @K; return 0; }\n",
+                           "a constant has no addressable storage");
+}
+
+TEST(SemanticTest, ConstantNonConstexprInitializerRejected) {
+    expect_semantic_reject("let x :: uint64 = 1ul;\n"
+                           "constant K :: uint64 = x;\n",
+                           "constant initializer must be constexpr");
+}
+
+TEST(SemanticTest, ConstantTypeMismatchRejected) {
+    expect_semantic_reject("constant K :: uint64 = 1u;\n", "initializer type must match the declared type");
+}
+
+TEST(SemanticTest, ConstantConstModifierRejected) {
+    expect_semantic_reject("constant K :: const uint32 = 1u;\n", "const modifier is not a plain primitive");
+}
+
+TEST(SemanticTest, ConstantStringRejected) {
+    expect_semantic_reject("constant K :: string = \"\";\n", "string constants are not allowed");
+}
+
+TEST(SemanticTest, ConstantArrayRejected) {
+    expect_semantic_reject("constant K :: [int32 : 2u] = [int32 : 2u; 1, 2];\n",
+                           "array constants are not allowed");
+}
+
+TEST(SemanticTest, ConstantPointerRejected) {
+    expect_semantic_reject("constant K :: ptr[int32] = nullptr[int32];\n", "pointer constants are not allowed");
+}
+
+TEST(SemanticTest, ConstantEnumTypeRejected) {
+    expect_semantic_reject("enum E :: uint8 { A = 1uss }\nconstant K :: E = E::A;\n",
+                           "enum constants are not allowed");
+}
+
+TEST(SemanticTest, ConstantNewtypeRejected) {
+    expect_semantic_reject("newtype uint32 Age;\nconstant K :: Age = 1u;\n",
+                           "newtype constants are not allowed");
+}
+
+TEST(SemanticTest, ConstantSignedArraySizeRejected) {
+    expect_semantic_reject("constant N :: int32 = 4;\nlet a :: [int32 : N];\n",
+                           "signed constants cannot be array sizes");
+}
+
+TEST(SemanticTest, ConstantForwardReferenceRejected) {
+    expect_semantic_reject("constant A :: uint64 = B + 1ul;\nconstant B :: uint64 = 2ul;\n",
+                           "constant initializers may only reference earlier constants");
+}
+
+TEST(SemanticTest, ConstantDuplicateRejected) {
+    expect_semantic_reject("constant K :: uint64 = 1ul;\nconstant K :: uint64 = 2ul;\n",
+                           "duplicate constant name is rejected");
+}
+
+TEST(SemanticTest, ConstantArraySizeFromConstantExpression) {
+    expect_semantic_accept("constant N :: uint64 = 2ul * 2ul;\n"
+                           "let a :: [int32 : N] = [int32 : N; 1, 2, 3, 4];\n",
+                           "a constant expression can size an array");
+}
+
+TEST(SemanticTest, ConstantFloatArraySizeRejected) {
+    expect_semantic_reject("constant N :: float = 4.0;\nlet a :: [int32 : N];\n",
+                           "float constants cannot be array sizes");
+}
+
+TEST(SemanticTest, ConstantBoolArraySizeRejected) {
+    expect_semantic_reject("constant N :: bool = true;\nlet a :: [int32 : N];\n",
+                           "bool constants cannot be array sizes");
+}
+
+TEST(SemanticTest, ConstantStructRejected) {
+    expect_semantic_reject("struct S { x :: int32; }\nconstant K :: S = S { .x = 1 };\n",
+                           "struct constants are not allowed");
+}
+
+TEST(SemanticTest, ConstantFlagTypeRejected) {
+    expect_semantic_reject("flag F :: uint32 { A = 1u }\nconstant K :: F = F::A;\n",
+                           "flag constants are not allowed");
+}
+
+TEST(SemanticTest, ConstantCallableRejected) {
+    expect_semantic_reject("func f :: () -> int32 { return 0; }\n"
+                           "constant K :: func[() -> int32] = f;\n",
+                           "callable constants are not allowed");
+}
+
+TEST(SemanticTest, ConstantHandleRejected) {
+    expect_semantic_reject("handle File :: int32 drop pp_close;\nconstant K :: File = 1 as File;\n",
+                           "handle constants are not allowed");
+}
+
+TEST(SemanticTest, ConstantArraySizeForwardReferenceRejected) {
+    expect_semantic_reject("let a :: [int32 : LATER];\nconstant LATER :: uint64 = 4ul;\n",
+                           "an array size constant must be declared before the array type");
+}
+
+TEST(SemanticTest, CastToUnknownTypeNameRejected) {
+    // Regression: a misspelled cast target type used to trip `assert(target_type)` in
+    // pp_semantic_analyzer_check_cast_expression, aborting the compiler instead of reporting an error.
+    expect_semantic_reject("func main :: () -> int32 {\n"
+                           "    let a :: uint16 = 1us;\n"
+                           "    let b :: uint16 = a as uin16;\n"
+                           "    return 0;\n"
+                           "}\n",
+                           "cast to an unknown type name");
+}

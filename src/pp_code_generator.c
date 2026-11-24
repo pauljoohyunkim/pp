@@ -1794,6 +1794,9 @@ int pp_code_generator_generate(PP_CodeGenerator* cg) {
             case PP_AST_VariableDeclarationNode:
                 pp_code_generator_emit_global_variable(cg, cg->gst, cg->global_env_b, statement);
                 break;
+            case PP_AST_ConstantDeclarationNode:
+                /* Constants have no storage and no link-time symbol: references are folded. */
+                break;
             case PP_AST_TypedefDeclarationNode:
             case PP_AST_NewtypeDeclarationNode:
             case PP_AST_HandleDeclarationNode:
@@ -3088,6 +3091,7 @@ static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerato
 
     const PPSymbol* symbol = pp_symbol_table_lookup(symbol_table, name, true);
     assert(symbol);
+    assert(!symbol->is_constant_decl); /* constants are rvalues; they have no addressable storage */
 
     LLVMValueRef llvm_val = pp_environment_backend_lookup_val(env_b, symbol, true);
     assert(llvm_val);
@@ -4776,6 +4780,13 @@ static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerato
     const PP_AST_Decoration* identifier_decoration = pp_ast_get_decoration(node);
     assert(identifier_decoration);
     assert(identifier_decoration->resolved_type);
+
+    if (identifier_symbol->is_constant_decl) {
+        /* Compile-time constant: fold to its analyzed initializer expression. The initializer is
+         * constexpr, so the IR builder folds it to an LLVM constant and emits no instructions. */
+        assert(identifier_symbol->constant_initializer);
+        return pp_code_generator_generate_rvalue(cg, symbol_table, env_b, identifier_symbol->constant_initializer);
+    }
 
     if (identifier_symbol->is_callable_decl) {
         /* Declaration name: the symbol value IS the code, there is no slot to load. */

@@ -1532,3 +1532,18 @@ TEST(ParserTest, BadFlagDeclarationMissingMemberValue) {
     parse_source(source, lexer_errors, parser_errors, parse_result);
     EXPECT_TRUE(parse_result != 1 || lexer_errors + parser_errors > 0);
 }
+
+TEST(ParserTest, GoodConstantDeclaration) {
+    const char* source = "constant N :: uint64 = 4ul;";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, ConstantDeclarationRequiresInitializer) {
+    const char* source = "constant N :: uint64;";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_TRUE(parse_result != 1 || lexer_errors + parser_errors > 0);
+}

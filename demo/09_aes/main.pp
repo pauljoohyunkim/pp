@@ -29,7 +29,7 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
     let output_filename :: const string& = args[4u];
 
     // Read key file.
-    let key :: [uint8 : 15u * 4u * 4u];
+    let key :: [uint8 : AES_EXPANDED_KEY_BYTES];
     let aes_mode :: AESMode;
     {
         let keyfile :: PP_File = pp_file_open(key_filename, PP_File_OpenMode::PP_FOPEN_READ_ONLY);

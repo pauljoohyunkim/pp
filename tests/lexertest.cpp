@@ -542,3 +542,14 @@ TEST(Lexer, EnumFlagsAndTildeTokens) {
     ASSERT_EQ(lexer->tokens[4].token_type, PP_TT_COLON_COLON);
     ASSERT_EQ(lexer->tokens[5].token_type, PP_TT_IDENTIFIER);
 }
+
+TEST(Lexer, ConstantKeyword) {
+    auto lexer_h = pp_lexer_create("constant const constantX", nullptr, test_sp);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 4);
+    ASSERT_EQ(lexer->tokens[0].token_type, PP_TT_CONSTANT);
+    ASSERT_EQ(lexer->tokens[1].token_type, PP_TT_CONST);
+    ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_IDENTIFIER);
+    ASSERT_EQ(lexer->tokens[3].token_type, PP_TT_EOF);
+}

@@ -75,6 +75,7 @@ typedef enum {
     PP_TT_EXTERN,
     PP_TT_LET,
     PP_TT_CONST,
+    PP_TT_CONSTANT,
     PP_TT_VOID,
     PP_TT_BOOL,
     PP_TT_INT8,

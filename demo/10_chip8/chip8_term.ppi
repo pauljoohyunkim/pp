@@ -1,0 +1,17 @@
+// Terminal keyboard support for the CHIP-8 demo.
+// Implemented in chip8_term.c; the demo Makefile compiles it into chip8_term.o
+// and passes that object to pplang, which links it like pp_std.a.
+
+// Owning handle for the terminal state: opening switches stdin to raw,
+// non-blocking mode, dropping restores the original attributes.
+handle PP_Term :: ptr[void] drop pp_term_close;
+
+extern func pp_term_open :: () -> PP_Term;
+extern func pp_term_close :: (state :: ptr[void]) -> void;
+
+// Refreshes keys[0..count-1] with 0/1 for CHIP-8 keys 0x0..0xF without blocking.
+// Returns non-zero when the user pressed ESC.
+extern func pp_term_poll_keys :: (keys :: [uint8 : 16u]&) -> int32;
+
+// Frame pacing helper (milliseconds).
+extern func pp_term_sleep_ms :: (ms :: uint32) -> void;

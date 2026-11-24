@@ -9,6 +9,10 @@ extern "C" {
 
 #include "pp_type.h"
 
+/* Forward declaration: the constant initializer is a non-owning pointer into the program AST.
+ * pp_ast.h includes the symbol table headers, so pp_ast.h cannot be included here. */
+typedef struct PP_AST_Node PP_AST_Node;
+
 typedef struct PPSymbol {
     const PPType* type;
     bool is_constexpr;
@@ -19,6 +23,15 @@ typedef struct PPSymbol {
      * names). Function-typed variables, parameters and fields are false: they
      * are storage locations that happen to hold a callable value. */
     bool is_callable_decl;
+    /* True only for symbols declared with `constant`. Such a symbol has no storage and is never
+     * emitted as an object-file symbol; references are folded to its compile-time value. */
+    bool is_constant_decl;
+    /* Non-owning pointer to the constant's initializer expression in the program AST. Set in
+     * semantic-analysis Pass 1 so array-size evaluation can fold it; do not free from here. */
+    const PP_AST_Node* constant_initializer;
+    /* Set in Pass 2 once the constant's value has been validated. Used to enforce that constant
+     * initializers may only reference constants declared earlier (prevents cycles). */
+    bool constant_value_available;
 } PPSymbol;
 
 /**
