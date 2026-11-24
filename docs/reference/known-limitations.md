@@ -16,8 +16,9 @@
 * `lambda[...]` → `func[...]` widening is explicit-only and requires an identical signature.
 * Function-typed globals require an initializer that is a `func` or `lambda` declaration name (no indirect
   initialization).
-* Handles (`handle H :: T drop f;`) are limited to locals, `H&` borrows and `-> H` returns. They are rejected as
-  globals, struct fields, collection elements, lambda parameters/returns/locals, and cast targets. They cannot be
-  passed by value, and the drop function cannot be called from source.
+* Handles (`handle H :: T drop f;`) are limited to locals, `H&` / `const H&` borrows and `-> H` returns. They are
+  rejected as globals, struct fields, collection elements, lambda parameters/returns/locals, and cast targets.
+  A PP-defined callable cannot take a handle by value (an `extern` declaration may: the C callee only borrows),
+  the underlying must be a scalar primitive or a pointer, and the drop function cannot be called from source.
 
 These limits are tracked in `PROGRESS.md`.

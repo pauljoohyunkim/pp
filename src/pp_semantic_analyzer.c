@@ -1155,8 +1155,12 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
     }
 
     if (type_node->type_expression.is_reference) {
-        // Disallow mixing pointer and reference
-        if (pp_type_is_pointer(gtt_registered_type) || pp_type_contains_pointer(gtt_registered_type)) {
+        // Disallow mixing pointer and reference, with one exception: a handle is a nominal resource
+        // token, not a pointer, so `Handle&` / `const Handle&` borrows the owning slot.
+        const PPType* referent = gtt_registered_type;
+        while (referent && referent->kind == PP_TK_Const) { referent = referent->type.pp_type_const.const_of; }
+        if (!pp_type_is_handle(referent) &&
+            (pp_type_is_pointer(gtt_registered_type) || pp_type_contains_pointer(gtt_registered_type))) {
             pp_error_list_push_error(sa->error_list, type_node->loc, "Reference cannot contain pointer");
             goto error_cleanup;
         }
@@ -1269,15 +1273,15 @@ static bool pp_semantic_analyzer_is_operator_symbol(const char* name) {
  */
 /*
  * Handle Signature Checklist:
- * [x] A handle may not be passed by value anywhere.
- * [x] A handle behind a reference (Handle& / const Handle&) is a borrow: allowed in function and operator
- *     signatures.
+ * [x] A PP-defined callable may not take a handle by value.
+ * [x] An extern callee only borrows a by-value handle: it never drops, so the caller keeps ownership.
+ * [x] A handle behind a reference (Handle& / const Handle&) is a borrow: allowed in every signature.
  * [x] Lambdas cannot mention a handle at all - not as a parameter, not as a return type - because a lambda
  *     cannot own a handle and its body cannot drop one.
  */
 static int pp_validate_signature_handles(PP_SemanticAnalyzer* sa, PP_SourceLoc loc, const char* kind_str,
                                          const char* name, const PPType* return_type, PP_AST_Node* const* params,
-                                         unsigned int param_count, bool is_lambda) {
+                                         unsigned int param_count, bool is_lambda, bool allow_handle_by_value) {
     if (is_lambda && return_type && pp_type_mentions_handle(return_type)) {
         pp_error_list_push_error(sa->error_list, loc, "%s '%s' cannot use a handle type as its return type", kind_str,
                                  name);
@@ -1296,7 +1300,7 @@ static int pp_validate_signature_handles(PP_SemanticAnalyzer* sa, PP_SourceLoc l
                                          kind_str, name);
                 return 0;
             }
-        } else if (pp_type_contains_handle(param_type)) {
+        } else if (!allow_handle_by_value && pp_type_contains_handle(param_type)) {
             pp_error_list_push_error(sa->error_list, loc,
                                      "%s '%s' cannot take a handle by value; pass it by reference ('Handle&')",
                                      kind_str, name);
@@ -1332,7 +1336,7 @@ static int pp_semantic_analyzer_build_global_table_function_decl(PP_SemanticAnal
     if (!pp_validate_signature_handles(sa, node->loc, "Function",
                                        node->callable_declaration.name ? node->callable_declaration.name : "<unknown>",
                                        return_type, node->callable_declaration.params,
-                                       node->callable_declaration.param_count, false)) {
+                                       node->callable_declaration.param_count, false, false)) {
         goto error_cleanup;
     }
     // Assign read-only return_type pointer.
@@ -1515,7 +1519,7 @@ static int pp_semantic_analyzer_build_global_table_operator_decl(PP_SemanticAnal
     if (!pp_validate_signature_handles(sa, node->loc, "Operator",
                                        node->callable_declaration.name ? node->callable_declaration.name : "<unknown>",
                                        return_type, node->callable_declaration.params,
-                                       node->callable_declaration.param_count, false)) {
+                                       node->callable_declaration.param_count, false, false)) {
         goto error_cleanup;
     }
     // Assign read-only return_type pointer.
@@ -1732,7 +1736,7 @@ static int pp_semantic_analyzer_build_global_table_lambda_decl(PP_SemanticAnalyz
     if (!pp_validate_signature_handles(sa, node->loc, "Lambda",
                                        node->callable_declaration.name ? node->callable_declaration.name : "<unknown>",
                                        return_type, node->callable_declaration.params,
-                                       node->callable_declaration.param_count, true)) {
+                                       node->callable_declaration.param_count, true, false)) {
         goto error_cleanup;
     }
 
@@ -1824,14 +1828,15 @@ static int pp_semantic_analyzer_build_global_table_extern_function_decl(PP_Seman
         pp_error_list_push_error(sa->error_list, node->loc, "Invalid return type for function '%s'",
                                  node->extern_callable_declaration.name ? node->extern_callable_declaration.name
                                                                         : "<unknown>");
-        if (!pp_validate_signature_handles(sa, node->loc, "Function",
-                                           node->extern_callable_declaration.name
-                                               ? node->extern_callable_declaration.name
-                                               : "<unknown>",
-                                           return_type, node->extern_callable_declaration.params,
-                                           node->extern_callable_declaration.param_count, false)) {
-            goto error_cleanup;
-        }
+        goto error_cleanup;
+    }
+
+    // An extern callee never drops, so a bare handle parameter is a borrow and the caller keeps ownership.
+    if (!pp_validate_signature_handles(sa, node->loc, "Function",
+                                       node->extern_callable_declaration.name ? node->extern_callable_declaration.name
+                                                                              : "<unknown>",
+                                       return_type, node->extern_callable_declaration.params,
+                                       node->extern_callable_declaration.param_count, false, true)) {
         goto error_cleanup;
     }
 
@@ -1941,7 +1946,7 @@ static int pp_semantic_analyzer_build_global_table_extern_operator_decl(PP_Seman
                                        node->extern_callable_declaration.name ? node->extern_callable_declaration.name
                                                                               : "<unknown>",
                                        return_type, node->extern_callable_declaration.params,
-                                       node->extern_callable_declaration.param_count, false)) {
+                                       node->extern_callable_declaration.param_count, false, true)) {
         goto error_cleanup;
     }
 
@@ -2064,7 +2069,7 @@ static int pp_semantic_analyzer_build_global_table_extern_lambda_decl(PP_Semanti
                                        node->extern_callable_declaration.name ? node->extern_callable_declaration.name
                                                                               : "<unknown>",
                                        return_type, node->extern_callable_declaration.params,
-                                       node->extern_callable_declaration.param_count, true)) {
+                                       node->extern_callable_declaration.param_count, true, true)) {
         goto error_cleanup;
     }
     if (!return_type) {
@@ -3091,6 +3096,55 @@ error_cleanup:
 }
 
 /*
+ * Handle Underlying Rule:
+ * A handle owns a resource token, so its underlying must resolve to a scalar primitive (integer,
+ * float, bool) or a pointer. Aggregates are rejected: the drop function receives the underlying
+ * *by value*, and a reference to a handle over an aggregate would reintroduce the pointer /
+ * reference mixture the language forbids. Named scalars (newtype, enum, flag) are accepted because
+ * they resolve to a scalar machine type.
+ */
+static bool pp_validate_handle_underlying(PP_SemanticAnalyzer* sa, PP_SourceLoc loc, const char* handle_name,
+                                          const PPType* underlying) {
+    assert(sa);
+    assert(underlying);
+
+    if (pp_type_is_const(underlying) || pp_type_is_reference(underlying)) {
+        pp_error_list_push_error(sa->error_list, loc, "Underlying type for handle '%s' cannot be const or a reference",
+                                 handle_name);
+        return false;
+    }
+
+    if (underlying->kind == PP_TK_Function || underlying->kind == PP_TK_Lambda || underlying->kind == PP_TK_Operator) {
+        pp_error_list_push_error(sa->error_list, loc, "Underlying type for handle '%s' cannot be a callable type",
+                                 handle_name);
+        return false;
+    }
+
+    if (pp_type_contains_reference(underlying)) {
+        pp_error_list_push_error(sa->error_list, loc, "Underlying type for handle '%s' cannot contain a reference",
+                                 handle_name);
+        return false;
+    }
+
+    if (pp_type_mentions_handle(underlying)) {
+        pp_error_list_push_error(sa->error_list, loc, "Underlying type for handle '%s' cannot contain a handle",
+                                 handle_name);
+        return false;
+    }
+
+    const PPType* resolved = pp_type_resolve_machine_type(underlying);
+    if (!resolved ||
+        (!pp_type_is_numerical(resolved) && resolved->kind != PP_TK_Bool && resolved->kind != PP_TK_Pointer)) {
+        pp_error_list_push_error(sa->error_list, loc,
+                                 "Underlying type for handle '%s' must be a scalar primitive or a pointer",
+                                 handle_name);
+        return false;
+    }
+
+    return true;
+}
+
+/*
  * Handle Declaration Checklist (Pass 1):
  * [x] Reject duplicate name (aliases and named types share the namespace).
  * [x] Resolve the underlying type; it must already be declared (pass 1 is sequential).
@@ -3098,6 +3152,7 @@ error_cleanup:
  * [x] Reject function / lambda / operator underlying (a code pointer is not a resource).
  * [x] Reject an underlying that mentions a reference anywhere (a borrow cannot be owned).
  * [x] Reject an underlying that mentions a handle anywhere (no nested handles).
+ * [x] Reject an aggregate underlying: a handle owns a scalar token or a pointer.
  * [x] Intern a PP_TK_Newtype carrying drop_func_name and register it as a named type.
  */
 static int pp_semantic_analyzer_build_global_table_handle_decl(PP_SemanticAnalyzer* sa, const PP_AST_Node* node) {
@@ -3121,29 +3176,7 @@ static int pp_semantic_analyzer_build_global_table_handle_decl(PP_SemanticAnalyz
         goto error_cleanup;
     }
 
-    if (pp_type_is_const(underlying) || pp_type_is_reference(underlying)) {
-        pp_error_list_push_error(sa->error_list, node->loc,
-                                 "Underlying type for handle '%s' cannot be const or a reference", handle_name);
-        goto error_cleanup;
-    }
-
-    if (underlying->kind == PP_TK_Function || underlying->kind == PP_TK_Lambda || underlying->kind == PP_TK_Operator) {
-        pp_error_list_push_error(sa->error_list, node->loc, "Underlying type for handle '%s' cannot be a callable type",
-                                 handle_name);
-        goto error_cleanup;
-    }
-
-    if (pp_type_contains_reference(underlying)) {
-        pp_error_list_push_error(sa->error_list, node->loc,
-                                 "Underlying type for handle '%s' cannot contain a reference", handle_name);
-        goto error_cleanup;
-    }
-
-    if (pp_type_mentions_handle(underlying)) {
-        pp_error_list_push_error(sa->error_list, node->loc, "Underlying type for handle '%s' cannot contain a handle",
-                                 handle_name);
-        goto error_cleanup;
-    }
+    if (!pp_validate_handle_underlying(sa, node->loc, handle_name, underlying)) { goto error_cleanup; }
 
     nt = pp_type_create(PP_TK_Newtype);
     if (!nt) {
@@ -3203,17 +3236,8 @@ static int pp_semantic_analyzer_full_analyze_handle_decl(PP_SemanticAnalyzer* sa
         goto error_cleanup;
     }
 
-    if (pp_type_contains_reference(underlying)) {
-        pp_error_list_push_error(sa->error_list, node->loc,
-                                 "Underlying type for handle '%s' cannot contain a reference", handle_name);
-        goto error_cleanup;
-    }
-
-    if (pp_type_mentions_handle(underlying)) {
-        pp_error_list_push_error(sa->error_list, node->loc, "Underlying type for handle '%s' cannot contain a handle",
-                                 handle_name);
-        goto error_cleanup;
-    }
+    // Struct layouts are only complete now, so the aggregate / reference guards are re-run here.
+    if (!pp_validate_handle_underlying(sa, node->loc, handle_name, underlying)) { goto error_cleanup; }
 
     PPSymbol* drop_symbol = pp_symbol_table_lookup_mut(sa->gst, drop_name, false);
     if (!drop_symbol) {

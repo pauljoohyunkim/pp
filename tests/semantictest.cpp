@@ -1994,6 +1994,56 @@ TEST(SemanticTest, HandleMutableRefParameterValid) {
                      "}\n");
 }
 
+TEST(SemanticTest, HandlePointerConstRefParameterValid) {
+    expect_handle_ok("handle Res :: ptr[uint8] drop pp_free;\n"
+                     "extern func pp_free :: (p :: ptr[uint8]) -> void;\n"
+                     "extern func pp_alloc :: () -> Res;\n"
+                     "func inspect :: (r :: const Res&) -> int32 { return 0; }\n"
+                     "func main :: () -> int32 {\n"
+                     "    let r :: Res = pp_alloc();\n"
+                     "    return inspect(r);\n"
+                     "}\n");
+}
+
+TEST(SemanticTest, HandlePointerMutableRefParameterValid) {
+    expect_handle_ok("handle Res :: ptr[uint8] drop pp_free;\n"
+                     "extern func pp_free :: (p :: ptr[uint8]) -> void;\n"
+                     "extern func pp_alloc :: () -> Res;\n"
+                     "func reset :: (r :: Res&) -> void { r = pp_alloc(); }\n"
+                     "func main :: () -> int32 {\n"
+                     "    let r :: Res = pp_alloc();\n"
+                     "    reset(r);\n"
+                     "    return 0;\n"
+                     "}\n");
+}
+
+TEST(SemanticTest, HandleStructUnderlyingError) {
+    expect_handle_error("struct Payload { v :: int32; }\n"
+                        "handle P :: Payload drop pp_free;\n"
+                        "extern func pp_free :: (p :: Payload) -> void;\n");
+}
+
+TEST(SemanticTest, HandleStringUnderlyingError) {
+    expect_handle_error("handle S :: string drop pp_free;\n"
+                        "extern func pp_free :: (s :: string) -> void;\n");
+}
+
+TEST(SemanticTest, HandleArrayUnderlyingError) {
+    expect_handle_error("handle A :: [uint8 : 4u] drop pp_free;\n"
+                        "extern func pp_free :: (a :: [uint8 : 4u]) -> void;\n");
+}
+
+TEST(SemanticTest, HandleExternByValueParameterValid) {
+    expect_handle_ok("handle File :: int32 drop pp_close;\n"
+                     "extern func pp_close :: (fd :: int32) -> void;\n"
+                     "extern func pp_take :: (f :: File) -> int32;\n");
+}
+
+TEST(SemanticTest, HandleNewtypeOverPointerStillNotReferable) {
+    expect_handle_error("newtype ptr[void] Plain;\n"
+                        "func take :: (p :: const Plain&) -> int32 { return 0; }\n");
+}
+
 TEST(SemanticTest, HandleLambdaParameterError) {
     expect_handle_error("handle File :: int32 drop pp_close;\n"
                         "extern func pp_close :: (fd :: int32) -> void;\n"
