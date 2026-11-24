@@ -1,5 +1,7 @@
 # PP
 
+![Chip 8 Demo](./assets/chip8.png)
+
 PP is a general purpose programming language that is built on three philosophies:
  * Dumb-sounding
  * Simple yet usable
