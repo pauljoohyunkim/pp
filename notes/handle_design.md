@@ -82,8 +82,8 @@ across nesting levels.
 
 ### 3. Sharing is by reference only — handles are never passed by value
 
-A bare handle parameter is a compile error. A borrow is spelled `File&` / `const File&` and never transfers
-ownership:
+A bare handle parameter to a PP-defined callable is a compile error. A borrow is spelled `File&` /
+`const File&` and never transfers ownership:
 
 ```pp
 func inspect :: (f :: const File&) -> int32 { return 0; }   // fine: borrow, callee drops nothing
@@ -92,6 +92,16 @@ func consume :: (f :: File) -> int32 { ... }               // error: handle pass
 
 This removes the whole class of "was it moved or copied?" questions. If a C API genuinely needs to take
 ownership, write a small PP wrapper around it rather than reintroducing moves.
+
+An `extern` declaration is the one exception: a C callee never drops its argument, so the compiler treats it as a
+borrower and the caller keeps ownership. `pp_std` uses this for C entry points that take a raw handle
+(`pp_file_read :: (fp :: PP_File, ...)`), and a `const H&` parameter when the C side is written to take a pointer
+to the slot (`pp_fd_read :: (fd :: const PP_FD&, ...)`, C `PP_FD*`).
+
+Borrowing is uniform across underlying representations. A pointer-backed handle is a nominal token, not a
+pointer, so `Buffer&` is a reference to the owning slot. The general `Reference cannot contain pointer` rule
+is bypassed only when the referent is a handle (`pp_type_is_handle`); a plain `newtype` over `ptr[...]` is still
+not referencable.
 
 ### 4. Handles can be cast *down*, never *up*
 
@@ -134,9 +144,11 @@ invariant "an owning lvalue holds a live value" holds for handles, strings and l
 | Position | Allowed? |
 |---|---|
 | Local variable, `let` with initializer | yes |
-| Function parameter as `H&` / `const H&` | yes |
+| PP function parameter as `H&` / `const H&` | yes (also for pointer-backed handles) |
+| `extern` function parameter as bare `H` | yes (C callee only borrows) |
+| PP function parameter as bare `H` | no |
 | Return type `-> H` (from a call) | yes |
-| Bare `H` parameter or argument | no |
+| Underlying struct / array / list / string | no (scalar or pointer only) |
 | Global variable | no |
 | Struct field | no |
 | Collection element (`[H]`, `[H : n]`) | no |
@@ -148,6 +160,15 @@ The first six restrictions exist because ownership is tracked per *variable*; a 
 or a global would need a lifetime story the language does not have yet. Lambdas are excluded because their
 signatures are checked separately from function signatures.
 
+### 9. The underlying is a scalar token or a pointer
+
+A handle is a resource *token*, not an aggregate. Its underlying must resolve (through newtype/enum/flag
+wrappers) to a scalar primitive (`int8`..`int128`, `uint8`..`uint128`, `float`, `bool`) or `ptr[T]`. Structs,
+arrays, lists and strings are rejected. The drop function receives the underlying by value, so an aggregate would
+be copied into the drop call and stored inline in the handle; a `string` underlying in particular would leak its
+buffer, because the handle's generated drop only calls the bound function. Restricting the underlying keeps the
+borrow rule (`H&`) narrow: only nominal tokens get the reference-to-pointer exception.
+
 ## Rejected alternatives
 
 | Alternative | Why not |
@@ -158,6 +179,7 @@ signatures are checked separately from function signatures.
 | Banning reassignment of a handle | Restricts the language to avoid fixing one code generator branch. Reassignment is a normal resource operation (retry, reopen). |
 | Requiring the drop function to have a PP body | Would exclude every C-facing handle, which is the primary use case. `extern func` is the norm. |
 | Copy/move elision style "return the local" | A returned handle would need ownership transfer or a second live owner. `return <call returning handle>` is the supported form; returning a handle *local* is an error. |
+| Allowing by-value handles in PP callables | The code generator drops every by-value owning parameter in the callee, so a handle passed by value would be released twice (once in the callee's scope, once in the caller's). A PP callee cannot express a borrow without a move. |
 
 ## Compiler contract (implementation map)
 
@@ -167,7 +189,12 @@ Semantic analyzer (`src/pp_semantic_analyzer.c`):
 * `pp_type_mentions_handle` — reference-transparent; used for bans in underlying types, struct fields,
   collection elements, drop-function parameters.
 * `pp_validate_signature_handles` — applied by all six signature builders (function, operator, lambda, extern
-  function, extern operator, extern lambda).
+  function, extern operator, extern lambda). The `allow_handle_by_value` argument is true only for the extern
+  builders; a PP-defined callee would drop the parameter.
+* `pp_validate_handle_underlying` — shared by Pass 1 and Pass 2; enforces the scalar-token-or-pointer rule and
+the reference/handle/callable bans.
+* The reference builder in `pp_type_from_type_node` skips the `Reference cannot contain pointer` check when the
+  referent (after unwrapping `const`) is a handle.
 * `pp_is_handle_drop_function` — name scan over the type table; blocks direct calls and value use, so the drop
   function cannot be called by source at all.
 * Pass 1 registers the handle name and validates the underlying recursively once. Pass 2 re-runs those guards
@@ -185,9 +212,11 @@ Code generator (`src/pp_code_generator.c`):
 
 ## Tests
 
-* `tests/semantictest.cpp` — 39 handle tests (`expect_handle_ok` / `expect_handle_error` helpers).
-* `tests/codegentest.cpp` — 11 handle codegen tests: drop via bound function, drop on every return path, loop
-  iteration, borrow produces no drop, pointer null skip, reassignment drops the old value, declaration emits no
-  code, `return <call>` is not dropped in the callee.
+* `tests/semantictest.cpp` — 44 handle tests (`expect_handle_ok` / `expect_handle_error` helpers), including
+  pointer-backed borrows, aggregate-underlying rejection, and the general reference-to-pointer ban for non-handle
+  nominal types.
+* `tests/codegentest.cpp` — 10 handle codegen tests: drop via bound function, drop on every return path, loop
+  iteration, borrow produces no drop (int and pointer-backed), mutable-borrow reassignment drops the old value,
+  pointer null skip, declaration emits no code, `return <call>` is not dropped in the callee.
 * `demo/06_handle/` — writes `12345678` through a write handle, reads it back through a read handle into
   `[uint8 : 8u]`, prints it, asserts both handles were closed exactly once. Valgrind clean.

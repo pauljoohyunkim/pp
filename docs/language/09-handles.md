@@ -16,7 +16,8 @@ function is called by the compiler; you never call it yourself.
 A handle is a **scope-bound, non-transferable resource**:
 
 * it is **born** in a `let`, from a call that returns the handle type;
-* it is **shared** only by reference (`File&`, `const File&`) — never by value;
+* it is **shared** only by reference (`File&`, `const File&`) — never by value, except in an `extern` declaration
+  whose C callee only borrows it;
 * it **dies** at the end of the enclosing scope, on every path.
 
 ```pp
@@ -70,6 +71,33 @@ func consume :: (f :: File) -> int32 {          // error: handle passed by value
 ```
 
 A callee that borrows never drops. Borrows can be passed onwards to other borrowing functions.
+
+Borrowing works the same for every underlying representation. A pointer-backed handle is *not* a pointer at the
+language level, so `Buffer&` is a reference to the owning slot, not a "pointer plus reference":
+
+```pp
+handle Buffer :: ptr[void] drop EVP_free;
+extern func buf_alloc :: () -> Buffer;
+extern func EVP_free  :: (p :: ptr[void]) -> void;
+
+func inspect :: (b :: const Buffer&) -> int32 {   // borrow of a pointer-backed handle
+    return 0;
+}
+
+func use :: () -> void {
+    let b :: Buffer = buf_alloc();
+    inspect(b);                                    // b is released once, at the end of use()
+    return;
+}
+```
+
+The one exception is an `extern` declaration: a C callee only borrows the value and never drops, so an `extern
+func` may declare a bare handle parameter. The compiler treats an extern callee as a borrower and the caller
+keeps ownership:
+
+```pp
+extern func pp_file_read :: (fp :: PP_File, buf :: ptr[uint8], n :: uint64) -> uint64;
+```
 
 ## Writing the drop function
 
@@ -138,9 +166,10 @@ For non-pointer underlyings the drop function is always called; there is no rese
 | Position | Allowed |
 |---|---|
 | Local variable with initializer | yes |
-| Parameter as `H&` / `const H&` | yes |
+| PP function parameter as `H&` / `const H&` | yes |
+| `extern` function parameter as bare `H` | yes (C callee only borrows) |
+| PP function parameter as bare `H` | no |
 | Return type `-> H`, returned from a call | yes |
-| Bare `H` parameter or argument | no |
 | Global variable | no |
 | Struct field | no |
 | Collection element (`[H]`, `[H : n]`) | no |
@@ -150,8 +179,11 @@ For non-pointer underlyings the drop function is always called; there is no rese
 A handle needs an initializer: `let f :: File;` is an error. Returning a handle *local* is also an error —
 `return pp_demo_open();` is the supported form, because ownership then passes to the caller.
 
-The underlying type may be a scalar, an array, a struct or a pointer, but it may not be a reference, a callable
-type, or a type that transitively contains a reference or another handle.
+The underlying type must resolve to a **scalar primitive** (`int8`..`int128`, `uint8`..`uint128`, `float`,
+`bool`) or a **pointer**. Named scalars such as a `newtype`, `enum` or `flag` over a scalar are accepted because
+they resolve to a scalar machine type. Structs, arrays, lists, strings, callables, references and types that
+transitively contain a reference or another handle are rejected: the drop function receives the underlying by
+value, and a handle is a resource token, not an aggregate.
 
 ## Interoperating with C APIs that take ownership
 
