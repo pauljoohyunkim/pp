@@ -73,6 +73,13 @@ typedef struct {
     PP_StringPool* sp;
 
     const PPType* current_function_type;
+    /* Hidden return pointer of the function body being generated; NULL when the current
+     * function returns in registers. */
+    LLVMValueRef current_sret_ptr;
+
+    /* Native ABI facts for indirect-return (sret) classification, created lazily. */
+    LLVMTargetDataRef native_target_data;
+    char* native_triple;
 
     const char* code;
     size_t code_length;
