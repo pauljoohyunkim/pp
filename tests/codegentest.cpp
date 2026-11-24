@@ -2362,6 +2362,43 @@ TEST(CodeGenTest, HandleReturnedByCallIsNotDroppedInCallee) {
     EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 0u);
 }
 
+TEST(CodeGenTest, HandlePointerBorrowDoesNotDrop) {
+    const char* source = "handle Res :: ptr[uint8] drop pp_free;\n"
+                         "extern func pp_free :: (p :: ptr[uint8]) -> void;\n"
+                         "extern func pp_alloc :: () -> Res;\n"
+                         "func inspect :: (r :: const Res&) -> int32 { return 0; }\n"
+                         "func work :: () -> int32 {\n"
+                         "    let r :: Res = pp_alloc();\n"
+                         "    return inspect(r);\n"
+                         "}\n";
+    int semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_handle_codegen(source, codegen_result, semantic_errors);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // Only work() owns the pointer-backed handle, so exactly one drop site exists.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 1u);
+}
+
+TEST(CodeGenTest, HandlePointerMutableBorrowReassignDropsOldValue) {
+    const char* source = "handle Res :: ptr[uint8] drop pp_free;\n"
+                         "extern func pp_free :: (p :: ptr[uint8]) -> void;\n"
+                         "extern func pp_alloc :: () -> Res;\n"
+                         "func reset :: (r :: Res&) -> void { r = pp_alloc(); }\n"
+                         "func work :: () -> void {\n"
+                         "    let r :: Res = pp_alloc();\n"
+                         "    reset(r);\n"
+                         "    return;\n"
+                         "}\n";
+    int semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_handle_codegen(source, codegen_result, semantic_errors);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(codegen_result, 1);
+    // One drop in reset() for the overwritten value, one at work()'s scope exit.
+    EXPECT_EQ(count_ir_occurrences(cg.get(), "call void @pp.drop."), 2u);
+}
+
 TEST(CodeGenTest, StringReassignDropsOldValue) {
     const char* source = "func work :: () -> void {\n"
                          "    let s :: string = \"aaaa\";\n"
