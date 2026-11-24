@@ -3187,3 +3187,75 @@ TEST(CodeGenTest, BoolConstantFoldsToLiteral) {
     assert_ir_not_contains(cg.get(), "@B");
     assert_ir_contains(cg.get(), "ret i1 true");
 }
+
+TEST(CodeGenTest, SretUsedForLargeExternAggregateReturn) {
+    const char* source = "struct Big { a :: int64; b :: int64; c :: int64; }\n"
+                         "extern func pp_make_big :: (seed :: int64) -> Big;\n"
+                         "func main :: () -> int32 {\n"
+                         "    let b :: Big = pp_make_big(1l);\n"
+                         "    return 0;\n"
+                         "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // Extern C callees return large aggregates through a hidden pointer, so PP must agree.
+    assert_ir_contains(cg.get(), "declare void @pp_make_big(ptr sret(%Big)");
+    assert_ir_contains(cg.get(), "call void @pp_make_big(ptr sret(%Big)");
+}
+
+TEST(CodeGenTest, SretUsedForLargeInternalAggregateReturn) {
+    const char* source = "struct Big { a :: int64; b :: int64; c :: int64; }\n"
+                         "func make_big :: (seed :: int64) -> Big {\n"
+                         "    return Big { .a = seed, .b = seed + 1l, .c = seed * 2l };\n"
+                         "}\n"
+                         "func main :: () -> int32 {\n"
+                         "    let b :: Big = make_big(7l);\n"
+                         "    return 0;\n"
+                         "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "define void @make_big(ptr sret(%Big)");
+    assert_ir_contains(cg.get(), "ret void");
+}
+
+TEST(CodeGenTest, NoSretForRegisterSizedAggregateReturn) {
+    const char* source = "struct Pair { x :: int64; y :: int64; }\n"
+                         "func make_pair :: (x :: int64) -> Pair {\n"
+                         "    return Pair { .x = x, .y = x + 1l };\n"
+                         "}\n"
+                         "func main :: () -> int32 {\n"
+                         "    let p :: Pair = make_pair(3l);\n"
+                         "    return 0;\n"
+                         "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // A 16-byte aggregate comes back in registers on SysV x86-64 and AAPCS64 alike.
+    assert_ir_contains(cg.get(), "define %Pair @make_pair");
+    assert_ir_not_contains(cg.get(), "sret");
+}
+
+TEST(CodeGenTest, NoSretForStringReturn) {
+    const char* source = "func make_name :: () -> string {\n"
+                         "    return \"pp\";\n"
+                         "}\n"
+                         "func main :: () -> int32 {\n"
+                         "    let s :: string = make_name();\n"
+                         "    return 0;\n"
+                         "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    // pp.string is exactly 16 bytes, so it travels in two registers.
+    assert_ir_contains(cg.get(), "define %pp.string @make_name");
+    assert_ir_not_contains(cg.get(), "sret");
+}
