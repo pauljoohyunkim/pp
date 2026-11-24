@@ -5925,7 +5925,6 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
                 pp_error_list_push_error(sa->error_list, expr->loc, "Invalid char literal");
                 goto error_cleanup;
             }
-            size_t inner_len = len - 2;
             size_t i = 1;
             size_t decoded_len = 0;
             while (i < len - 1) {

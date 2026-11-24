@@ -1026,7 +1026,6 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
     LLVMDIBuilderRef di_builder = NULL;
     LLVMMetadataRef di_compile_unit = NULL;
     LLVMMetadataRef di_file = NULL;
-    LLVMMetadataRef di_current_scope = NULL;
     PP_DITypeCacheEntry* di_type_cache = NULL;
 
     if (sa == NULL) goto error_cleanup;
@@ -4731,9 +4730,6 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_Co
     }
     pp_code_generator_push_temp_drop(cg, base_slot, base_type);
     return field_val;
-
-error_cleanup:
-    return NULL;
 }
 
 static LLVMValueRef pp_code_generator_generate_rvalue_function_call(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
