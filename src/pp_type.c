@@ -420,9 +420,7 @@ PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeri
         return PP_TK_Int32;
     }
     size_t pos = 0;
-    bool is_hex = false;
     if (len >= 2 && lexeme[0] == '0' && (lexeme[1] == 'x' || lexeme[1] == 'X')) {
-        is_hex = true;
         pos = 2;
         while (pos < len && isxdigit((unsigned char)lexeme[pos])) pos++;
     } else {

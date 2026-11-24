@@ -7,13 +7,10 @@
 
 #include "pp_ast.h"
 #include "pp_code_generator.h"
-#include "pp_code_optimization.h"
 #include "pp_compiler_pipeline.h"
-#include "pp_lexer.h"
 #include "pp_linker_offload.h"
-#include "pp_parser.h"
-#include "pp_semantic_analyzer.h"
 #include "pp_string_pool.h"
+
 
 #define PPLANG_OPT_EMIT_LLVM 1000
 #define PPLANG_OPT_PPI 1001
@@ -55,6 +52,7 @@ static int pplang_ppi_list_push(PPLang_PPIList* list, const char* path);
 static PPLang_Filetype detect_filetype(const char* path);
 static PPLang_Filetype detect_filetype(const char* path);
 static void print_help(void);
+static const char* pplang_get_temp_dir(void);
 
 /* Main */
 int main(int argc, char** argv) {
@@ -274,7 +272,9 @@ int main(int argc, char** argv) {
                 if (inp->type == PP_OBJECT) {
                     obj_names[idx++] = inp->obj_path;
                 } else if (inp->type == PP_SOURCE && inp->obj_buf) {
-                    char tmpl[] = "/tmp/pplang-XXXXXX";
+                    const char* tmpdir = pplang_get_temp_dir();
+                    char tmpl[PATH_MAX];
+                    snprintf(tmpl, sizeof(tmpl), "%s/pplang-XXXXXX", tmpdir);
                     int fd = mkstemp(tmpl);
                     if (fd < 0) {
                         fprintf(stderr, "Failed to create temp object file\n");
@@ -365,7 +365,13 @@ static void pplang_input_list_free(PPLang_InputList* list) {
             if (list->inputs[i].src_path) free(list->inputs[i].src_path);
             if (list->inputs[i].obj_path) {
                 /* Unlink temporary object files if they exist */
-                if (strncmp(list->inputs[i].obj_path, "/tmp/pplang-", 11) == 0) { unlink(list->inputs[i].obj_path); }
+                const char* tmpdir = pplang_get_temp_dir();
+                size_t tmpdir_len = strlen(tmpdir);
+                if (strncmp(list->inputs[i].obj_path, tmpdir, tmpdir_len) == 0 &&
+                    list->inputs[i].obj_path[tmpdir_len] == '/' &&
+                    strncmp(list->inputs[i].obj_path + tmpdir_len + 1, "pplang-", 7) == 0) {
+                    unlink(list->inputs[i].obj_path);
+                }
                 free(list->inputs[i].obj_path);
             }
             if (list->inputs[i].obj_buf) { LLVMDisposeMemoryBuffer(list->inputs[i].obj_buf); }
@@ -479,4 +485,9 @@ static void print_help(void) {
     printf(
         "-O level\t\t\tOptimization level: 0=no opt, 1=less, 2=default, 3=aggressive. Size optimisation (-Os, -Oz) "
         "TODO\n");
+}
+
+static const char* pplang_get_temp_dir(void) {
+    const char* tmpdir = getenv("TMPDIR");
+    return tmpdir ? tmpdir : "/tmp";
 }
