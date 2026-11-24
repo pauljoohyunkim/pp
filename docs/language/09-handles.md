@@ -91,9 +91,28 @@ func use :: () -> void {
 }
 ```
 
-The one exception is an `extern` declaration: a C callee only borrows the value and never drops, so an `extern
-func` may declare a bare handle parameter. The compiler treats an extern callee as a borrower and the caller
-keeps ownership:
+### Mutable borrows and realloc
+
+`H&` lets a callee replace the resource while the caller keeps ownership. This is the natural way to express
+`realloc`: the C function releases the old block and stores the new token in the slot, so the caller's drop sees
+exactly the final allocation.
+
+```pp
+handle PP_AllocBytes :: ptr[uint8] drop pp_alloc_bytes_free;
+extern func pp_alloc_bytes_reallocate :: (pab :: PP_AllocBytes&, n :: uint64) -> int32;
+
+func grow :: (p :: PP_AllocBytes&, n :: uint64) -> int32 {
+    return pp_alloc_bytes_reallocate(p, n);
+}
+```
+
+Do not express `realloc` in PP as "assign a fresh resource to the handle" (`h = alloc(n)`): that form releases
+the old resource first, but `realloc` has already freed it. The release-and-replace must happen inside one
+callee.
+
+The one exception to the by-reference rule is an `extern` declaration: a C callee only borrows the value and
+never drops, so an `extern func` may also declare a bare handle parameter. The compiler treats an extern callee
+as a borrower and the caller keeps ownership:
 
 ```pp
 extern func pp_file_read :: (fp :: PP_File, buf :: ptr[uint8], n :: uint64) -> uint64;

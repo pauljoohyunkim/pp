@@ -103,6 +103,12 @@ pointer, so `Buffer&` is a reference to the owning slot. The general `Reference 
 is bypassed only when the referent is a handle (`pp_type_is_handle`); a plain `newtype` over `ptr[...]` is still
 not referencable.
 
+A mutable borrow is what makes `realloc` expressible without escaping to `ptr[H]`: the callee receives the
+owning slot, frees the old block and stores the new token, so the caller's scope drop releases the final
+allocation exactly once. Expressing `realloc` as `h = alloc(n)` is wrong for the opposite reason — the
+assignment drops the old value, but `realloc` already freed it. `pp_std` uses this for
+`pp_alloc_bytes_reallocate :: (pab :: PP_AllocBytes&, n :: uint64)`.
+
 ### 4. Handles can be cast *down*, never *up*
 
 `h as int32` is allowed: it reads the underlying value to hand it to a C function and transfers nothing.
