@@ -1,6 +1,38 @@
+constant CHIP8_CODE_START :: uint16 = 0x200us;
 
 lambda extract_4bit :: (opcode :: OPCODE, idx :: uint8) -> uint8 {
     return ((opcode >> ((12uss - (idx * 4uss)) as uint16)) & 0xFus) as uint8;
+}
+
+func load_chip8_font :: (machine :: Chip8Machine&) -> void {
+    // Standard CHIP-8 font: 16 digits (0-F), 5 bytes each at 0x000-0x04F
+    let font :: [uint8 : 80u] = [uint8 : 80u;
+        0xF0uss, 0x90uss, 0x90uss, 0x90uss, 0xF0uss,  // 0
+        0x20uss, 0x60uss, 0x20uss, 0x20uss, 0x70uss,  // 1
+        0xF0uss, 0x10uss, 0xF0uss, 0x80uss, 0xF0uss,  // 2
+        0xF0uss, 0x10uss, 0xF0uss, 0x10uss, 0xF0uss,  // 3
+        0x90uss, 0x90uss, 0xF0uss, 0x10uss, 0x10uss,  // 4
+        0xF0uss, 0x80uss, 0xF0uss, 0x10uss, 0xF0uss,  // 5
+        0xF0uss, 0x80uss, 0xF0uss, 0x90uss, 0xF0uss,  // 6
+        0xF0uss, 0x10uss, 0x20uss, 0x40uss, 0x40uss,  // 7
+        0xF0uss, 0x90uss, 0xF0uss, 0x90uss, 0xF0uss,  // 8
+        0xF0uss, 0x90uss, 0xF0uss, 0x10uss, 0xF0uss,  // 9
+        0xF0uss, 0x90uss, 0xF0uss, 0x90uss, 0x90uss,  // A
+        0xE0uss, 0x90uss, 0xE0uss, 0x90uss, 0xE0uss,  // B
+        0xF0uss, 0x80uss, 0x80uss, 0x80uss, 0xF0uss,  // C
+        0xE0uss, 0x90uss, 0x90uss, 0x90uss, 0xE0uss,  // D
+        0xF0uss, 0x80uss, 0xF0uss, 0x80uss, 0xF0uss,  // E
+        0xF0uss, 0x80uss, 0xF0uss, 0x80uss, 0x80uss   // F
+    ];
+    for (let i :: uint16 = 0us; i < 80us; i += 1us) {
+        machine.memory[i] = font[i];
+    }
+}
+
+func load_chip8_rom :: (machine :: Chip8Machine&, filename :: const string&) -> void {
+    let fp :: PP_File = pp_file_open(filename, PP_File_OpenMode::PP_FOPEN_READ_ONLY);
+    
+    pp_file_read(fp, @machine.memory[CHIP8_CODE_START], (#machine.memory - CHIP8_CODE_START as uint32) as uint64);
 }
 
 func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
@@ -11,7 +43,6 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         for (let i :: uint16 = 0us; i < WIDTH * HEIGHT; i += 1us) {
             machine.display[i] = 0uss;
         }
-        pp_system("clear");
         return;
     } else if (opcode == 0x00EEu as uint16) {
         // Return from subroutine

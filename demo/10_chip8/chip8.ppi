@@ -15,4 +15,6 @@ struct Chip8Machine {
 
 typedef uint16 OPCODE;
 
+extern func load_chip8_font :: (machine :: Chip8Machine&) -> void;
+extern func load_chip8_rom :: (machine :: Chip8Machine&, filename :: const string&) -> void;
 extern func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void;
