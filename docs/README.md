@@ -45,6 +45,7 @@ See the [pp_std repository](https://github.com/pauljoohyunkim/pp_std) for detail
   - [Functions & Lambdas](language/07-functions-and-lambdas.md)
   - [Operators](language/08-operators.md)
   - [Handles](language/09-handles.md)
+  - [Freestanding Mode](language/11-freestanding.md)
 - [Examples](examples/index.md)
 - [Reference](reference/)
   - [Grammar](reference/grammar.md)

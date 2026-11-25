@@ -39,6 +39,9 @@ let empty :: [int32] = [int32;];
 
 Lists are heap allocated.
 
+> Lists and heap strings are unavailable in [freestanding mode](11-freestanding.md); initialize fixed
+> arrays and static byte arrays instead.
+
 ## Global initialization
 
 Global variables require constexpr initializers. Lists and strings at global scope must be empty.

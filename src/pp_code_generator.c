@@ -40,6 +40,10 @@ static PP_Environment_Backend* pp_environment_backend_enter_scope(const PP_Envir
 static void pp_code_generator_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block);
 static void pp_code_generator_emit_memcpy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, LLVMValueRef size,
                                           const char* name);
+static void pp_code_generator_emit_inline_byte_copy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src,
+                                                    LLVMValueRef size, const char* name);
+static void pp_code_generator_emit_copy_bytes(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src,
+                                              LLVMValueRef size, const char* name);
 static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type);
 static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, const PPType* type);
 static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg);
@@ -212,12 +216,66 @@ static void pp_code_generator_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicB
     if (cur && LLVMGetBasicBlockTerminator(cur) == NULL) { LLVMBuildBr(cg->builder, merge_block); }
 }
 
+/* Byte-copy helpers Checklist (freestanding mode):
+ * [x] Non-freestanding copies emit llvm.memcpy
+ * [x] Freestanding copies emit an explicit i8 loop with no memcpy symbol
+ * [x] Object verification: nm -u has no memcpy/memset/memmove
+ */
 static void pp_code_generator_emit_memcpy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, LLVMValueRef size,
                                           const char* name) {
     if (!cg || !dst || !src || !size) return;
     // Use LLVM's built-in memcpy builder which emits llvm.memcpy intrinsic with correct signature
     // Alignment of 1 is safe default; can be improved with target data if desired
     LLVMBuildMemCpy(cg->builder, dst, 1, src, 1, size);
+}
+
+/* Freestanding-safe byte copy: an explicit i8 loop, so no `memcpy` symbol is referenced even when the
+ * backend would otherwise lower `llvm.memcpy` to a libcall. `dst`, `src` and `size` must already dominate
+ * the insertion point. */
+static void pp_code_generator_emit_inline_byte_copy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src,
+                                                    LLVMValueRef size, const char* name) {
+    (void)name;
+    if (!cg || !dst || !src || !size) return;
+    LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
+    LLVMTypeRef i8_type = LLVMInt8TypeInContext(cg->ctx);
+    LLVMBasicBlockRef cur_bb = LLVMGetInsertBlock(cg->builder);
+    assert(cur_bb && "inline byte copy requires an active insertion block");
+    LLVMValueRef func = LLVMGetBasicBlockParent(cur_bb);
+    LLVMBasicBlockRef cond_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "bytecopy_cond");
+    LLVMBasicBlockRef body_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "bytecopy_body");
+    LLVMBasicBlockRef end_bb = LLVMAppendBasicBlockInContext(cg->ctx, func, "bytecopy_end");
+
+    LLVMValueRef i_alloca = pp_code_generator_entry_alloca(cg, i64_type, "bytecopy_i");
+    LLVMBuildStore(cg->builder, LLVMConstInt(i64_type, 0, 0), i_alloca);
+    LLVMBuildBr(cg->builder, cond_bb);
+
+    LLVMPositionBuilderAtEnd(cg->builder, cond_bb);
+    LLVMValueRef i_val = LLVMBuildLoad2(cg->builder, i64_type, i_alloca, "bytecopy_i_val");
+    LLVMValueRef cond = LLVMBuildICmp(cg->builder, LLVMIntULT, i_val, size, "bytecopy_cond");
+    LLVMBuildCondBr(cg->builder, cond, body_bb, end_bb);
+
+    LLVMPositionBuilderAtEnd(cg->builder, body_bb);
+    LLVMValueRef src_ptr = LLVMBuildGEP2(cg->builder, i8_type, src, &i_val, 1, "bytecopy_src_ptr");
+    LLVMValueRef dst_ptr = LLVMBuildGEP2(cg->builder, i8_type, dst, &i_val, 1, "bytecopy_dst_ptr");
+    LLVMValueRef byte = LLVMBuildLoad2(cg->builder, i8_type, src_ptr, "bytecopy_byte");
+    LLVMBuildStore(cg->builder, byte, dst_ptr);
+    LLVMValueRef i_next = LLVMBuildAdd(cg->builder, i_val, LLVMConstInt(i64_type, 1, 0), "bytecopy_i_next");
+    LLVMBuildStore(cg->builder, i_next, i_alloca);
+    LLVMBuildBr(cg->builder, cond_bb);
+
+    LLVMPositionBuilderAtEnd(cg->builder, end_bb);
+}
+
+/* Copy `size` bytes, choosing an inlined byte loop in freestanding mode so the object never references
+ * a libc `memcpy`. */
+static void pp_code_generator_emit_copy_bytes(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src,
+                                              LLVMValueRef size, const char* name) {
+    if (!cg || !dst || !src || !size) return;
+    if (cg->freestanding) {
+        pp_code_generator_emit_inline_byte_copy(cg, dst, src, size, name);
+    } else {
+        pp_code_generator_emit_memcpy(cg, dst, src, size, name);
+    }
 }
 
 static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type) {
@@ -1097,6 +1155,7 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
     cg->sp = sp;
 
     cg->debug = debug;
+    cg->freestanding = sa->freestanding;
 
     assert(cg->program && "program node must be present");
 
@@ -1143,8 +1202,11 @@ PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPoo
         cg->di_type_cache_count = 0;
     }
 
-    // Ensure runtime library declarations for list support
-    {
+    // Ensure runtime library declarations for list/string support. Freestanding mode has no heap, and the
+    // semantic analyzer rejects every construct that would use these symbols.
+    // Checklist (freestanding mode):
+    // [x] malloc/realloc/free/memcmp declared only when !cg->freestanding
+    if (!cg->freestanding) {
         LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
         LLVMTypeRef i8ptr_type = LLVMPointerTypeInContext(cg->ctx, 0);
 
@@ -5129,6 +5191,10 @@ error_cleanup:
     return NULL;
 }
 
+/* pp_code_generator_gen_copy_body Checklist (freestanding mode):
+ * [x] Trivially copyable types copy through pp_code_generator_emit_copy_bytes
+ * [x] List/string copy branches assert unreachable
+ */
 static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type) {
 #warning "Deep copy of cyclic owned graphs is UNDEFINED BEHAVIOR. See comment below."
     // WARNING: Deep copy of cyclic owned graphs is undefined behavior.
@@ -5157,9 +5223,10 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
             unsigned size = LLVMABISizeOfType(td, llvm_type);
             LLVMDisposeTargetData(td);
             LLVMValueRef size_val = LLVMConstInt(LLVMInt64TypeInContext(cg->ctx), size, 0);
-            pp_code_generator_emit_memcpy(cg, arg0, arg1, size_val, "");
+            pp_code_generator_emit_copy_bytes(cg, arg0, arg1, size_val, "");
         }
     } else if (type->kind == PP_TK_List) {
+        assert(!cg->freestanding && "list copy reached codegen in freestanding mode");
         const PPType* elem_type = type->type.pp_type_list.element_type;
         LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, type);
         if (llvm_list_type) {
@@ -5262,6 +5329,7 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
             LLVMPositionBuilderAtEnd(cg->builder, merge_bb);
         }
     } else if (type->kind == PP_TK_String) {
+        assert(!cg->freestanding && "string copy reached codegen in freestanding mode");
         // Deep copy: a string owns its buffer, so the target gets its own clone.
         // The clone is always NUL-terminated, so `len` bytes plus one are allocated.
         LLVMTypeRef llvm_str_type = pp_environment_backend_lookup_type(cg, type);
@@ -5330,7 +5398,7 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
                                                        LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0), "src_i8");
                 LLVMValueRef dst_i8 = LLVMBuildBitCast(cg->builder, dst_ptr,
                                                        LLVMPointerType(LLVMInt8TypeInContext(cg->ctx), 0), "dst_i8");
-                pp_code_generator_emit_memcpy(cg, dst_i8, src_i8, total_size, "");
+                pp_code_generator_emit_copy_bytes(cg, dst_i8, src_i8, total_size, "");
             } else {
                 LLVMTypeRef elem_llvm_type = pp_environment_backend_lookup_type(cg, elem_type);
                 PP_TypeCacheEntry* elem_entry = pp_code_generator_get_or_create_cache_entry(cg, elem_type);
@@ -5419,6 +5487,10 @@ static void pp_code_generator_gen_copy_body(PP_CodeGenerator* cg, LLVMValueRef f
     pp_code_generator_restore_builder_insert_block(cg, saved_bb);
 }
 
+/* pp_code_generator_gen_drop_body Checklist (freestanding mode):
+ * [x] Handle drop calls the bound user function; no allocator involved
+ * [x] List/string drop branches assert unreachable
+ */
 static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef func, const PPType* type) {
 #warning "Drop of cyclic owned graphs is UNDEFINED BEHAVIOR. See comment below."
     // WARNING: Drop of cyclic owned graphs is undefined behavior.
@@ -5470,6 +5542,7 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
             }
         }
     } else if (type->kind == PP_TK_List) {
+        assert(!cg->freestanding && "list drop reached codegen in freestanding mode");
         const PPType* elem_type = type->type.pp_type_list.element_type;
         LLVMTypeRef llvm_list_type = pp_environment_backend_lookup_type(cg, type);
         if (llvm_list_type) {
@@ -5617,6 +5690,7 @@ static void pp_code_generator_gen_drop_body(PP_CodeGenerator* cg, LLVMValueRef f
             }
         }
     } else if (type->kind == PP_TK_String) {
+        assert(!cg->freestanding && "string drop reached codegen in freestanding mode");
         LLVMTypeRef llvm_str_type = pp_environment_backend_lookup_type(cg, type);
         if (llvm_str_type) {
             LLVMValueRef str_ptr = LLVMBuildBitCast(cg->builder, arg0, LLVMPointerType(llvm_str_type, 0), "str_ptr");
@@ -5717,6 +5791,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_list_push(PP_CodeGenerator
                                                                 const PP_AST_Node* node) {
     assert(cg && symbol_table && env_b && node);
     assert(node->node_type == PP_AST_ListPushNode);
+    assert(!cg->freestanding && "list_push reached codegen in freestanding mode");
     LLVMValueRef list_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->list_push.list);
     const PP_AST_Decoration* push_value_dec = pp_ast_get_decoration(node->list_push.value);
     assert(push_value_dec);
@@ -5820,6 +5895,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_list_pop(PP_CodeGenerator*
                                                                PP_Environment_Backend* env_b, const PP_AST_Node* node) {
     assert(cg && symbol_table && env_b && node);
     assert(node->node_type == PP_AST_ListPopNode);
+    assert(!cg->freestanding && "list_pop reached codegen in freestanding mode");
     LLVMValueRef list_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->list_pop.list);
     const PP_AST_Decoration* list_dec = pp_ast_get_decoration(node->list_pop.list);
     assert(list_dec);
@@ -5891,6 +5967,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_list_clear(PP_CodeGenerato
                                                                  const PP_AST_Node* node) {
     assert(cg && symbol_table && env_b && node);
     assert(node->node_type == PP_AST_ListClearNode);
+    assert(!cg->freestanding && "list_clear reached codegen in freestanding mode");
     LLVMValueRef list_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->list_clear.list);
     const PP_AST_Decoration* list_dec = pp_ast_get_decoration(node->list_clear.list);
     assert(list_dec);

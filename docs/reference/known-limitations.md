@@ -4,6 +4,9 @@
 * No modules yet; all code is in single files.
 * No templates/generics.
 * Global variables must be constexpr; no runtime globals.
+* `--ffreestanding` disables the heap-backed `string` and list types, and forces unoptimized IR so the
+  object never references heap or `memcpy`/`memset` libcalls. It is not a bare-metal target; linking
+  still uses `cc`.
 * Reference types cannot be stored in collections.
 * Lambdas are pure: cannot call regular functions or capture mutable globals.
 * Operator overloading limited to const-ref parameters and value returns.

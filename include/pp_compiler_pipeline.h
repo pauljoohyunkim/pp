@@ -22,6 +22,7 @@ extern "C" {
  * @param optimization_mode Optimization level '0'..'3' or '\0' for none.
  * @param to_assembly Emit assembly instead of object.
  * @param emit_ir Emit LLVM IR instead of object.
+ * @param freestanding Reject heap-backed language features and emit no heap runtime declarations.
  */
 typedef struct {
     PP_StringPool* string_pool;
@@ -33,6 +34,7 @@ typedef struct {
     bool to_assembly;
     bool emit_ir;
     bool debug;
+    bool freestanding;
 } CompilerPipelineOptions;
 
 /* New options-based API */

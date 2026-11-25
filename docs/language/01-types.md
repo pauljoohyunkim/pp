@@ -24,6 +24,9 @@ let s :: string = "hello";
 `string` supports `+` (concatenation), `==` / `!=` (length-aware byte equality), `#s` (byte length) and
 `s[i]` (byte access, `uint8`). See [Operators](08-operators.md).
 
+> In [freestanding mode](11-freestanding.md) (`--ffreestanding`) the heap `string` type and `"..."`
+> literals are rejected. Use static byte arrays `[uint8 : N]` with `@"..."` instead.
+
 ## Modifiers
 
 * `const T` – immutable value
@@ -130,6 +133,9 @@ Built-ins for lists are polymorphic over `T`:
 Indexing `v[i]` is undefined behavior if `i` is out of bounds; no runtime bounds check is performed.
 
 See [Built-ins](docs/reference/builtins.md) for full semantics.
+
+> Lists are heap-backed and are rejected in [freestanding mode](11-freestanding.md). Fixed-size arrays
+> `[T : N]` remain available.
 
 ## Type Matching
 
