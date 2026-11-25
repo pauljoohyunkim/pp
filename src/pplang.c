@@ -11,9 +11,10 @@
 #include "pp_linker_offload.h"
 #include "pp_string_pool.h"
 
-
 #define PPLANG_OPT_EMIT_LLVM 1000
 #define PPLANG_OPT_PPI 1001
+#define PPLANG_OPT_HELP 1002
+#define PPLANG_OPT_FREESTANDING 1003
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
@@ -63,6 +64,7 @@ int main(int argc, char** argv) {
     bool emit_ir = false;
     bool verbose = false;
     bool debug = false;
+    bool freestanding = false;
     bool output_specified = false;
     char output_filename[BUFSIZ] = {0};
     strcpy(output_filename, "a.out");
@@ -73,10 +75,13 @@ int main(int argc, char** argv) {
     int opt;
     static struct option long_opts[] = {{"emit-llvm", no_argument, 0, PPLANG_OPT_EMIT_LLVM},
                                         {"ppi", required_argument, 0, PPLANG_OPT_PPI},
+                                        {"help", no_argument, 0, PPLANG_OPT_HELP},
+                                        {"ffreestanding", no_argument, 0, PPLANG_OPT_FREESTANDING},
                                         {0, 0, 0, 0}};
     while ((opt = getopt_long(argc, argv, "hcSvo:O:g", long_opts, NULL)) != -1) {
         switch (opt) {
             case 'h':
+            case PPLANG_OPT_HELP:
                 print_help();
                 exit_code = 1;
                 goto error_cleanup;
@@ -88,6 +93,9 @@ int main(int argc, char** argv) {
                 break;
             case PPLANG_OPT_EMIT_LLVM:
                 emit_ir = true;
+                break;
+            case PPLANG_OPT_FREESTANDING:
+                freestanding = true;
                 break;
             case PPLANG_OPT_PPI:
                 if (!ppi_list) {
@@ -144,6 +152,15 @@ int main(int argc, char** argv) {
                 exit_code = 1;
                 goto error_cleanup;
         }
+    }
+
+    // Freestanding mode keeps the IR unoptimized: LoopIdiom and related passes at -O1+ can synthesise
+    // llvm.memcpy/llvm.memset, which may lower to libcalls the target environment does not provide.
+    if (freestanding && optimization_mode != '\0' && optimization_mode != '0') {
+        fprintf(stderr,
+                "Warning: --ffreestanding forces -O0; higher optimization levels can introduce "
+                "memcpy/memset libcalls\n");
+        optimization_mode = '\0';
     }
 
     // -S
@@ -219,6 +236,7 @@ int main(int argc, char** argv) {
         .to_assembly = to_assembly,
         .emit_ir = emit_ir,
         .debug = debug,
+        .freestanding = freestanding,
     };
 
     /*
@@ -481,6 +499,7 @@ static void print_help(void) {
     printf("-S\t\t\t\tCompile to assembly file.\n");
     printf("--emit-llvm\t\t\tEmit LLVM IR.\n");
     printf("--ppi file\t\t\tPre-processor include file for external PPI declarations, can be repeated.\n");
+    printf("--ffreestanding\t\t\tCompile for a heap-free environment: reject lists and strings.\n");
     printf("-o filename\t\t\tOutput filename (default: a.out)\n");
     printf(
         "-O level\t\t\tOptimization level: 0=no opt, 1=less, 2=default, 3=aggressive. Size optimisation (-Os, -Oz) "

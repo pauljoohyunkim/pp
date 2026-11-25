@@ -5,7 +5,8 @@
 #include "pp_parser.h"
 #include "pp_semantic_analyzer.h"
 
-static void semantic_analyze_source(const char* source, int& lexer_errors, int& parser_errors, int& semantic_errors, int& analyze_result) {
+static void semantic_analyze_source_opts(const char* source, int& lexer_errors, int& parser_errors,
+                                        int& semantic_errors, int& analyze_result, bool freestanding) {
     PP_StringPool* sp = pp_string_pool_create();
     lexer_errors = parser_errors = semantic_errors = 0;
     analyze_result = 0;
@@ -29,10 +30,16 @@ static void semantic_analyze_source(const char* source, int& lexer_errors, int& 
         PP_SemanticAnalyzer* sa_raw = pp_semantic_analyzer_create(parser.get(), sp);
         std::unique_ptr<PP_SemanticAnalyzer, decltype(&pp_semantic_analyzer_free)> sa(sa_raw, pp_semantic_analyzer_free);
         ASSERT_NE(sa.get(), nullptr);
+        sa->freestanding = freestanding;
         analyze_result = pp_semantic_analyzer_analyze(sa.get());
         semantic_errors = sa->error_list ? (int)sa->error_list->n_errors : 0;
     }
     pp_string_pool_free(sp);
+}
+
+static void semantic_analyze_source(const char* source, int& lexer_errors, int& parser_errors, int& semantic_errors,
+                                    int& analyze_result) {
+    semantic_analyze_source_opts(source, lexer_errors, parser_errors, semantic_errors, analyze_result, false);
 }
 
 TEST(SemanticTest, Pass1TypedefValid) {
@@ -2787,4 +2794,113 @@ TEST(SemanticTest, CastToUnknownTypeNameRejected) {
                            "    return 0;\n"
                            "}\n",
                            "cast to an unknown type name");
+}
+
+/* ---------------------------------------------------------------------------
+ * Freestanding mode tests
+ * ------------------------------------------------------------------------- */
+static void semantic_analyze_freestanding(const char* source, int& lexer_errors, int& parser_errors,
+                                          int& semantic_errors, int& analyze_result) {
+    semantic_analyze_source_opts(source, lexer_errors, parser_errors, semantic_errors, analyze_result, true);
+}
+
+static void expect_freestanding_ok(const char* source) {
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_freestanding(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors, 0) << source;
+    EXPECT_EQ(parser_errors, 0) << source;
+    EXPECT_EQ(analyze_result, 1) << source;
+    EXPECT_EQ(semantic_errors, 0) << source;
+}
+
+static void expect_freestanding_reject(const char* source, const char* label) {
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_freestanding(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0) << label << "\nsource:\n" << source;
+    EXPECT_TRUE(semantic_errors > 0 || analyze_result == 0) << label << "\nsource:\n" << source;
+}
+
+TEST(SemanticTest, FreestandingStringTypeRejected) {
+    expect_freestanding_reject("func main :: () -> int32 {\n"
+                               "    let s :: string = \"\";\n"
+                               "    return 0;\n"
+                               "}\n",
+                               "string type not available");
+}
+
+TEST(SemanticTest, FreestandingHeapStringLiteralRejected) {
+    expect_freestanding_reject("func main :: () -> int32 {\n"
+                               "    let s :: [uint8 : 3u] = \"hi\";\n"
+                               "    return 0;\n"
+                               "}\n",
+                               "heap string literal not available");
+}
+
+TEST(SemanticTest, FreestandingListTypeRejected) {
+    expect_freestanding_reject("func main :: () -> int32 {\n"
+                               "    let v :: [int32] = [int32;];\n"
+                               "    return 0;\n"
+                               "}\n",
+                               "list type not available");
+}
+
+TEST(SemanticTest, FreestandingListInitializerRejected) {
+    expect_freestanding_reject("func main :: () -> int32 {\n"
+                               "    let v :: [int32] = [int32; 1, 2];\n"
+                               "    return 0;\n"
+                               "}\n",
+                               "list initializer not available");
+}
+
+TEST(SemanticTest, FreestandingListBuiltinRejected) {
+    expect_freestanding_reject("func main :: () -> int32 {\n"
+                               "    let v :: [int32 : 2u] = [int32 : 2u; 1, 2];\n"
+                               "    list_push(v, 3);\n"
+                               "    return 0;\n"
+                               "}\n",
+                               "list built-ins not available");
+}
+
+TEST(SemanticTest, FreestandingStaticStringAndArrayAllowed) {
+    expect_freestanding_ok("func main :: () -> int32 {\n"
+                           "    let s :: [uint8 : 6u] = @\"hello\";\n"
+                           "    let v :: [int32 : 2u] = [int32 : 2u; 1, 2];\n"
+                           "    return v[0u] + (s[0u] as int32);\n"
+                           "}\n");
+}
+
+TEST(SemanticTest, FreestandingHandleAllowed) {
+    expect_freestanding_ok("handle File :: int32 drop pp_close;\n"
+                           "extern func pp_close :: (fd :: int32) -> void;\n"
+                           "extern func pp_open :: () -> File;\n"
+                           "func main :: () -> int32 {\n"
+                           "    let f :: File = pp_open();\n"
+                           "    return f as int32;\n"
+                           "}\n");
+}
+
+TEST(SemanticTest, FreestandingHandleCopyRejected) {
+    // Handles stay move-only; copy_T must never clone one in freestanding mode either.
+    expect_freestanding_reject("handle File :: int32 drop pp_close;\n"
+                               "extern func pp_close :: (fd :: int32) -> void;\n"
+                               "extern func pp_open :: () -> File;\n"
+                               "func main :: () -> int32 {\n"
+                               "    let a :: File = pp_open();\n"
+                               "    let b :: File = a;\n"
+                               "    return b as int32;\n"
+                               "}\n",
+                               "copy of a handle is rejected");
+}
+
+TEST(SemanticTest, NonFreestandingStillAllowsStringAndList) {
+    const char* source = "func main :: () -> int32 {\n"
+                         "    let s :: string = \"hi\";\n"
+                         "    let v :: [int32] = [int32; 1, 2];\n"
+                         "    return 0;\n"
+                         "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0) << source;
+    EXPECT_EQ(analyze_result, 1) << source;
+    EXPECT_EQ(semantic_errors, 0) << source;
 }

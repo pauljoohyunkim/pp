@@ -43,6 +43,8 @@ typedef struct {
     const PPType* current_function_type;
     unsigned int current_loop_depth; /* Loop nesting depth for break/continue validation. */
     PP_ErrorList* error_list;
+    /* Heap-free mode: reject list/string features that require the C heap. */
+    bool freestanding;
 } PP_SemanticAnalyzer;
 
 /**

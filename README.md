@@ -83,6 +83,7 @@ Options:
 * `-o <file>` Output filename (default: `a.out`, or `a.s` with `-S`, or `a.ll` with `--emit-llvm`)
 * `-O <level>` Optimization level: `0`, `1`, `2`, `3` (size opts TODO)
 * `--ppi <file>` Pre-processor include file for external PPI declarations, can be repeated. Used to inject standard library externs without manual `extern` in source.
+* `--ffreestanding` Reject heap-backed features (`string`, lists) and emit no heap/`memcpy` runtime references. See [Freestanding Mode](docs/language/11-freestanding.md).
 
 ### Demo
 Demos are available in [demo](demo/):

@@ -63,7 +63,7 @@ int pp_linker_offload_multi(const char** object_filenames, unsigned int count, c
         for (unsigned int i = 0; i < count; i++) { argv[i + 1] = (char*)object_filenames[i]; }
         unsigned int idx = count + 1;
         if (optimization_mode != '\0') {
-            char opt_flag[4] = { 0 };
+            char opt_flag[4] = {0};
             snprintf(opt_flag, sizeof(opt_flag), "-O%c", optimization_mode);
             argv[idx++] = opt_flag;
         }

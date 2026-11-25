@@ -38,6 +38,9 @@ let v :: [int32] = [int32; 1, 2, 3];
 let empty :: [int32] = [int32;];
 ```
 
+> With [`--ffreestanding`](11-freestanding.md), the `string` type and list `[T]` types are rejected;
+> fixed-size arrays and static `@"..."` literals remain available.
+
 ## Const
 
 `const` makes a value immutable.

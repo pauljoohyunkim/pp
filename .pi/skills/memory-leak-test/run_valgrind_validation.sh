@@ -21,7 +21,13 @@ FAIL=0
 : >"$LOG"
 say() { echo "$@" | tee -a "$LOG"; }
 
-say "root: $ROOT"
+# Check for valgrind
+if ! command -v valgrind >/dev/null 2>&1; then
+    say "ERROR: valgrind not found in PATH. Install it first (e.g., 'sudo pacman -S valgrind' on Arch)."
+    exit 1
+fi
+
+say "root: $ROOT (valgrind: $(valgrind --version | head -1))"
 
 say "== Step 1: fresh build =="
 cd "$ROOT" || exit 1
@@ -116,9 +122,11 @@ WRAP
         fi
 
         for log in "$CLOG" $RUNLOGS; do
-            if ! grep -q "no leaks are possible" "$log"; then
+            # Check for actual leaks: definitely lost, indirectly lost, possibly lost
+            # "still reachable" is NOT a leak - it's memory still allocated but reachable at exit
+            if grep -qE "definitely lost: [1-9]|indirectly lost: [1-9]|possibly lost: [1-9]" "$log"; then
                 say "$name[$mode]: LEAK in $(basename "$log")"
-                grep -E "definitely lost|indirectly lost" "$log" | tee -a "$LOG"
+                grep -E "definitely lost|indirectly lost|possibly lost" "$log" | tee -a "$LOG"
                 FAIL=1
             fi
         done

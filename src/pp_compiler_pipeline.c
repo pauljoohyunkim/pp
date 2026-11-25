@@ -199,6 +199,7 @@ static int pp_compiler_pipeline_compile_source_core_opts(const char* src_path, C
 
     sa = pp_semantic_analyzer_create(parser, opts->string_pool);
     NULL_POINTER_ERROR_HANDLE(sa);
+    sa->freestanding = opts->freestanding;
     if (pp_semantic_analyzer_analyze(sa) != 1) { fprintf(stderr, "Semantic analysis failed\n"); }
     if (sa->error_list && sa->error_list->n_errors > 0) {
         total_errors = total_errors + sa->error_list->n_errors;
