@@ -125,6 +125,9 @@ typedef struct {
     PP_LoopContext* loop_context_stack;
     size_t loop_context_count;
     size_t loop_context_capacity;
+
+    /* Heap-free mode: do not declare or reference the C heap runtime. */
+    bool freestanding;
 } PP_CodeGenerator;
 
 /**

@@ -11,7 +11,8 @@
 static PP_StringPool* test_sp = pp_string_pool_create();
 
 static PP_CodeGenerator* run_codegen_impl(const char* source, int& lexer_errors, int& parser_errors,
-                                          int& semantic_errors, int& codegen_result, bool debug) {
+                                          int& semantic_errors, int& codegen_result, bool debug,
+                                          bool freestanding = false) {
     auto lexer_h = pp_lexer_create(source, nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     if (!lexer.get()) return nullptr;
@@ -38,6 +39,7 @@ static PP_CodeGenerator* run_codegen_impl(const char* source, int& lexer_errors,
     PP_SemanticAnalyzer* sa_raw = pp_semantic_analyzer_create(parser.get(), test_sp);
     std::unique_ptr<PP_SemanticAnalyzer, decltype(&pp_semantic_analyzer_free)> sa(sa_raw, pp_semantic_analyzer_free);
     if (!sa.get()) return nullptr;
+    sa->freestanding = freestanding;
     int analyze_res = pp_semantic_analyzer_analyze(sa.get());
     semantic_errors = sa->error_list ? (int)sa->error_list->n_errors : 0;
 
@@ -1960,11 +1962,11 @@ struct CallableCodegenCase {
     PP_CodeGenerator* cg;
 };
 
-CallableCodegenCase compile_and_verify(const char* source, bool debug = false) {
+CallableCodegenCase compile_and_verify(const char* source, bool debug = false, bool freestanding = false) {
     CallableCodegenCase result{0, 0, 0, 0, nullptr};
     PP_CodeGenerator* raw =
         run_codegen_impl(source, result.lexer_errors, result.parser_errors, result.semantic_errors, result.codegen_result,
-                         debug);
+                         debug, freestanding);
     result.cg = raw;
     if (raw == nullptr) { return result; }
     char* error_msg = nullptr;
@@ -3258,4 +3260,56 @@ TEST(CodeGenTest, NoSretForStringReturn) {
     // pp.string is exactly 16 bytes, so it travels in two registers.
     assert_ir_contains(cg.get(), "define %pp.string @make_name");
     assert_ir_not_contains(cg.get(), "sret");
+}
+
+/* ---------------------------------------------------------------------------
+ * Freestanding mode tests
+ * ------------------------------------------------------------------------- */
+TEST(CodeGenTest, NonFreestandingDeclaresHeapSymbols) {
+    const char* source = "func main :: () -> int32 { return 0; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "@malloc");
+    assert_ir_contains(cg.get(), "@realloc");
+    assert_ir_contains(cg.get(), "@free");
+    assert_ir_contains(cg.get(), "@memcmp");
+}
+
+TEST(CodeGenTest, FreestandingOmitsHeapAndMemcpySymbols) {
+    const char* source = "struct P { x :: int32; y :: int32; }\n"
+                         "func main :: () -> int32 {\n"
+                         "    let p :: P = P { .x = 1, .y = 2 };\n"
+                         "    return p.x;\n"
+                         "}\n";
+    CallableCodegenCase r = compile_and_verify(source, false, true);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_not_contains(cg.get(), "@malloc");
+    assert_ir_not_contains(cg.get(), "@realloc");
+    assert_ir_not_contains(cg.get(), "@free");
+    assert_ir_not_contains(cg.get(), "@memcmp");
+    assert_ir_not_contains(cg.get(), "llvm.memcpy");
+}
+
+TEST(CodeGenTest, FreestandingHandleDropCallsUserFunction) {
+    const char* source = "handle File :: int32 drop pp_close;\n"
+                         "extern func pp_close :: (fd :: int32) -> void;\n"
+                         "extern func pp_open :: () -> File;\n"
+                         "func main :: () -> int32 {\n"
+                         "    let f :: File = pp_open();\n"
+                         "    return f as int32;\n"
+                         "}\n";
+    CallableCodegenCase r = compile_and_verify(source, false, true);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "@pp_close");
+    assert_ir_not_contains(cg.get(), "@malloc");
+    assert_ir_not_contains(cg.get(), "@free");
 }

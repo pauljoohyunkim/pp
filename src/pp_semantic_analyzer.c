@@ -890,6 +890,11 @@ static int pp_type_validate_collection_element(PP_SemanticAnalyzer* sa, const PP
     return 1;
 }
 
+/* pp_type_from_type_node Checklist (freestanding mode):
+ * [x] Reject the list type `[T]` when sa->freestanding
+ * [x] Reject the `string` type when sa->freestanding
+ * [x] Keep fixed arrays `[T:N]`, static string literals and handles available
+ */
 static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AST_Node* type_node) {
     assert(sa);
     assert(type_node);
@@ -945,6 +950,11 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 goto error_cleanup;
             }
         } else if (inner->node_type == PP_AST_TypeArrayNode || inner->node_type == PP_AST_TypeListNode) {
+            if (inner->node_type == PP_AST_TypeListNode && sa->freestanding) {
+                pp_error_list_push_error(sa->error_list, type_node->loc,
+                                         "list type is not available in freestanding mode");
+                goto error_cleanup;
+            }
             const PPType* elem_type = NULL;
             if (inner->node_type == PP_AST_TypeArrayNode) {
                 elem_type = pp_type_from_type_node(sa, inner->type_array.element_type);
@@ -1074,6 +1084,11 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 temp_type = pp_type_create(PP_TK_Bool);
                 break;
             case PP_AST_TYPE_KIND_STRING:
+                if (sa->freestanding) {
+                    pp_error_list_push_error(sa->error_list, type_node->loc,
+                                             "string type is not available in freestanding mode");
+                    goto error_cleanup;
+                }
                 temp_type = pp_type_create(PP_TK_String);
                 break;
             case PP_AST_TYPE_KIND_IDENTIFIER:
@@ -4929,6 +4944,7 @@ static int pp_semantic_analyzer_full_analyze_statement_list(PP_SemanticAnalyzer*
  * [x] Dispatch to struct member access checker
  * [x] Dispatch to struct init expression checker
  * [x] Dispatch to collection initializer expression checker
+ * [x] Freestanding mode rejects list built-in nodes (push/pop/clear)
  * [-] Default error for unsupported nodes -> PP returns 0 without explicit push
  */
 static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
@@ -4976,12 +4992,27 @@ static int pp_semantic_analyzer_check_expression(PP_SemanticAnalyzer* sa, PPSymb
                 goto error_cleanup;
             break;
         case PP_AST_ListPushNode:
+            if (sa->freestanding) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "list built-ins are not available in freestanding mode");
+                goto error_cleanup;
+            }
             if (!pp_semantic_analyzer_check_list_push(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_ListPopNode:
+            if (sa->freestanding) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "list built-ins are not available in freestanding mode");
+                goto error_cleanup;
+            }
             if (!pp_semantic_analyzer_check_list_pop(sa, symbol_table, expr)) goto error_cleanup;
             break;
         case PP_AST_ListClearNode:
+            if (sa->freestanding) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "list built-ins are not available in freestanding mode");
+                goto error_cleanup;
+            }
             if (!pp_semantic_analyzer_check_list_clear(sa, symbol_table, expr)) goto error_cleanup;
             break;
         default:
@@ -5838,7 +5869,9 @@ error_cleanup:
  * [x] Distinguish unsigned suffix for numeric literals, CZ parses lexeme for '.' and 'u' to choose int32/uint32/float
  * [x] Create const-wrapped type via pp_type_create(PP_TK_Const) then intern
  * [x] Create decoration with resolved type, PP_VALUE_CATEGORY_RVALUE, is_constexpr true, escapable_ref false
- * [ ] Explicitly reject string literal with error push, CZ pushes "String literal not yet supported."
+ * [x] Reject PP_TT_STRING_LITERAL when sa->freestanding; static literals remain available
+ * [-] Explicitly reject string literal with error push, CZ pushes "String literal not yet supported." -> PP supports
+ *     heap strings outside freestanding mode
  * [-] Set scope level 0 explicitly in decoration as CZ does -> PP does not track scope level per decoration
  */
 static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa, PPSymbolTable* symbol_table,
@@ -5978,6 +6011,12 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
             assert(resolved_type);
             break;
         case PP_TT_STRING_LITERAL:
+            if (sa->freestanding) {
+                pp_error_list_push_error(sa->error_list, expr->loc,
+                                         "heap string literals are not available in freestanding mode; use a static "
+                                         "string literal (@\"...\") instead");
+                goto error_cleanup;
+            }
             resolved_type = pp_global_type_table_find_alias(sa->gtt, "string");
             assert(resolved_type);
             {
@@ -6741,6 +6780,7 @@ error_cleanup:
  *      - is_constexpr = all entries constexpr
  *      - value_category set appropriately for context
  * [x] Error reporting via sa->error_list with line/col from expr.
+ * [x] Freestanding mode rejects list initializers; fixed-size array initializers remain
  */
 static int pp_semantic_analyzer_check_collection_initializer_expression(PP_SemanticAnalyzer* sa,
                                                                         PPSymbolTable* symbol_table,
@@ -6798,6 +6838,11 @@ static int pp_semantic_analyzer_check_collection_initializer_expression(PP_Seman
         if (!coll_type) goto error_cleanup;
         tmp = NULL;
     } else {
+        if (sa->freestanding) {
+            pp_error_list_push_error(sa->error_list, expr->loc,
+                                     "list initializer is not available in freestanding mode");
+            goto error_cleanup;
+        }
         tmp = pp_type_create(PP_TK_List);
         if (!tmp) goto error_cleanup;
         tmp->type.pp_type_list.element_type = elem_type;
