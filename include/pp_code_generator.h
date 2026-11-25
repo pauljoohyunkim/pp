@@ -159,9 +159,12 @@ void pp_environment_backend_print_value_map(PP_Environment_Backend* env_b);
  * @param sa Semantic analyzer whose ownership of program/gtt/etc. is transferred.
  * @param sp String pool to use (not transferred).
  * @param debug Enable DWARF debug info emission.
+ * @param target_machine Target machine supplying the triple and data layout for the module (not
+ *        transferred). Required; must be the same machine used for optimization and emission.
  * @return New code generator or NULL on failure.
  */
-PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp, bool debug);
+PP_CodeGenerator* pp_code_generator_create(PP_SemanticAnalyzer* sa, PP_StringPool* sp, bool debug,
+                                           LLVMTargetMachineRef target_machine);
 
 /**
  * @brief Free a PP_CodeGenerator and all owned resources.
@@ -224,7 +227,7 @@ int pp_code_generator_emit_ir_file(LLVMModuleRef module, const char* output_file
 
 /**
  * @brief Create a default native target machine for the given module.
- * @param module LLVM module whose target triple will be set.
+ * @param module LLVM module whose target triple will be set; NULL when only the machine is wanted.
  * @param out_tm Output target machine, caller must free with pp_code_generator_target_machine_free.
  * @return 1 on success, 0 on failure.
  */
