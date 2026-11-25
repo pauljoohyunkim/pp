@@ -59,7 +59,7 @@ $(RELEASE_OBJ)/%.o: $(SRC)/%.c
 -include $(DEPS) $(UNITTEST_DEPS)
 
 clean:
-	$(RM) -f $(OBJ)/* $(BIN)/* $(DEPS) $(UNITTEST_DEPS)
+	$(RM) -rf $(OBJ) $(BIN)/* $(DEPS) $(UNITTEST_DEPS)
 
 clean-release:
 	$(RM) -rf $(RELEASE_OBJ) $(BIN)/$(BINARY)_release
