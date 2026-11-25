@@ -14,6 +14,7 @@
 
 #define PPLANG_OPT_EMIT_LLVM 1000
 #define PPLANG_OPT_PPI 1001
+#define PPLANG_OPT_HELP 1002
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
@@ -73,10 +74,12 @@ int main(int argc, char** argv) {
     int opt;
     static struct option long_opts[] = {{"emit-llvm", no_argument, 0, PPLANG_OPT_EMIT_LLVM},
                                         {"ppi", required_argument, 0, PPLANG_OPT_PPI},
+                                        {"help", no_argument, 0, PPLANG_OPT_HELP},
                                         {0, 0, 0, 0}};
     while ((opt = getopt_long(argc, argv, "hcSvo:O:g", long_opts, NULL)) != -1) {
         switch (opt) {
             case 'h':
+            case PPLANG_OPT_HELP:
                 print_help();
                 exit_code = 1;
                 goto error_cleanup;
