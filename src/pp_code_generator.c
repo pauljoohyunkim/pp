@@ -36,6 +36,7 @@ typedef enum {
     PP_DW_ATE_HI_USER = 0xff,
 } PP_DWARF_BaseTypeEncoding;
 
+/* Static function prototypes, in definition order. */
 static PP_Environment_Backend* pp_environment_backend_enter_scope(const PP_Environment_Backend* current_env_b);
 static void pp_code_generator_ensure_terminated(PP_CodeGenerator* cg, LLVMBasicBlockRef merge_block);
 static void pp_code_generator_emit_memcpy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, LLVMValueRef size,
@@ -46,14 +47,14 @@ static void pp_code_generator_emit_copy_bytes(PP_CodeGenerator* cg, LLVMValueRef
                                               LLVMValueRef size, const char* name);
 static void pp_code_generator_emit_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type);
 static void pp_code_generator_emit_copy(PP_CodeGenerator* cg, LLVMValueRef dst, LLVMValueRef src, const PPType* type);
-static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg);
 static void pp_code_generator_emit_drops_since(PP_CodeGenerator* cg, size_t mark);
+static void pp_code_generator_emit_scope_drops(PP_CodeGenerator* cg);
+static void pp_code_generator_push_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type);
 static void pp_code_generator_push_temp_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type);
 static void pp_code_generator_flush_temp_drops(PP_CodeGenerator* cg);
 static LLVMValueRef pp_code_generator_generate_rvalue_disposable(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                  PP_Environment_Backend* env_b,
                                                                  const PP_AST_Node* node);
-static void pp_code_generator_push_drop(PP_CodeGenerator* cg, LLVMValueRef address, const PPType* type);
 static int pp_environment_backend_push_val_map(PP_Environment_Backend* env_b, const PPSymbol* symbol,
                                                LLVMValueRef llvmval);
 static int pp_environment_backend_push_type_map(PP_Environment_Backend* env_b, const PPType* type,
@@ -63,6 +64,7 @@ static const LLVMValueRef pp_environment_backend_lookup_val(const PP_Environment
 static const LLVMTypeRef pp_environment_backend_lookup_type(const PP_CodeGenerator* cg, const PPType* type);
 static void pp_debug_print_type_inner(const PPType* t);
 static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* type);
+static LLVMTypeRef pp_code_generator_llvm_subroutine_type(PP_CodeGenerator* cg, const PPType* callable_type);
 static void pp_code_generator_debug_set_location(PP_CodeGenerator* cg, const PP_SourceLoc* loc);
 static int pp_code_generator_push_loop_context(PP_CodeGenerator* cg, LLVMBasicBlockRef continue_bb,
                                                LLVMBasicBlockRef exit_bb, size_t drop_stack_mark);
@@ -70,17 +72,33 @@ static void pp_code_generator_pop_loop_context(PP_CodeGenerator* cg);
 static PP_LoopContext* pp_code_generator_get_current_loop_context(PP_CodeGenerator* cg);
 static int pp_code_generator_generate_break(PP_CodeGenerator* cg, const PP_AST_Node* node);
 static int pp_code_generator_generate_continue(PP_CodeGenerator* cg, const PP_AST_Node* node);
+static LLVMTargetDataRef pp_code_generator_target_data_create(void);
+static LLVMMetadataRef pp_code_generator_di_member(PP_CodeGenerator* cg, const char* name, uint64_t size_bits,
+                                                   uint32_t align_bits, uint64_t offset_bits, LLVMMetadataRef type_di);
 static LLVMMetadataRef pp_code_generator_di_basic_type(PP_CodeGenerator* cg, const char* name, uint64_t size_in_bits,
                                                        LLVMDWARFTypeEncoding encoding);
 static LLVMMetadataRef pp_code_generator_di_void_type(PP_CodeGenerator* cg);
 static void pp_code_generator_di_function_signature(const PPType* func_type, const PPType** out_return_type,
                                                     const PPType*** out_param_types, size_t* out_param_count);
 static LLVMMetadataRef pp_code_generator_di_subroutine_type(PP_CodeGenerator* cg, const PPType* func_type);
+static int64_t pp_code_generator_enum_member_value(PPTypeKind kind, unsigned long long value);
 static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const PPType* t);
 static int pp_code_generator_fill_type_map_primitive_opaque_struct(PP_CodeGenerator* cg);
 static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg);
 static uint64_t pp_code_generator_type_store_size(PP_CodeGenerator* cg, LLVMTypeRef type);
 static LLVMValueRef pp_code_generator_entry_alloca(PP_CodeGenerator* cg, LLVMTypeRef type, const char* name);
+static const PPType* pp_code_generator_callable_return_type(const PPType* callable_type);
+static LLVMTargetDataRef pp_code_generator_native_target_data(PP_CodeGenerator* cg);
+static bool pp_code_generator_native_is_aarch64(PP_CodeGenerator* cg);
+static bool pp_code_generator_llvm_type_is_hfa(LLVMTypeRef type, LLVMTypeRef* elem_type, unsigned* count);
+static bool pp_code_generator_return_uses_sret(PP_CodeGenerator* cg, const PPType* return_type);
+static LLVMAttributeRef pp_code_generator_sret_attribute(PP_CodeGenerator* cg, LLVMTypeRef aggregate_type);
+static bool pp_code_generator_has_sret_attribute(LLVMValueRef fn);
+static void pp_code_generator_apply_sret_attribute(PP_CodeGenerator* cg, LLVMValueRef fn, const PPType* callable_type);
+static LLVMValueRef pp_code_generator_sret_result_slot(PP_CodeGenerator* cg, const PPType* return_type);
+static LLVMValueRef pp_code_generator_finish_sret_call(PP_CodeGenerator* cg, LLVMValueRef call, LLVMValueRef sret_slot,
+                                                       const PPType* return_type);
+static void pp_code_generator_build_return(PP_CodeGenerator* cg, LLVMValueRef value);
 static int pp_code_generator_emit_internal(LLVMModuleRef module, const char* output_filename,
                                            LLVMMemoryBufferRef* out_buf, int to_assembly, LLVMTargetMachineRef tm_in);
 static int pp_code_generator_generate_function_body(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
@@ -106,9 +124,6 @@ static int pp_code_generator_emit_function(PP_CodeGenerator* cg, PPSymbolTable* 
                                            PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
 static int pp_code_generator_emit_global_variable(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                   PP_Environment_Backend* env_b, const PP_AST_Node* stmt);
-
-static const LLVMTypeRef pp_environment_backend_lookup_type(const PP_CodeGenerator* cg, const PPType* type);
-static LLVMTypeRef pp_code_generator_llvm_subroutine_type(PP_CodeGenerator* cg, const PPType* callable_type);
 static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeGenerator* cg,
                                                                         PPSymbolTable* symbol_table,
                                                                         PP_Environment_Backend* env_b,
@@ -132,18 +147,22 @@ static LLVMValueRef pp_code_generator_generate_lvalue_function_call(PP_CodeGener
                                                                     const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_generate_string_equality(PP_CodeGenerator* cg, LLVMValueRef llvm_lhs,
+                                                               LLVMValueRef llvm_rhs);
 static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                              PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                             PP_Environment_Backend* env_b, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_build_int_cast(PP_CodeGenerator* cg, LLVMValueRef value, LLVMTypeRef dest_type,
+                                                     const PPType* src_type);
 static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                            PP_Environment_Backend* env_b, const PP_AST_Node* node);
 static ssize_t pp_codegen_unescape_lexeme_to_buf(const char* lexeme, unsigned char* buf, size_t bufsize);
 static LLVMValueRef pp_codegen_static_string_literal_to_llvm_constant(LLVMContextRef ctx, const char* lexeme);
 static LLVMValueRef pp_codegen_string_literal_to_llvm_value(PP_CodeGenerator* cg, const char* lexeme);
+static LLVMValueRef pp_code_generator_generate_rvalue_qualified_constant(PP_CodeGenerator* cg, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                               PP_Environment_Backend* env_b, const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_generate_rvalue_qualified_constant(PP_CodeGenerator* cg, const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_rvalue_null_literal(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                    PP_Environment_Backend* env_b,
                                                                    const PP_AST_Node* node);
@@ -178,17 +197,6 @@ static LLVMValueRef pp_code_generator_generate_rvalue_list_pop(PP_CodeGenerator*
 static LLVMValueRef pp_code_generator_generate_rvalue_list_clear(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                  PP_Environment_Backend* env_b,
                                                                  const PP_AST_Node* node);
-static const PPType* pp_code_generator_callable_return_type(const PPType* callable_type);
-static LLVMTargetDataRef pp_code_generator_native_target_data(PP_CodeGenerator* cg);
-static bool pp_code_generator_native_is_aarch64(PP_CodeGenerator* cg);
-static bool pp_code_generator_llvm_type_is_hfa(LLVMTypeRef type, LLVMTypeRef* elem_type, unsigned* count);
-static bool pp_code_generator_return_uses_sret(PP_CodeGenerator* cg, const PPType* return_type);
-static LLVMAttributeRef pp_code_generator_sret_attribute(PP_CodeGenerator* cg, LLVMTypeRef aggregate_type);
-static void pp_code_generator_apply_sret_attribute(PP_CodeGenerator* cg, LLVMValueRef fn, const PPType* callable_type);
-static LLVMValueRef pp_code_generator_sret_result_slot(PP_CodeGenerator* cg, const PPType* return_type);
-static LLVMValueRef pp_code_generator_finish_sret_call(PP_CodeGenerator* cg, LLVMValueRef call, LLVMValueRef sret_slot,
-                                                       const PPType* return_type);
-static void pp_code_generator_build_return(PP_CodeGenerator* cg, LLVMValueRef value);
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
