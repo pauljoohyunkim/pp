@@ -835,7 +835,8 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                     *val = left_val % right_val;
                     break;
                 case PP_TT_LESS_LESS:
-                    if (right_val >= sizeof(size_t) * 8) {
+                    /* Array sizes are 64-bit values, so keep the shift bound independent of the host build. */
+                    if (right_val >= 63) {
                         pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
                                                  "Shift amount too large in array size expression");
                         goto error_cleanup;
@@ -843,7 +844,7 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                     *val = left_val << right_val;
                     break;
                 case PP_TT_GREATER_GREATER:
-                    if (right_val >= sizeof(size_t) * 8) {
+                    if (right_val >= 63) {
                         pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
                                                  "Shift amount too large in array size expression");
                         goto error_cleanup;

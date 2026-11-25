@@ -48,7 +48,15 @@ static PP_CodeGenerator* run_codegen_impl(const char* source, int& lexer_errors,
         return nullptr;
     }
 
-    PP_CodeGenerator* cg_raw = pp_code_generator_create(sa.release(), test_sp, debug);
+    // The code generator takes the target from the caller; it copies the triple and data layout,
+    // so the machine can be released right after creation.
+    LLVMTargetMachineRef target_machine = nullptr;
+    if (!pp_code_generator_target_machine_create_default(nullptr, &target_machine)) {
+        codegen_result = 0;
+        return nullptr;
+    }
+    PP_CodeGenerator* cg_raw = pp_code_generator_create(sa.release(), test_sp, debug, target_machine);
+    pp_code_generator_target_machine_free(target_machine);
     if (!cg_raw) {
         codegen_result = 0;
         return nullptr;
@@ -3312,4 +3320,27 @@ TEST(CodeGenTest, FreestandingHandleDropCallsUserFunction) {
     assert_ir_contains(cg.get(), "@pp_close");
     assert_ir_not_contains(cg.get(), "@malloc");
     assert_ir_not_contains(cg.get(), "@free");
+}
+
+TEST(CodeGenTest, ListElementStrideUsesAllocatedSize) {
+    // `{ int32, uint8 }` occupies 5 bytes of fields but 8 allocated bytes. The list header must record
+    // the allocated size: growth and copies advance by elem_size, so a 5-byte stride would overlap
+    // elements and under-size the realloc buffer.
+    const char* source = "struct Pad {\n"
+                         "    a :: int32;\n"
+                         "    b :: uint8;\n"
+                         "}\n"
+                         "func main :: () -> int32 {\n"
+                         "    let v :: [Pad];\n"
+                         "    list_push(v, Pad { .a = 1, .b = 1uss });\n"
+                         "    return 0;\n"
+                         "}\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "%Pad = type { i32, i8 }");
+    assert_ir_contains(cg.get(), "store i64 8, ptr %list_elem_size_ptr");
+    assert_ir_not_contains(cg.get(), "store i64 5, ptr %list_elem_size_ptr");
 }

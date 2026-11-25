@@ -217,7 +217,7 @@ static int pp_compiler_pipeline_compile_source_core_opts(const char* src_path, C
         goto error_cleanup;
     }
 
-    cg = pp_code_generator_create(sa, opts->string_pool, opts->debug);
+    cg = pp_code_generator_create(sa, opts->string_pool, opts->debug, opts->target_machine);
     NULL_POINTER_ERROR_HANDLE(cg);
     if (opts->verbose) { printf("Code generator created successfully.\n"); }
     int gen_res = pp_code_generator_generate(cg);
