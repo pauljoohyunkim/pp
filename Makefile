@@ -59,7 +59,8 @@ $(RELEASE_OBJ)/%.o: $(SRC)/%.c
 -include $(DEPS) $(UNITTEST_DEPS)
 
 clean:
-	$(RM) -rf $(OBJ) $(BIN)/* $(DEPS) $(UNITTEST_DEPS)
+	find $(OBJ) -type f ! -name '.gitkeep' -delete
+	$(RM) -f $(BIN)/* $(DEPS) $(UNITTEST_DEPS)
 
 clean-release:
 	$(RM) -rf $(RELEASE_OBJ) $(BIN)/$(BINARY)_release
