@@ -44,7 +44,7 @@ func terminal_initialize :: () -> void {
         for (let x :: uint32 =0u; x < VGA_WIDTH; x += 1u) {
             let idx :: usize = (y * VGA_WIDTH + x) as usize;
 
-            $((VGA_MEMORY + idx as uint32) as ptr[uint16]) = vga_entry(' ', terminal_color as uint8);
+            $((VGA_MEMORY + 2u * idx as uint32) as ptr[uint16]) = vga_entry(' ', terminal_color as uint8);
         }
     }
 }
@@ -55,14 +55,16 @@ func terminal_setcolor :: (color :: uint8) -> void {
 
 func terminal_putentryat :: (c :: uint8, color :: uint8, x :: usize, y :: usize) -> void {
     let idx :: usize = (y as uint32 * VGA_WIDTH + x as uint32) as usize;
-    $((VGA_MEMORY + idx as uint32) as ptr[uint16]) = vga_entry(c, color);
+    $((VGA_MEMORY + 2u * idx as uint32) as ptr[uint16]) = vga_entry(c, color);
 }
 
 func terminal_putchar :: (c :: uint8) -> void {
     terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
-    if (terminal_column + 1uz == VGA_WIDTH as usize) {
+    terminal_column += 1uz;
+    if (terminal_column as uint32 == VGA_WIDTH) {
         terminal_column = 0uz;
-        if (terminal_row + 1uz == VGA_HEIGHT as usize) {
+        terminal_row += 1uz;
+        if (terminal_row as uint32 == VGA_HEIGHT) {
             terminal_row = 0uz;
         }
     }
