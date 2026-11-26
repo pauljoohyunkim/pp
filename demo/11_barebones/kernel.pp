@@ -1,4 +1,3 @@
-
 enum VGA_COLOR :: uint8 {
     VGA_COLOR_BLACK = 0uss,
 	VGA_COLOR_BLUE = 1uss,
@@ -26,25 +25,27 @@ lambda vga_entry :: (ch :: uint8, color :: uint8) -> uint16 {
     return (ch as uint16) | (color as uint16 << 8us);
 }
 
-constant VGA_WIDTH :: uint32 = 80u;
-constant VGA_HEIGHT :: uint32 = 25u;
-constant VGA_MEMORY :: uint32 = 0xB8000u;
+// Screen geometry is a pointer-width quantity: it indexes the VGA buffer with `usize`.
+constant VGA_WIDTH :: usize = 80uz;
+constant VGA_HEIGHT :: usize = 25uz;
+constant VGA_MEMORY :: usize = 0xB8000uz;
+
+// The VGA text buffer is a plain `ptr[uint16]`: subscripting derives the byte offset by scaling with
+// the element size, so a 64-bit build cannot truncate the address.
+let terminal_buffer :: ptr[uint16] = VGA_MEMORY as ptr[uint16];
 
 let terminal_row :: usize;
 let terminal_column :: usize;
 let terminal_color :: uint8;
-//let terminal_buffer :: ptr[uint16] = VGA_MEMORY as ptr[uint16];
 
 func terminal_initialize :: () -> void {
     terminal_row = 0uz;
     terminal_column = 0uz;
     terminal_color = vga_entry_color(VGA_COLOR::VGA_COLOR_LIGHT_GREY as uint8, VGA_COLOR::VGA_COLOR_BLACK as uint8);
 
-    for (let y :: uint32 = 0u; y < VGA_HEIGHT; y += 1u) {
-        for (let x :: uint32 =0u; x < VGA_WIDTH; x += 1u) {
-            let idx :: usize = (y * VGA_WIDTH + x) as usize;
-
-            $((VGA_MEMORY + 2u * idx as uint32) as ptr[uint16]) = vga_entry(' ', terminal_color as uint8);
+    for (let y :: usize = 0uz; y < VGA_HEIGHT; y += 1uz) {
+        for (let x :: usize = 0uz; x < VGA_WIDTH; x += 1uz) {
+            terminal_buffer[y * VGA_WIDTH + x] = vga_entry(' ', terminal_color);
         }
     }
 }
@@ -54,17 +55,16 @@ func terminal_setcolor :: (color :: uint8) -> void {
 }
 
 func terminal_putentryat :: (c :: uint8, color :: uint8, x :: usize, y :: usize) -> void {
-    let idx :: usize = (y as uint32 * VGA_WIDTH + x as uint32) as usize;
-    $((VGA_MEMORY + 2u * idx as uint32) as ptr[uint16]) = vga_entry(c, color);
+    terminal_buffer[y * VGA_WIDTH + x] = vga_entry(c, color);
 }
 
 func terminal_putchar :: (c :: uint8) -> void {
     terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
     terminal_column += 1uz;
-    if (terminal_column as uint32 == VGA_WIDTH) {
+    if (terminal_column == VGA_WIDTH) {
         terminal_column = 0uz;
         terminal_row += 1uz;
-        if (terminal_row as uint32 == VGA_HEIGHT) {
+        if (terminal_row == VGA_HEIGHT) {
             terminal_row = 0uz;
         }
     }
@@ -72,9 +72,7 @@ func terminal_putchar :: (c :: uint8) -> void {
 
 func terminal_write :: (data :: ptr[const uint8], size :: usize) -> void {
     for (let i :: usize = 0uz; i < size; i += 1uz) {
-        terminal_putchar(
-            $((data as uint32 + i as uint32) as ptr[const uint8])
-        );
+        terminal_putchar(data[i]);
     }
 }
 
@@ -83,5 +81,6 @@ func kernel_main :: () -> void {
 
     let hello_world :: [uint8 : 12u] = @"Hello World";
 
-    terminal_write(@hello_world[0uz] as ptr[const uint8], #hello_world);
+    // The array literal is NUL-terminated, so the length without the terminator is `#hello_world - 1uz`.
+    terminal_write(@hello_world[0uz] as ptr[const uint8], #hello_world - 1uz);
 }

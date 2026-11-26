@@ -3164,3 +3164,70 @@ TEST(SemanticTest, SizeTypeCompoundAssignment) {
         "}\n",
         "isize <<= rejected (signed)");
 }
+
+TEST(SemanticTest, PointerSubscriptWritesThroughPointer) {
+    // `p[i]` is an lvalue denoting the storage at `p + i`, so it is readable and writable.
+    expect_semantic_accept(
+        "func main :: () -> int32 {\n"
+        "    let x :: uint16 = 1us;\n"
+        "    let p :: ptr[uint16] = @x;\n"
+        "    p[0uz] = 7us;\n"
+        "    return p[0uz] as int32;\n"
+        "}\n",
+        "pointer subscript is a writable lvalue");
+}
+
+TEST(SemanticTest, PointerSubscriptOnRvaluePointerIsLvalue) {
+    // The base pointer may itself be an rvalue (a cast): the subscript still denotes storage, so
+    // assignment through it must be accepted.
+    expect_semantic_accept(
+        "func main :: () -> int32 {\n"
+        "    let addr :: usize = 0uz;\n"
+        "    (addr as ptr[uint16])[1uz] = 3us;\n"
+        "    return (addr as ptr[uint16])[1uz] as int32;\n"
+        "}\n",
+        "subscript on an rvalue pointer is an lvalue");
+}
+
+TEST(SemanticTest, PointerSubscriptConstPointeeReadAccepted) {
+    expect_semantic_accept(
+        "func main :: () -> int32 {\n"
+        "    let x :: uint16 = 1us;\n"
+        "    let p :: ptr[uint16] = @x;\n"
+        "    let q :: ptr[const uint16] = p as ptr[const uint16];\n"
+        "    return q[0uz] as int32;\n"
+        "}\n",
+        "reading through ptr[const T] subscript is accepted");
+}
+
+TEST(SemanticTest, PointerSubscriptConstPointeeWriteRejected) {
+    expect_semantic_reject(
+        "func main :: () -> int32 {\n"
+        "    let x :: uint16 = 1us;\n"
+        "    let q :: ptr[const uint16] = @x as ptr[const uint16];\n"
+        "    q[0uz] = 2us;\n"
+        "    return 0;\n"
+        "}\n",
+        "writing through ptr[const T] subscript is rejected");
+}
+
+TEST(SemanticTest, PointerSubscriptVoidPointeeRejected) {
+    // `ptr[void]` has no element size, so it cannot be scaled by GEP.
+    expect_semantic_reject(
+        "func main :: () -> int32 {\n"
+        "    let pv :: ptr[void] = nullptr[void];\n"
+        "    pv[0uz] = 1u;\n"
+        "    return 0;\n"
+        "}\n",
+        "ptr[void] subscript is rejected");
+}
+
+TEST(SemanticTest, PointerSubscriptNonUsizeIndexRejected) {
+    expect_semantic_reject(
+        "func main :: () -> int32 {\n"
+        "    let x :: uint16 = 1us;\n"
+        "    let p :: ptr[uint16] = @x;\n"
+        "    return p[0u] as int32;\n"
+        "}\n",
+        "pointer subscript index must be usize");
+}

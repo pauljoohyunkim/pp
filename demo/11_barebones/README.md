@@ -50,7 +50,7 @@ Both should display "Hello World" in light grey on black at the top-left of the 
    - `terminal_initialize` — clears screen to space with default colour
    - `terminal_putchar` / `terminal_write` — cursor-advancing output with line wrapping and scrolling
 3. **`linker.ld`** places `.multiboot` first, then `.text`, `.rodata`, `.data`, `.bss` at 2 MiB with 4 KiB alignment.
-4. **`Makefile`** compiles `kernel.pp` with `--ffreestanding --target i386-unknown-linux-gnu`, assembles `boot.s`, and links with the custom linker script.
+4. **`Makefile`** compiles `kernel.pp` with `--freestanding --target i386-unknown-linux-gnu`, assembles `boot.s`, and links with the custom linker script.
 
 ## Clean
 
@@ -62,7 +62,12 @@ Removes `kernel_demo`, `myos.iso`, `boot.o`, `kernel.o`, and the `isodir/` stagi
 
 ## Notes
 
-* The kernel uses PP's `--ffreestanding` mode: no standard library, no runtime, direct hardware access via pointer casts.
-* VGA memory writes use `$((VGA_MEMORY + 2u * idx) as ptr[uint16])` — the `2u *` scales the cell index to byte offset since each cell is 2 bytes.
+* The kernel uses PP's `--freestanding` mode: no standard library, no runtime, direct hardware access via pointer casts.
+* The VGA buffer is a single global `ptr[uint16]` built from the constant address
+  (`let terminal_buffer :: ptr[uint16] = VGA_MEMORY as ptr[uint16];`). Cells are written with pointer
+  subscript, `terminal_buffer[y * VGA_WIDTH + x]`, so the backend scales the index by the 2-byte cell
+  size and the address is never narrowed through an integer: the same code is correct on a 64-bit target.
+* `VGA_WIDTH`, `VGA_HEIGHT` and `VGA_MEMORY` are `usize`, the index type required by subscript, and
+  `#hello_world - 1uz` passes the length without the string literal's NUL terminator.
 * Cursor position (`terminal_row`, `terminal_column`) is updated in `terminal_putchar`; line wrap at 80 columns, screen wrap at 25 rows (scrolls back to top in this minimal version).
 * This is a teaching/demo kernel — no interrupt handling, no memory management, no device drivers beyond VGA text mode.

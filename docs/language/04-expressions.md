@@ -40,10 +40,15 @@ Precedence from lowest to highest:
 * Logical: `&& ||`
 * Cast: `expr as type`
 * Member access: `obj.field`
-* Indexing: `array[index]`, `list[index]`, `string[index]`
-  * The index must be an **unsigned** integer of at most 64 bits (`uint8` … `uint64`). Signed and
-    128-bit indices are rejected.
+* Indexing: `array[index]`, `list[index]`, `string[index]`, `ptr[index]`
+  * The index must be a `usize` (a pointer-width unsigned quantity). Any other type, including
+    `uint32` and signed types, is rejected: write `a[0uz]` and cast loop counters with `as usize`.
   * Indexing a string yields a `uint8`.
+  * Indexing a pointer (`p[i]`) is unchecked user-accepts-risk memory access equivalent to `*(p + i)`:
+    the offset is scaled by the pointee size by the backend, there is no bounds check, and the result is
+    an l-value denoting the storage at that address (`p[i] = v` writes). Pointee constness carries over,
+    so `ptr[const uint8][i]` is a read-only l-value; `ptr[void]` is rejected because it has no element
+    size. Arrays and lists are bounds-checked only when the index is a compile-time constant.
 * Calls: `func(args)`, `lambda(args)`
 * Operator calls: `a + b` is resolved via built-in or user-defined operator overload
 
