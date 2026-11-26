@@ -401,6 +401,24 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser, PP_StringPoo
             if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
             t = NULL;
         }
+        t = pp_type_create(PP_TK_USize);
+        if (t) {
+            const char* type_name = pp_string_pool_push(sa->sp, "usize", 5);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
+        }
+        t = pp_type_create(PP_TK_ISize);
+        if (t) {
+            const char* type_name = pp_string_pool_push(sa->sp, "isize", 5);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
+        }
         t = pp_type_create(PP_TK_String);
         if (t) {
             const char* type_name = pp_string_pool_push(sa->sp, "string", 6);
@@ -695,19 +713,22 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
             }
             const char* lex = simple_expr_node->literal.lexeme;
             PPTypeKind k = pp_type_parse_int_literal_suffix(lex, NULL);
-            // Size literals must be one of the supported unsigned integer types (uint8 .. uint64); a signed
-            // literal or an unsupported unsigned width such as uint128 fails this membership test.
-            if (!pp_type_kind_is_unsigned_up_to_64(k)) {
+            // Size literals must be an unsigned integer type up to 64 bits, including usize; a signed literal
+            // or an unsupported unsigned width such as uint128 fails this membership test.
+            if (!pp_type_kind_is_unsigned_up_to_64(k) && k != PP_TK_USize) {
                 pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
-                                         "For array size expression, literals must be uint8, uint16, uint32 or uint64");
+                                         "For array size expression, literals must be an unsigned integer type "
+                                         "(uint8..uint64 or usize)");
                 goto error_cleanup;
             }
             char numbuf[PP_INT_LITERAL_NUMBUF_SIZE] = {0};
             pp_type_parse_int_literal_suffix(lex, numbuf);
             char* endptr;
             errno = 0;
-            unsigned long long parsed_val = strtoull(numbuf, &endptr, 10);
-            if (errno != 0 || simple_expr_node->literal.lexeme == endptr) {
+            // PP has no octal literals: only the 0x/0X prefix selects base 16, a leading zero stays decimal.
+            const int base = (numbuf[0] == '0' && (numbuf[1] == 'x' || numbuf[1] == 'X')) ? 16 : 10;
+            unsigned long long parsed_val = strtoull(numbuf, &endptr, base);
+            if (errno != 0 || endptr == numbuf || (endptr && *endptr != '\0')) {
                 pp_error_list_push_error(sa->error_list, simple_expr_node->loc, "Could not parse literal to number");
                 goto error_cleanup;
             }
@@ -762,10 +783,11 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                                          simple_expr_node->identifier.identifier);
                 goto error_cleanup;
             }
-            if (!pp_type_kind_is_unsigned_up_to_64(constant_symbol->type->kind)) {
+            if (!pp_type_kind_is_unsigned_up_to_64(constant_symbol->type->kind) &&
+                constant_symbol->type->kind != PP_TK_USize) {
                 pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
                                          "Array size constant '%s' must have an unsigned integer type "
-                                         "(uint8, uint16, uint32 or uint64)",
+                                         "(uint8..uint64 or usize)",
                                          simple_expr_node->identifier.identifier);
                 goto error_cleanup;
             }
@@ -835,7 +857,8 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                     *val = left_val % right_val;
                     break;
                 case PP_TT_LESS_LESS:
-                    if (right_val >= sizeof(size_t) * 8) {
+                    /* Array sizes are 64-bit values, so keep the shift bound independent of the host build. */
+                    if (right_val >= 63) {
                         pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
                                                  "Shift amount too large in array size expression");
                         goto error_cleanup;
@@ -843,7 +866,7 @@ static int pp_array_size_from_simple_expr(PP_SemanticAnalyzer* sa, const PP_AST_
                     *val = left_val << right_val;
                     break;
                 case PP_TT_GREATER_GREATER:
-                    if (right_val >= sizeof(size_t) * 8) {
+                    if (right_val >= 63) {
                         pp_error_list_push_error(sa->error_list, simple_expr_node->loc,
                                                  "Shift amount too large in array size expression");
                         goto error_cleanup;
@@ -1076,6 +1099,12 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
                 break;
             case PP_AST_TYPE_KIND_UINT128:
                 temp_type = pp_type_create(PP_TK_UInt128);
+                break;
+            case PP_AST_TYPE_KIND_USIZE:
+                temp_type = pp_type_create(PP_TK_USize);
+                break;
+            case PP_AST_TYPE_KIND_ISIZE:
+                temp_type = pp_type_create(PP_TK_ISize);
                 break;
             case PP_AST_TYPE_KIND_FLOAT:
                 temp_type = pp_type_create(PP_TK_Float);
@@ -1424,6 +1453,15 @@ error_cleanup:
 
 static int pp_builtin_binary_supported(const char* op, PPTypeKind lk, PPTypeKind rk) {
     if (!op) return 0;
+    /* usize/isize use the same operator set as the fixed-width integers when both operands agree. */
+    if (pp_type_kind_is_pointer_width(lk) && lk == rk) {
+        if (strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0 || strcmp(op, "/") == 0 ||
+            strcmp(op, "%") == 0 || strcmp(op, "<<") == 0 || strcmp(op, ">>") == 0 || strcmp(op, "==") == 0 ||
+            strcmp(op, "!=") == 0 || strcmp(op, "<") == 0 || strcmp(op, ">") == 0 || strcmp(op, "<=") == 0 ||
+            strcmp(op, ">=") == 0 || strcmp(op, "&") == 0 || strcmp(op, "|") == 0 || strcmp(op, "^") == 0) {
+            return 1;
+        }
+    }
     if (strcmp(op, "+") == 0) {
         if (lk == PP_TK_Float && rk == PP_TK_Float) return 1;
         if (lk == PP_TK_String && rk == PP_TK_String) return 1;
@@ -1497,11 +1535,8 @@ static int pp_builtin_binary_supported(const char* op, PPTypeKind lk, PPTypeKind
 static int pp_builtin_unary_supported(const char* op, PPTypeKind lk) {
     if (!op) return 0;
     if (strcmp(op, "-") == 0) {
-        const PPTypeKind kinds[] = {PP_TK_Int8, PP_TK_Int16, PP_TK_Int32, PP_TK_Int64, PP_TK_Int128, PP_TK_Float};
-        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
-            if (lk == kinds[i]) return 1;
-        }
-        return 0;
+        /* Unary minus is signed-only; usize and the other unsigned kinds are rejected by construction. */
+        return pp_type_kind_is_signed(lk) || lk == PP_TK_Float;
     }
     if (strcmp(op, "!") == 0) { return lk == PP_TK_Bool; }
     if (strcmp(op, "~") == 0) { return pp_type_kind_is_integer(lk); }
@@ -2411,6 +2446,10 @@ static const char* pp_semantic_integer_kind_name(PPTypeKind kind) {
             return "int128";
         case PP_TK_UInt128:
             return "uint128";
+        case PP_TK_USize:
+            return "usize";
+        case PP_TK_ISize:
+            return "isize";
         default:
             return "non-integer";
     }
@@ -2430,6 +2469,10 @@ static unsigned int pp_semantic_integer_kind_width(PPTypeKind kind) {
             return 32;
         case PP_TK_Int64:
         case PP_TK_UInt64:
+        /* Pointer-width kinds are evaluated as 64-bit quantities; the target width bound is enforced at
+         * codegen (usize/isize lower to the target pointer type). */
+        case PP_TK_USize:
+        case PP_TK_ISize:
             return 64;
         default:
             return 0;
@@ -2488,8 +2531,10 @@ static bool pp_semantic_int_literal_fits(PPTypeKind kind, unsigned long long val
         case PP_TK_UInt32:
             return value <= UINT32_MAX;
         case PP_TK_Int64:
+        case PP_TK_ISize:
             return value <= (unsigned long long)INT64_MAX;
         case PP_TK_UInt64:
+        case PP_TK_USize:
             return true;
         default:
             return false;
@@ -4558,172 +4603,199 @@ static int pp_semantic_analyzer_full_analyze_assignment_statement(PP_SemanticAna
                                (node->assignment.op == PP_TT_AMPERSAND_EQUAL ||
                                 node->assignment.op == PP_TT_BAR_EQUAL || node->assignment.op == PP_TT_CARET_EQUAL);
 
+    // Pointer-width integers (usize/isize) accept the same compound assignments as the fixed-width integers.
+    // Shifts are unsigned-only, matching the fixed-width rule, so isize excludes <<= / >>=.
+    bool pw_compound = false;
+    if (pp_type_kind_is_pointer_width(decayed_lhs_type->kind) && decayed_lhs_type->kind == decayed_rhs_type->kind) {
+        switch (node->assignment.op) {
+            case PP_TT_PLUS_EQUAL:
+            case PP_TT_MINUS_EQUAL:
+            case PP_TT_STAR_EQUAL:
+            case PP_TT_SLASH_EQUAL:
+            case PP_TT_PERCENT_EQUAL:
+            case PP_TT_AMPERSAND_EQUAL:
+            case PP_TT_BAR_EQUAL:
+            case PP_TT_CARET_EQUAL:
+                pw_compound = true;
+                break;
+            case PP_TT_LESS_LESS_EQUAL:
+            case PP_TT_GREATER_GREATER_EQUAL:
+                pw_compound = (decayed_lhs_type->kind == PP_TK_USize);
+                break;
+            default:
+                break;
+        }
+    }
+
     // Validate compound assignment operators against allowed primitive combinations
-    switch (node->assignment.op) {
-        case PP_TT_EQUAL:
-            // Simple assignment already validated by type equality
-            break;
-        case PP_TT_PLUS_EQUAL:
-            if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
-                (decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
-                (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
-                (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
-                (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
-                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
-                (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
-                (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
-                (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128) ||
-                (decayed_lhs_type->kind == PP_TK_String && decayed_rhs_type->kind == PP_TK_String)) {
-                // Valid
-            } else {
-                pp_error_list_push_error(sa->error_list, node->loc, "+= only defined for numeric and string types.");
+    if (!pw_compound) {
+        switch (node->assignment.op) {
+            case PP_TT_EQUAL:
+                // Simple assignment already validated by type equality
+                break;
+            case PP_TT_PLUS_EQUAL:
+                if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
+                    (decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
+                    (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
+                    (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                    (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
+                    (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128) ||
+                    (decayed_lhs_type->kind == PP_TK_String && decayed_rhs_type->kind == PP_TK_String)) {
+                    // Valid
+                } else {
+                    pp_error_list_push_error(sa->error_list, node->loc,
+                                             "+= only defined for numeric and string types.");
+                    goto error_cleanup;
+                }
+                break;
+            case PP_TT_MINUS_EQUAL:
+                if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
+                    (decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
+                    (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
+                    (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                    (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
+                    (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                    // Valid
+                } else {
+                    pp_error_list_push_error(sa->error_list, node->loc, "-= only defined for numeric types.");
+                    goto error_cleanup;
+                }
+                break;
+            case PP_TT_STAR_EQUAL:
+                if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
+                    (decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
+                    (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
+                    (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                    (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
+                    (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                    // Valid
+                } else {
+                    pp_error_list_push_error(sa->error_list, node->loc, "*= only defined for numeric types.");
+                    goto error_cleanup;
+                }
+                break;
+            case PP_TT_SLASH_EQUAL:
+                if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
+                    (decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
+                    (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
+                    (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                    (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
+                    (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                    // Valid
+                } else {
+                    pp_error_list_push_error(sa->error_list, node->loc, "/= only defined for numeric types.");
+                    goto error_cleanup;
+                }
+                break;
+            case PP_TT_PERCENT_EQUAL:
+                if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
+                    (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
+                    (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                    (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
+                    (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                    // Valid
+                } else {
+                    pp_error_list_push_error(sa->error_list, node->loc, "%= only defined for integer types.");
+                    goto error_cleanup;
+                }
+                break;
+            case PP_TT_AMPERSAND_EQUAL:
+                if (flag_compound) break;
+                if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
+                    (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
+                    (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                    (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
+                    (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                    // Valid
+                } else {
+                    pp_error_list_push_error(sa->error_list, node->loc, "&= only defined for integer types.");
+                    goto error_cleanup;
+                }
+                break;
+            case PP_TT_BAR_EQUAL:
+                if (flag_compound) break;
+                if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
+                    (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
+                    (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                    (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
+                    (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                    // Valid
+                } else {
+                    pp_error_list_push_error(sa->error_list, node->loc, "|= only defined for integer types.");
+                    goto error_cleanup;
+                }
+                break;
+            case PP_TT_CARET_EQUAL:
+                if (flag_compound) break;
+                if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
+                    (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
+                    (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                    (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
+                    (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                    // Valid
+                } else {
+                    pp_error_list_push_error(sa->error_list, node->loc, "^= only defined for integer types.");
+                    goto error_cleanup;
+                }
+                break;
+            case PP_TT_LESS_LESS_EQUAL:
+            case PP_TT_GREATER_GREATER_EQUAL:
+                if ((decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
+                    (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
+                    // Valid
+                } else {
+                    pp_error_list_push_error(sa->error_list, node->loc,
+                                             "<<= / >>= only defined for unsigned integer types.");
+                    goto error_cleanup;
+                }
+                break;
+            default:
+                pp_error_list_push_error(sa->error_list, node->loc, "Unknown assignment operator.");
                 goto error_cleanup;
-            }
-            break;
-        case PP_TT_MINUS_EQUAL:
-            if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
-                (decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
-                (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
-                (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
-                (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
-                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
-                (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
-                (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
-                (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
-                // Valid
-            } else {
-                pp_error_list_push_error(sa->error_list, node->loc, "-= only defined for numeric types.");
-                goto error_cleanup;
-            }
-            break;
-        case PP_TT_STAR_EQUAL:
-            if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
-                (decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
-                (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
-                (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
-                (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
-                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
-                (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
-                (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
-                (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
-                // Valid
-            } else {
-                pp_error_list_push_error(sa->error_list, node->loc, "*= only defined for numeric types.");
-                goto error_cleanup;
-            }
-            break;
-        case PP_TT_SLASH_EQUAL:
-            if ((decayed_lhs_type->kind == PP_TK_Float && decayed_rhs_type->kind == PP_TK_Float) ||
-                (decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
-                (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
-                (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
-                (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
-                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
-                (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
-                (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
-                (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
-                // Valid
-            } else {
-                pp_error_list_push_error(sa->error_list, node->loc, "/= only defined for numeric types.");
-                goto error_cleanup;
-            }
-            break;
-        case PP_TT_PERCENT_EQUAL:
-            if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
-                (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
-                (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
-                (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
-                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
-                (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
-                (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
-                (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
-                // Valid
-            } else {
-                pp_error_list_push_error(sa->error_list, node->loc, "%= only defined for integer types.");
-                goto error_cleanup;
-            }
-            break;
-        case PP_TT_AMPERSAND_EQUAL:
-            if (flag_compound) break;
-            if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
-                (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
-                (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
-                (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
-                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
-                (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
-                (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
-                (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
-                // Valid
-            } else {
-                pp_error_list_push_error(sa->error_list, node->loc, "&= only defined for integer types.");
-                goto error_cleanup;
-            }
-            break;
-        case PP_TT_BAR_EQUAL:
-            if (flag_compound) break;
-            if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
-                (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
-                (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
-                (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
-                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
-                (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
-                (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
-                (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
-                // Valid
-            } else {
-                pp_error_list_push_error(sa->error_list, node->loc, "|= only defined for integer types.");
-                goto error_cleanup;
-            }
-            break;
-        case PP_TT_CARET_EQUAL:
-            if (flag_compound) break;
-            if ((decayed_lhs_type->kind == PP_TK_Int8 && decayed_rhs_type->kind == PP_TK_Int8) ||
-                (decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
-                (decayed_lhs_type->kind == PP_TK_Int16 && decayed_rhs_type->kind == PP_TK_Int16) ||
-                (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
-                (decayed_lhs_type->kind == PP_TK_Int32 && decayed_rhs_type->kind == PP_TK_Int32) ||
-                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
-                (decayed_lhs_type->kind == PP_TK_Int64 && decayed_rhs_type->kind == PP_TK_Int64) ||
-                (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
-                (decayed_lhs_type->kind == PP_TK_Int128 && decayed_rhs_type->kind == PP_TK_Int128) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
-                // Valid
-            } else {
-                pp_error_list_push_error(sa->error_list, node->loc, "^= only defined for integer types.");
-                goto error_cleanup;
-            }
-            break;
-        case PP_TT_LESS_LESS_EQUAL:
-        case PP_TT_GREATER_GREATER_EQUAL:
-            if ((decayed_lhs_type->kind == PP_TK_UInt8 && decayed_rhs_type->kind == PP_TK_UInt8) ||
-                (decayed_lhs_type->kind == PP_TK_UInt16 && decayed_rhs_type->kind == PP_TK_UInt16) ||
-                (decayed_lhs_type->kind == PP_TK_UInt32 && decayed_rhs_type->kind == PP_TK_UInt32) ||
-                (decayed_lhs_type->kind == PP_TK_UInt64 && decayed_rhs_type->kind == PP_TK_UInt64) ||
-                (decayed_lhs_type->kind == PP_TK_UInt128 && decayed_rhs_type->kind == PP_TK_UInt128)) {
-                // Valid
-            } else {
-                pp_error_list_push_error(sa->error_list, node->loc,
-                                         "<<= / >>= only defined for unsigned integer types.");
-                goto error_cleanup;
-            }
-            break;
-        default:
-            pp_error_list_push_error(sa->error_list, node->loc, "Unknown assignment operator.");
-            goto error_cleanup;
+        }
     }
 
     return 1;
@@ -5381,6 +5453,35 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
     // Callable operands never consult the builtin operator table or overloads.
     if (callable_operands) goto builtin_binary_done;
 
+    /* Pointer-width integers (usize/isize) follow the same operand rules as the fixed-width integers:
+     * both operands must be the same kind. Ordering/equality yield bool; the rest keep the operand kind. */
+    if (pp_type_kind_is_pointer_width(decayed_lhs_type->kind) && decayed_lhs_type->kind == decayed_rhs_type->kind) {
+        switch (expr->binary_expression.op) {
+            case PP_TT_EQUAL_EQUAL:
+            case PP_TT_EXCLAMATION_EQUAL:
+            case PP_TT_LESS:
+            case PP_TT_GREATER:
+            case PP_TT_LESS_EQUAL:
+            case PP_TT_GREATER_EQUAL:
+                binary_type = pp_type_create(PP_TK_Bool);
+                goto builtin_binary_done;
+            case PP_TT_PLUS:
+            case PP_TT_MINUS:
+            case PP_TT_STAR:
+            case PP_TT_SLASH:
+            case PP_TT_PERCENT:
+            case PP_TT_LESS_LESS:
+            case PP_TT_GREATER_GREATER:
+            case PP_TT_AMPERSAND:
+            case PP_TT_BAR:
+            case PP_TT_CARET:
+                binary_type = pp_type_create(decayed_lhs_type->kind);
+                goto builtin_binary_done;
+            default:
+                break;
+        }
+    }
+
     switch (expr->binary_expression.op) {
         case PP_TT_BAR_BAR:
         case PP_TT_AMPERSAND_AMPERSAND:
@@ -5749,6 +5850,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                 case PP_TK_Int32:
                 case PP_TK_Int64:
                 case PP_TK_Int128:
+                case PP_TK_ISize:
                 case PP_TK_Float:
                     unary_type = pp_type_create(decayed_operand_type->kind);
                     break;
@@ -5781,7 +5883,8 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
         case PP_TT_HASH:
             if (decayed_operand_type->kind == PP_TK_Array || decayed_operand_type->kind == PP_TK_List ||
                 decayed_operand_type->kind == PP_TK_String) {
-                unary_type = pp_type_create(PP_TK_UInt32);
+                /* Count / size is a pointer-width quantity: usize. */
+                unary_type = pp_type_create(PP_TK_USize);
             } else {
                 pp_error_list_push_error(sa->error_list, expr->loc,
                                          "Unary operator '#' requires array, list, or string");
@@ -5931,6 +6034,12 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
                     break;
                 case PP_TK_UInt128:
                     type_name = "uint128";
+                    break;
+                case PP_TK_USize:
+                    type_name = "usize";
+                    break;
+                case PP_TK_ISize:
+                    type_name = "isize";
                     break;
                 default:
                     type_name = NULL;
@@ -6283,11 +6392,11 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     const PPType* decayed_index_type = pp_type_decay(sa->gtt, index_decoration->resolved_type);
     NULL_POINTER_ERROR_HANDLE(decayed_index_type);
 
-    // The index must be one of the supported unsigned integer types (uint8 .. uint64). Codegen zero-extends
-    // values narrower than 64 bits to the pointer width so high-bit indices cannot become negative offsets.
-    if (!pp_type_kind_is_unsigned_up_to_64(decayed_index_type->kind)) {
-        pp_error_list_push_error(sa->error_list, expr->loc,
-                                 "Array/list index must be uint8, uint16, uint32 or uint64.");
+    // Indexing is strict: the index must be a `usize` (a pointer-width unsigned quantity). Write
+    // `a[0uz]` rather than `a[0u]`; an `int32` loop counter must be cast to `usize` first. This keeps the
+    // index width target-dependent and prevents 64-bit assumptions from leaking into 32-bit builds.
+    if (decayed_index_type->kind != PP_TK_USize) {
+        pp_error_list_push_error(sa->error_list, expr->loc, "Array/list index must be a usize.");
         goto error_cleanup;
     }
 

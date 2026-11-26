@@ -9,8 +9,8 @@ struct Vec2 {
 }
 
 operator * :: (M :: const Mat2&, v :: const Vec2&) -> Vec2 {
-    return Vec2 { .x = M.r0[0u] * v.x + M.r0[1u] * v.y,
-                  .y = M.r1[0u] * v.x + M.r1[1u] * v.y };
+    return Vec2 { .x = M.r0[0uz] * v.x + M.r0[1uz] * v.y,
+                  .y = M.r1[0uz] * v.x + M.r1[1uz] * v.y };
 }
 
 operator / :: (v :: const Vec2&, s :: const float&) -> Vec2 {
@@ -18,8 +18,8 @@ operator / :: (v :: const Vec2&, s :: const float&) -> Vec2 {
 }
 
 func print_mat2 :: (M :: const Mat2&) -> void {
-    pp_print_float(M.r0[0u]); pp_print_string(", "); pp_print_float(M.r0[1u]); pp_print_string("\n");
-    pp_print_float(M.r1[0u]); pp_print_string(", "); pp_print_float(M.r1[1u]); pp_print_string("\n");
+    pp_print_float(M.r0[0uz]); pp_print_string(", "); pp_print_float(M.r0[1uz]); pp_print_string("\n");
+    pp_print_float(M.r1[0uz]); pp_print_string(", "); pp_print_float(M.r1[1uz]); pp_print_string("\n");
 }
 
 func print_vec2 :: (v :: const Vec2&) -> void {

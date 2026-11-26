@@ -468,6 +468,12 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     } else if (pp_lexer_exactly_match_keyword(lexer, "uint128")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_UINT128, 7)) return 0;
                         advance_pp(lexer, 7);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "usize")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_USIZE, 5)) return 0;
+                        advance_pp(lexer, 5);
+                    } else if (pp_lexer_exactly_match_keyword(lexer, "isize")) {
+                        if (!pp_lexer_push_token_helper(lexer, PP_TT_ISIZE, 5)) return 0;
+                        advance_pp(lexer, 5);
                     } else if (pp_lexer_exactly_match_keyword(lexer, "float")) {
                         if (!pp_lexer_push_token_helper(lexer, PP_TT_FLOAT, 5)) return 0;
                         advance_pp(lexer, 5);
@@ -538,11 +544,11 @@ int pp_lexer_analyze(PP_Lexer* lexer) {
                     }
                     if (!is_float) {
                         if (!is_at_end(lexer) && (peek_pp(lexer, len) == 'u' || peek_pp(lexer, len) == 'U')) { len++; }
-                        // Suffix parsing for integer literals: s, ss, l, ll case-insensitive, also allow overlong for
-                        // error detection
+                        // Suffix parsing for integer literals: s, ss, l, ll, z case-insensitive, also allow overlong
+                        // for error detection. Note: 'a' cannot be a suffix because it is a hex digit.
                         while (!is_at_end(lexer)) {
                             char c_suf = tolower(peek_pp(lexer, len));
-                            if (c_suf == 's' || c_suf == 'l') {
+                            if (c_suf == 's' || c_suf == 'l' || c_suf == 'z') {
                                 len++;
                             } else {
                                 break;

@@ -215,6 +215,8 @@ bool pp_type_is_numerical(const PPType* type) {
         case PP_TK_UInt64:
         case PP_TK_Int128:
         case PP_TK_UInt128:
+        case PP_TK_USize:
+        case PP_TK_ISize:
             return true;
         default:
             return false;
@@ -229,6 +231,7 @@ bool pp_type_is_unsigned_integer(const PPType* type) {
         case PP_TK_UInt32:
         case PP_TK_UInt64:
         case PP_TK_UInt128:
+        case PP_TK_USize:
             return true;
         default:
             return false;
@@ -375,6 +378,8 @@ static bool pp_type_is_trivially_copyable_impl(const PPType* type, const PPType*
         case PP_TK_UInt64:
         case PP_TK_Int128:
         case PP_TK_UInt128:
+        case PP_TK_USize:
+        case PP_TK_ISize:
         case PP_TK_Float:
         case PP_TK_Bool:
         case PP_TK_Void:
@@ -431,6 +436,10 @@ PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeri
         is_unsigned = true;
         pos++;
     }
+    /* Width suffixes: s -> 16-bit, ss -> 8-bit, l -> 64-bit, ll -> 128-bit, z -> pointer width (usize/isize).
+     * The suffix is read from the tail, so overlong spellings such as `lll` still resolve to the last two
+     * letters (kept for the existing overlong-suffix diagnostics). `z` is deliberately a non-hex letter so it
+     * stays usable on `0x...` literals (unlike `a`, which is a hex digit). */
     size_t suffix_len = 0;
     if (len >= pos + 2) {
         char c1 = tolower((unsigned char)lexeme[len - 2]);
@@ -439,7 +448,7 @@ PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeri
     }
     if (suffix_len == 0 && len > pos) {
         char last = tolower((unsigned char)lexeme[len - 1]);
-        if (last == 's' || last == 'l') suffix_len = 1;
+        if (last == 's' || last == 'l' || last == 'z') suffix_len = 1;
     }
     PPTypeKind kind;
     if (suffix_len == 0) {
@@ -458,6 +467,8 @@ PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeri
             kind = is_unsigned ? PP_TK_UInt16 : PP_TK_Int16;
         else if (s == 'l')
             kind = is_unsigned ? PP_TK_UInt64 : PP_TK_Int64;
+        else if (s == 'z')
+            kind = is_unsigned ? PP_TK_USize : PP_TK_ISize;
         else
             kind = is_unsigned ? PP_TK_UInt32 : PP_TK_Int32;
     }

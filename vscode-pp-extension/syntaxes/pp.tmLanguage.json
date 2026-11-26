@@ -95,7 +95,7 @@
         },
         {
           "name": "storage.type.integer.pp",
-          "match": "\\b(?:int|uint)(?:8|16|32|64|128)\\b"
+          "match": "\\b(?:(?:int|uint)(?:8|16|32|64|128)|usize|isize)\\b"
         },
         {
           "name": "storage.type.float.pp",
@@ -135,7 +135,7 @@
         },
         {
           "name": "constant.numeric.integer.pp",
-          "match": "\\b\\d+(?:[uUsSlL]+)?\\b"
+          "match": "\\b\\d+(?:[uUsSlLzZ]+)?\\b"
         }
       ]
     },

@@ -36,6 +36,8 @@ typedef enum {
     PP_TK_UInt64,
     PP_TK_Int128,
     PP_TK_UInt128,
+    PP_TK_USize,
+    PP_TK_ISize,
     PP_TK_Float,
     PP_TK_Bool,
     PP_TK_Struct,
@@ -137,17 +139,23 @@ PPTypeKind pp_type_parse_int_literal_suffix(const char* lexeme, char* out_numeri
 /** @brief Return true if the type kind represents a primitive integer */
 static inline bool pp_type_kind_is_integer(PPTypeKind k) {
     return k == PP_TK_Int8 || k == PP_TK_UInt8 || k == PP_TK_Int16 || k == PP_TK_UInt16 || k == PP_TK_Int32 ||
-           k == PP_TK_UInt32 || k == PP_TK_Int64 || k == PP_TK_UInt64 || k == PP_TK_Int128 || k == PP_TK_UInt128;
+           k == PP_TK_UInt32 || k == PP_TK_Int64 || k == PP_TK_UInt64 || k == PP_TK_Int128 || k == PP_TK_UInt128 ||
+           k == PP_TK_USize || k == PP_TK_ISize;
 }
 /** @brief Return true if the type kind represents a signed integer */
 static inline bool pp_type_kind_is_signed(PPTypeKind k) {
-    return k == PP_TK_Int8 || k == PP_TK_Int16 || k == PP_TK_Int32 || k == PP_TK_Int64 || k == PP_TK_Int128;
+    return k == PP_TK_Int8 || k == PP_TK_Int16 || k == PP_TK_Int32 || k == PP_TK_Int64 || k == PP_TK_Int128 ||
+           k == PP_TK_ISize;
 }
 
 /** @brief Return true if the type kind represents an unsigned integer */
 static inline bool pp_type_kind_is_unsigned(PPTypeKind k) {
-    return k == PP_TK_UInt8 || k == PP_TK_UInt16 || k == PP_TK_UInt32 || k == PP_TK_UInt64 || k == PP_TK_UInt128;
+    return k == PP_TK_UInt8 || k == PP_TK_UInt16 || k == PP_TK_UInt32 || k == PP_TK_UInt64 || k == PP_TK_UInt128 ||
+           k == PP_TK_USize;
 }
+/** @brief Return true for the pointer-width integer kinds (usize / isize). Their width is decided by the
+ *  target data layout, not by the host, so callers must lower them through the target, never as fixed 64-bit. */
+static inline bool pp_type_kind_is_pointer_width(PPTypeKind k) { return k == PP_TK_USize || k == PP_TK_ISize; }
 /** @brief Return true for unsigned integer kinds of at most 64 bits (uint8 .. uint64).
  * 128-bit kinds are outside that set, so they are rejected as a consequence of membership, not by name. */
 static inline bool pp_type_kind_is_unsigned_up_to_64(PPTypeKind k) {

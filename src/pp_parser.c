@@ -752,6 +752,12 @@ static PP_AST_Node* pp_parser_parse_collection_type(PP_Parser* parser) {
             case PP_TT_UINT128:
                 kind = PP_AST_TYPE_KIND_UINT128;
                 break;
+            case PP_TT_USIZE:
+                kind = PP_AST_TYPE_KIND_USIZE;
+                break;
+            case PP_TT_ISIZE:
+                kind = PP_AST_TYPE_KIND_ISIZE;
+                break;
             case PP_TT_FLOAT:
                 kind = PP_AST_TYPE_KIND_FLOAT;
                 break;

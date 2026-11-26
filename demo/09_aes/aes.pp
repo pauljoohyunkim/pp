@@ -62,47 +62,47 @@ let g_table_3 :: const [uint8 : 256u] = [uint8 : 256u;
 typedef [uint8 : 4u] WORD;
 
 func RotWord :: (word :: WORD&) -> void {
-    let temp :: uint8 = word[0u];
-    word[0u] = word[1u];
-    word[1u] = word[2u];
-    word[2u] = word[3u];
-    word[3u] = temp;
+    let temp :: uint8 = word[0uz];
+    word[0uz] = word[1uz];
+    word[1uz] = word[2uz];
+    word[2uz] = word[3uz];
+    word[3uz] = temp;
 }
 
 func SubWord :: (word :: WORD&) -> void {
     for (let i :: uint32 = 0u; i < #word as uint32; i += 1u) {
-        word[i] = sbox[word[i]];
+        word[i as usize] = sbox[word[i as usize] as usize];
     }
 }
 
 lambda rcon :: (i :: uint32) -> WORD {
-    return [uint8 : 4u; rc[i]];
+    return [uint8 : 4u; rc[i as usize]];
 }
 
 lambda read_word_from_flattened_array :: (buf :: const [uint8 : AES_EXPANDED_KEY_BYTES]&, idx :: uint32) -> WORD {
     let word :: WORD;
-    word[0u] = buf[idx];
-    word[1u] = buf[idx+1u];
-    word[2u] = buf[idx+2u];
-    word[3u] = buf[idx+3u];
+    word[0uz] = buf[idx as usize];
+    word[1uz] = buf[(idx+1u) as usize];
+    word[2uz] = buf[(idx+2u) as usize];
+    word[3uz] = buf[(idx+3u) as usize];
 
     return word;
 }
 
 lambda XorWord :: (w1 :: const WORD&, w2 :: const WORD&) -> WORD {
     let word :: WORD;
-    word[0u] = w1[0u] ^ w2[0u];
-    word[1u] = w1[1u] ^ w2[1u];
-    word[2u] = w1[2u] ^ w2[2u];
-    word[3u] = w1[3u] ^ w2[3u];
+    word[0uz] = w1[0uz] ^ w2[0uz];
+    word[1uz] = w1[1uz] ^ w2[1uz];
+    word[2uz] = w1[2uz] ^ w2[2uz];
+    word[3uz] = w1[3uz] ^ w2[3uz];
     return word;
 }
 
 func write_word_to_flattened_array :: (buf :: [uint8 : AES_EXPANDED_KEY_BYTES]&, idx :: uint32, word :: const WORD&) -> void {
-    buf[idx] = word[0u];
-    buf[idx+1u] = word[1u];
-    buf[idx+2u] = word[2u];
-    buf[idx+3u] = word[3u];
+    buf[idx as usize] = word[0uz];
+    buf[(idx+1u) as usize] = word[1uz];
+    buf[(idx+2u) as usize] = word[2uz];
+    buf[(idx+3u) as usize] = word[3uz];
 }
 
 func aes_key_schedule :: (ctx :: AESCtx&) -> void {
@@ -171,13 +171,13 @@ func aes_enc :: (ctx :: AESCtx&) -> void {
 // Adding round key to data
 func aes_add_round_key :: (ctx :: AESCtx&, round :: uint32) -> void {
     for (let i :: uint32 = 0u; i < #ctx.block as uint32; i += 1u) {
-        ctx.block[i] ^= ctx.key[16u * round + i];
+        ctx.block[i as usize] ^= ctx.key[(16u * round + i) as usize];
     }
 }
 
 func aes_sub_bytes :: (ctx :: AESCtx&) -> void {
     for (let i :: uint32 = 0u; i < #ctx.block as uint32; i += 1u) {
-        ctx.block[i] = sbox[ctx.block[i]];
+        ctx.block[i as usize] = sbox[ctx.block[i as usize] as usize];
     }
 }
 
@@ -187,48 +187,48 @@ func aes_shift_rows :: (ctx :: AESCtx&) -> void {
     // Row 0 stays
 
     // Row 1
-    temp = ctx.block[1u];
-    ctx.block[1u] = ctx.block[5u];
-    ctx.block[5u] = ctx.block[9u];
-    ctx.block[9u] = ctx.block[13u];
-    ctx.block[13u] = temp;
+    temp = ctx.block[1uz];
+    ctx.block[1uz] = ctx.block[5uz];
+    ctx.block[5uz] = ctx.block[9uz];
+    ctx.block[9uz] = ctx.block[13uz];
+    ctx.block[13uz] = temp;
 
     // Row 2
-    temp = ctx.block[2u];
-    ctx.block[2u] = ctx.block[10u];
-    ctx.block[10u] = temp;
-    temp = ctx.block[6u];
-    ctx.block[6u] = ctx.block[14u];
-    ctx.block[14u] = temp;
+    temp = ctx.block[2uz];
+    ctx.block[2uz] = ctx.block[10uz];
+    ctx.block[10uz] = temp;
+    temp = ctx.block[6uz];
+    ctx.block[6uz] = ctx.block[14uz];
+    ctx.block[14uz] = temp;
 
     // Row 3
-    temp = ctx.block[15u];
-    ctx.block[15u] = ctx.block[11u];
-    ctx.block[11u] = ctx.block[7u];
-    ctx.block[7u] = ctx.block[3u];
-    ctx.block[3u] = temp;
+    temp = ctx.block[15uz];
+    ctx.block[15uz] = ctx.block[11uz];
+    ctx.block[11uz] = ctx.block[7uz];
+    ctx.block[7uz] = ctx.block[3uz];
+    ctx.block[3uz] = temp;
 }
 
 func aes_mult_mat :: (word :: WORD&) -> void {
-    let a0 :: uint8 = word[0u];
-    let a1 :: uint8 = word[1u];
-    let a2 :: uint8 = word[2u];
-    let a3 :: uint8 = word[3u];
+    let a0 :: uint8 = word[0uz];
+    let a1 :: uint8 = word[1uz];
+    let a2 :: uint8 = word[2uz];
+    let a3 :: uint8 = word[3uz];
     
-    word[0u] = g_table_2[a0] ^ g_table_3[a1] ^ a2 ^ a3;
-    word[1u] = a0 ^ g_table_2[a1] ^ g_table_3[a2] ^ a3;
-    word[2u] = a0 ^ a1 ^ g_table_2[a2] ^ g_table_3[a3];
-    word[3u] = g_table_3[a0] ^ a1 ^ a2 ^ g_table_2[a3];
+    word[0uz] = g_table_2[a0 as usize] ^ g_table_3[a1 as usize] ^ a2 ^ a3;
+    word[1uz] = a0 ^ g_table_2[a1 as usize] ^ g_table_3[a2 as usize] ^ a3;
+    word[2uz] = a0 ^ a1 ^ g_table_2[a2 as usize] ^ g_table_3[a3 as usize];
+    word[3uz] = g_table_3[a0 as usize] ^ a1 ^ a2 ^ g_table_2[a3 as usize];
 }
 
 func aes_mix_columns :: (ctx :: AESCtx&) -> void {
-    for (let i :: uint32 = 0u; i < #ctx.block / 4u; i += 1u) {
-        let col :: WORD = [uint8 : 4u; ctx.block[4u * i], ctx.block[4u * i + 1u], ctx.block[4u * i + 2u], ctx.block[4u * i + 3u]];
+    for (let i :: uint32 = 0u; i < (#ctx.block / 4uz) as uint32; i += 1u) {
+        let col :: WORD = [uint8 : 4u; ctx.block[(4u * i) as usize], ctx.block[(4u * i + 1u) as usize], ctx.block[(4u * i + 2u) as usize], ctx.block[(4u * i + 3u) as usize]];
         aes_mult_mat(col);
 
-        ctx.block[4u * i] = col[0u];
-        ctx.block[4u * i + 1u] = col[1u];
-        ctx.block[4u * i + 2u] = col[2u];
-        ctx.block[4u * i + 3u] = col[3u];
+        ctx.block[(4u * i) as usize] = col[0uz];
+        ctx.block[(4u * i + 1u) as usize] = col[1uz];
+        ctx.block[(4u * i + 2u) as usize] = col[2uz];
+        ctx.block[(4u * i + 3u) as usize] = col[3uz];
     }
 }

@@ -9,11 +9,11 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
     pp_print_int64(argc as int64);
     pp_print_string("\n");
 
-    for (let i :: uint32 = 0u; i < #args; i += 1u) {
+    for (let i :: uint32 = 0u; i < #args as uint32; i += 1u) {
         pp_print_string("argv[");
         pp_print_uint64(i as uint64);
         pp_print_string("] = \"");
-        pp_print_string(args[i]);
+        pp_print_string(args[i as usize]);
         pp_print_string("\"\n");
     }
 

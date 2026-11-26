@@ -1,0 +1,185 @@
+# Migration: `usize` / `isize` (pointer-width integers)
+
+Branch: `feature/size-usize`
+Status: **Steps 1–5 implemented and acceptance-verified**
+
+## Goal
+
+Add a pair of nominal, target-dependent integer types so pointer-width quantities ("how many", "which
+position") stop being modelled as fixed 64-bit values. On a 32-bit target these currently produce wrong IR,
+wrong struct layouts, wrong DWARF, and memory corruption at the C boundary (see `c48fd01`).
+
+- `usize` — unsigned, pointer width (`LLVMIntPtrTypeInContext`)
+- `isize` — signed, pointer width
+- Literal suffix **`z`** / **`uz`** (e.g. `42z`, `42uz`). **NOT `a`**: `a` is `isxdigit()`, so `0x42a` is
+  already the number 1066 in `src/pp_lexer.c:526`; a hex-digit suffix silently breaks in hex literals.
+  `z` matches C++23's `size_t` literal suffix and is unambiguous.
+
+They are **nominal types, not typedefs of `uint64`**. Two widths that happen to coincide on 64-bit targets
+must not compare equal, so 64-bit-only code breaks loudly on 32-bit instead of silently.
+
+## Decisions (settle before coding)
+
+- [x] **D1 — Index acceptance policy: STRICT.** Only `usize` is accepted as an index, e.g. `a[0uz]`,
+  `a[1uz + 3uz]`. `uint8..uint64` and bare literals stop being valid indices. Enforced in `Step 2` at
+  `src/pp_semantic_analyzer.c:6289` (replace `pp_type_kind_is_unsigned_up_to_64` with `kind == PP_TK_USize`).
+- [x] **D2 — Unsuffixed literals stay `int32` (hard default).** No contextual literal typing. Consequence:
+  indices must carry the `uz` suffix (`a[0uz]`), never bare `a[0]`.
+- [x] Public spelling confirmed: **`usize` / `isize` only**.
+
+## Current vs Desired behavior
+
+| Quantity | Current | Desired |
+|---|---|---|
+| `#` operator result | `uint32` (`pp_semantic_analyzer.c:5782`) | `usize` (constexpr for arrays) |
+| Index type accepted | any unsigned 8..64 | per D1 |
+| `pp.string.len` | `uint64` (`pp_std_types.h:18`) | `usize` (`size_t`) |
+| `pp.list.len/cap/elem_size` | `uint64` (`pp_std_types.h:24-26`) | `usize` (`size_t`) |
+| `pp.str` view | `{ptr, uint64}` (no C struct yet) | `{ptr, usize}` |
+| List codegen index/stride math | `i64` everywhere | pointer-width int |
+| `pp_alloc`/`pp_realloc`/`pp_list_grow` size args | `uint64_t` | `size_t` (+ overflow check) |
+| Pointer↔int cast canonical form | `uint64 as ptr[T]` | `usize as ptr[T]` / `ptr[T] as usize` |
+| DI basic type for `usize` | n/a | target pointer size |
+| C interop | `size_t`→? | `size_t`→`usize`, `ssize_t`/`ptrdiff_t`→`isize` |
+
+## Step-by-step plan
+
+Each step is a commit. Step 3 **must** be a single commit (half-migrated layout corrupts memory silently).
+
+### Step 1 — Types, suffix, casts  `(ready for review)`
+- [x] `include/pp_type.h`: add `PP_TK_USize`, `PP_TK_ISize` after `PP_TK_UInt128`.
+- [x] `include/pp_type.h` predicates: added to `pp_type_kind_is_integer` / `_is_signed` / `_is_unsigned`;
+  added `pp_type_kind_is_pointer_width(k)`. Intentionally **not** in `pp_type_kind_is_unsigned_up_to_64`.
+- [x] `include/pp_tokens.h` + `src/pp_lexer.c`: keywords `usize`/`isize`; lexer now also consumes a trailing
+  `z` suffix (never `a`; hex `isxdigit` scan untouched).
+- [x] `include/pp_ast.h` + `src/pp_parser.c`: `PP_AST_TYPE_KIND_USIZE`/`_ISIZE` mapped from the tokens.
+- [x] `src/pp_type_table.c`: `pp_type_equal`, `pp_type_decay`, `pp_type_decay_cg` treat the kinds as primitives
+  → nominal, distinct from uint64/int64.
+- [x] `src/pp_type.c`: `pp_type_parse_int_literal_suffix` handles `z`/`uz` from the tail (overlong `lll` still
+  resolves via last two letters, keeping existing diagnostics); `pp_type_is_numerical` /
+  `pp_type_is_unsigned_integer` / trivially-copyable updated.
+- [x] `src/pp_code_generator.c` `pp_backend_lower_type`: `usize`/`isize` →
+  `LLVMIntPtrTypeInContext(cg->ctx, native_target_data)`.
+- [x] Literal codegen: uses lowered type automatically via `lit_type`.
+- [x] Casts: numeric→ptr and ptr→numeric normalise through `pp_code_generator_size_type(cg)` (pointer width),
+  not hardcoded `i64` (fixed a latent 32-bit bug). Semantic cast check passes via `pp_type_is_numerical`.
+- [x] DI basic type for `usize`/`isize` uses `pp_code_generator_pointer_bits(cg)`.
+- [x] Analyzer: pre-interned `usize`/`isize` aliases; `integer_kind_name`/`_width`/`int_literal_fits`;
+  builtin binary/unary support; binary expression type resolution and unary minus accept the kinds.
+- [x] Codegen shift-overflow bound for `usize` uses pointer bits.
+- [x] Tests: lexer (`z`/`uz`, `0x42a`==1066, keywords), semantic (nominal distinct, casts, arithmetic),
+  codegen (pointer-width lowering, ptr cast width).
+- [x] No `PP_TK_*` ordering/array-size assumptions found (`PP_TK_Operator` is last; no kind-count arrays).
+- [x] Verified: 650 unit tests pass; `demo/01_fibo` builds+runs; 32-bit i386 IR shows `usize`→`i32` and
+  `inttoptr i32`; valgrind clean on a `usize` smoke program.
+
+### Step 2 — `#` and indexing in analyzer  `(ready for review)`
+- [x] `#` returns `usize` (analyzer). Codegen emits a pointer-width constant / adapts list+string `len` via
+  `pp_code_generator_size_arg` (i64 today, trunc to `size_t` on 32-bit).
+- [x] Index check is **strict**: `kind == PP_TK_USize` only (`"Array/list index must be a usize."`).
+- [x] Codegen: removed the `index_zext` widening in lvalue/rvalue array/list/string access — a usize index
+  already has the pointer width.
+- [x] `pp_array_size_from_simple_expr` accepts `usize` literals/constants too, so `a[0uz]` keeps its
+  compile-time bounds check and `[T : 5uz]` is accepted. **Decision:** array dimensions stay permissive
+  (unsigned kinds + usize); only *indices* are strict usize. No `as usize` cast case is added.
+- [x] Fixed a latent base-10 bug in `pp_array_size_from_simple_expr`: hex literals (`0x10uz`) were parsed
+  with base 10 and mis-parsed. Now base is 16 for a `0x/0X` prefix (leading zero stays decimal — no octal),
+  and the no-digits/trailing-garbage check uses `endptr == numbuf || *endptr != '\0'` (the old check
+  compared `lexeme` against an `endptr` into a different buffer and was dead).
+- [-] Target-width range check of `usize` array sizes -> deferred: the semantic analyzer has no target triple;
+  the existing `SIZE_MAX` (host) bound stays as an interim. Revisit when target info reaches the analyzer.
+- [x] Tests updated: existing tests that indexed with `[Nu]` now use `[Nuz]`, and `#` results are typed
+  `usize`. Added `SemanticTest.HashResultIsUsize`, `UsizeIndexAccepted`, `NonUsizeUnsignedIndexRejected`,
+  `IndexFromHashMinusOne`, and `CodeGenTest.UsizeIndexNoZeroExtend`, `HashMinusOneIndex`.
+- [x] Verified: 655 tests pass; `a[#a - 1uz]`, `v[#v - 1uz]`, `s[#s - 1uz]` compile and run; 32-bit i386 IR
+  shows `#a` as `i32` and `getelementptr ... i32 3` with no `zext`.
+
+### Step 3 — Layout + codegen + C headers (single commit)  `(ready for review)`
+- [x] `lib/pp_std/include/pp_std_types.h`: `pp_string_t.len`, `pp_list_t.len/cap/elem_size` → `size_t`
+  (`<stddef.h>` included); comments updated. `pp_runtime.c` casts → `(size_t)`; `lib/pp_std` rebuilt clean.
+- [-] Add/align `pp.str` C view -> N/A: PP has no `pp.str` type yet (only `string`).
+- [-] `pp_heap.h` `pp_alloc_bytes_*` → `size_t` -> deferred to Step 4 (must move together with the
+  `.ppi` extern signatures to avoid a 32-bit ABI mismatch).
+- [x] `src/pp_code_generator.c` layout + ops → pointer width via `pp_code_generator_size_type(cg)`:
+  - `pp.list` body `{ptr,size,size,size}`, `pp.string` body `{ptr,size}`; DI members use pointer bits and
+    a `usize` basic type (both `pp.list` and `pp.string`).
+  - list build/copy/drop/push/pop/clear length, cap, elem_size loads/stores/arith all size_type.
+  - string literal builder + string copy/drop/equality length math size_type; `memcmp` already declared
+    with `size_t`.
+  - `pp_code_generator_emit_inline_byte_copy` now derives its loop index type from `LLVMTypeOf(size)`, so any
+    byte-count width works; list copy/drop loops use unsigned (`ULT`) compares.
+  - Array compile-time copy/drop loops stay i64 (compile-time counts; GEP index width is irrelevant).
+- [-] `pp_alloc` overflow check `len*elem_size` -> deferred to Step 4 with the heap-signature move.
+- [x] Contract tests: added `ListLayoutMatchesSizeT`, `StringLayoutMatchesSizeT` (assert
+  `%pp.list = type { ptr, w, w, w }` / `%pp.string = type { ptr, w }` for target width `w`); made
+  `ListElementStrideUsesAllocatedSize` target-width-aware.
+- [x] Verified: 659 tests pass; 32-bit i386 IR verifies (`%pp.list={ptr,i32,i32,i32}`,
+  `%pp.string={ptr,i32}`, all len/cap ops i32); host `-g` IR ok; `demo/01_fibo` builds+runs; valgrind clean.
+  (`demo/08_argv` now fails on `i < #args` / `args[i]` — expected, that is Step 5.)
+
+### Step 4 — Stdlib signatures / `.ppi`  `(ready for review)`
+- [x] `pp_alloc_bytes_*` (`n`) → `size_t` (C) / `usize` (`.ppi`).
+- [x] `pp_fd_read`/`pp_fd_write`: count `size_t`/`usize`, result `ssize_t`/`isize`.
+- [x] `pp_file_read`/`pp_file_write`: count `size_t`/`usize`, result `size_t`/`usize` (fread never negative).
+      C headers + sources and `extern/*.ppi` updated together; `pp_io.h` now includes `<sys/types.h>`.
+- [-] `pp_args_count` -> does not exist; `pp_get_argv(argc :: int32, ...)` stays `int32` (C `int`).
+- [-] `off_t` (`pp_fd_seek`/`pp_file_seek`/`pp_file_tell`) -> kept `int64` deliberately as an explicit
+      64-bit offset (not pointer width); documented here.
+- [x] C interop mapping: `size_t→usize`, `ssize_t`/`ptrdiff_t→isize`, `int→int32`, `long long→int64`;
+      `long` is 32-bit (Windows) / 64-bit (Linux x86-64) so avoid `long` in shim headers; use `<stdint.h>`
+      there. C `char` signedness varies — expose bytes as `uint8`.
+
+### Step 5 — Demos / tests  `(ready for review)`
+- [x] All 10 `demo/` programs updated (156 lines): `[Nu]`→`[Nuz]`, dynamic indices cast `[(expr) as usize]`,
+      `#x as uint32` bounds, stdlib count args → `uz`/`usize`, `pp_file_read/write` results retyped `usize`.
+      Every demo builds; 01/02/03/04/06/07/08 run, 05 (stdin) and 09 (selftest.sh) and 10 (needs ROM/TTY)
+      verified.
+- [x] Discovered + fixed a compiler gap: `usize`/`isize` were rejected for compound assignment
+      (`+= -= *= /= %=`, and `<<= >>=` for `usize` only). Added to the analyzer; `SemanticTest.SizeTypeCompoundAssignment`.
+- [x] `notes/handle_design.md` examples: `len :: uint64`→`usize`, `8u as uint64`→`8uz`,
+      `pp_alloc_bytes_reallocate` `n :: uint64`→`usize`.
+- [x] Full suite 660 tests pass; 32-bit i386 IR verifies; valgrind clean.
+
+## Risks
+
+- **D1(a) without D2** makes indexing painful (`0z` everywhere) — do not ship D1(a) before deciding D2.
+- **Half-migrated layout** (PP 32-bit, C 64-bit) corrupts memory with no compile error → Step 3 is atomic.
+- **DI/DWARF** for `usize` must read pointer size from data layout; a hardcoded 64 hides the bug on 64-bit
+  hosts and only breaks under 32-bit codegen.
+- **Constant folding** uses host types today; `usize` array sizes need target-width range checks.
+- **Nominal distinctness** may break existing tests that treat `uint64` as universal; audit semantic tests.
+
+## Acceptance criteria (verified)
+
+- [x] `usize`/`isize` parse, lower to pointer-width int, and are nominal (distinct from `uint64`/`int64`).
+      `SemanticTest.SizeTypesAreNominalNotFixedWidth`, `CodeGenTest.SizeTypeLowersToPointerWidth` pass.
+- [x] `#` yields `usize`; indexing policy enforced per D1 and documented in one place.
+      `SemanticTest.HashResultIsUsize`, `UsizeIndexAccepted`, `NonUsizeUnsignedIndexRejected` pass; rule now
+      documented in `notes/type_system.md` (Array and List section) plus this plan.
+- [x] `pp.list`/`pp.string` layouts identical on PP and C sides, field type `size_t`. Host: PP IR
+      `{ptr,i64,i64,i64}`/`{ptr,i64}` == C `pp_list_t`=32B / `pp_string_t`=16B (len@8). `CodeGenTest.ListLayoutMatchesSizeT`,
+      `StringLayoutMatchesSizeT` assert field types at target width. (`pp.str` N/A — type does not exist.)
+- [x] List codegen has no leftover width-extension ops and no fixed `i64` on 32-bit: i386 IR shows 0
+      `index_zext`, 0 `i64` in list/string length-field ops, all such math `i32`.
+- [x] Full suite green: **660/660** tests. All 10 demos build; 01/02/03/04/06/07/08 run, 05 (stdin), 09
+      (`selftest.sh` ok), 10 (needs ROM/TTY). IR for all 10 verifies via `llvm-as` and `opt -passes=verify`/`-O2`.
+- [x] **32-bit IR check**: i386 → `usize` is `i32` (`store i32 …`), `%pp.list = { ptr, i32, i32, i32 }`
+      (16 bytes), `%pp.string = { ptr, i32 }` (8 bytes); module verifies.
+
+## Verification commands
+
+```bash
+make bin/unittest
+bin/unittest --gtest_filter="*Semantic*:*CodeGen*:*Lexer*:*Parser*"
+./bin/pplang demo/<smoke>.pp
+# 32-bit IR sanity
+./bin/pplang --emit-llvm --target=i386-unknown-linux-gnu demo/<smoke>.pp | grep -E 'i32|pp.list'
+clang-format -i src/*.c include/*.h
+```
+
+## Next steps
+
+1. Resolve D1 and D2 above (one-line answers unblock Step 1).
+2. Implement Step 1, tick boxes, commit.
+3. Proceed step-by-step; keep this file authoritative. Add `migration-usize-isize_REVIEW_GUIDE.md` when
+   implementation starts (per incremental-plan-review workflow).
