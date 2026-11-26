@@ -401,6 +401,24 @@ PP_SemanticAnalyzer* pp_semantic_analyzer_create(PP_Parser* parser, PP_StringPoo
             if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
             t = NULL;
         }
+        t = pp_type_create(PP_TK_USize);
+        if (t) {
+            const char* type_name = pp_string_pool_push(sa->sp, "usize", 5);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
+        }
+        t = pp_type_create(PP_TK_ISize);
+        if (t) {
+            const char* type_name = pp_string_pool_push(sa->sp, "isize", 5);
+            NULL_POINTER_ERROR_HANDLE(type_name);
+            const PPType* type_interned = pp_global_type_table_intern(sa->gtt, t);
+            NULL_POINTER_ERROR_HANDLE(type_interned);
+            if (!pp_global_type_table_register_alias(sa->gtt, type_name, type_interned)) goto error_cleanup;
+            t = NULL;
+        }
         t = pp_type_create(PP_TK_String);
         if (t) {
             const char* type_name = pp_string_pool_push(sa->sp, "string", 6);
@@ -1078,6 +1096,12 @@ static const PPType* pp_type_from_type_node(PP_SemanticAnalyzer* sa, const PP_AS
             case PP_AST_TYPE_KIND_UINT128:
                 temp_type = pp_type_create(PP_TK_UInt128);
                 break;
+            case PP_AST_TYPE_KIND_USIZE:
+                temp_type = pp_type_create(PP_TK_USize);
+                break;
+            case PP_AST_TYPE_KIND_ISIZE:
+                temp_type = pp_type_create(PP_TK_ISize);
+                break;
             case PP_AST_TYPE_KIND_FLOAT:
                 temp_type = pp_type_create(PP_TK_Float);
                 break;
@@ -1425,6 +1449,15 @@ error_cleanup:
 
 static int pp_builtin_binary_supported(const char* op, PPTypeKind lk, PPTypeKind rk) {
     if (!op) return 0;
+    /* usize/isize use the same operator set as the fixed-width integers when both operands agree. */
+    if (pp_type_kind_is_pointer_width(lk) && lk == rk) {
+        if (strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0 || strcmp(op, "/") == 0 ||
+            strcmp(op, "%") == 0 || strcmp(op, "<<") == 0 || strcmp(op, ">>") == 0 || strcmp(op, "==") == 0 ||
+            strcmp(op, "!=") == 0 || strcmp(op, "<") == 0 || strcmp(op, ">") == 0 || strcmp(op, "<=") == 0 ||
+            strcmp(op, ">=") == 0 || strcmp(op, "&") == 0 || strcmp(op, "|") == 0 || strcmp(op, "^") == 0) {
+            return 1;
+        }
+    }
     if (strcmp(op, "+") == 0) {
         if (lk == PP_TK_Float && rk == PP_TK_Float) return 1;
         if (lk == PP_TK_String && rk == PP_TK_String) return 1;
@@ -1498,11 +1531,8 @@ static int pp_builtin_binary_supported(const char* op, PPTypeKind lk, PPTypeKind
 static int pp_builtin_unary_supported(const char* op, PPTypeKind lk) {
     if (!op) return 0;
     if (strcmp(op, "-") == 0) {
-        const PPTypeKind kinds[] = {PP_TK_Int8, PP_TK_Int16, PP_TK_Int32, PP_TK_Int64, PP_TK_Int128, PP_TK_Float};
-        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
-            if (lk == kinds[i]) return 1;
-        }
-        return 0;
+        /* Unary minus is signed-only; usize and the other unsigned kinds are rejected by construction. */
+        return pp_type_kind_is_signed(lk) || lk == PP_TK_Float;
     }
     if (strcmp(op, "!") == 0) { return lk == PP_TK_Bool; }
     if (strcmp(op, "~") == 0) { return pp_type_kind_is_integer(lk); }
@@ -2412,6 +2442,10 @@ static const char* pp_semantic_integer_kind_name(PPTypeKind kind) {
             return "int128";
         case PP_TK_UInt128:
             return "uint128";
+        case PP_TK_USize:
+            return "usize";
+        case PP_TK_ISize:
+            return "isize";
         default:
             return "non-integer";
     }
@@ -2431,6 +2465,10 @@ static unsigned int pp_semantic_integer_kind_width(PPTypeKind kind) {
             return 32;
         case PP_TK_Int64:
         case PP_TK_UInt64:
+        /* Pointer-width kinds are evaluated as 64-bit quantities; the target width bound is enforced at
+         * codegen (usize/isize lower to the target pointer type). */
+        case PP_TK_USize:
+        case PP_TK_ISize:
             return 64;
         default:
             return 0;
@@ -2489,8 +2527,10 @@ static bool pp_semantic_int_literal_fits(PPTypeKind kind, unsigned long long val
         case PP_TK_UInt32:
             return value <= UINT32_MAX;
         case PP_TK_Int64:
+        case PP_TK_ISize:
             return value <= (unsigned long long)INT64_MAX;
         case PP_TK_UInt64:
+        case PP_TK_USize:
             return true;
         default:
             return false;
@@ -5382,6 +5422,35 @@ static int pp_semantic_analyzer_check_binary_expression(PP_SemanticAnalyzer* sa,
     // Callable operands never consult the builtin operator table or overloads.
     if (callable_operands) goto builtin_binary_done;
 
+    /* Pointer-width integers (usize/isize) follow the same operand rules as the fixed-width integers:
+     * both operands must be the same kind. Ordering/equality yield bool; the rest keep the operand kind. */
+    if (pp_type_kind_is_pointer_width(decayed_lhs_type->kind) && decayed_lhs_type->kind == decayed_rhs_type->kind) {
+        switch (expr->binary_expression.op) {
+            case PP_TT_EQUAL_EQUAL:
+            case PP_TT_EXCLAMATION_EQUAL:
+            case PP_TT_LESS:
+            case PP_TT_GREATER:
+            case PP_TT_LESS_EQUAL:
+            case PP_TT_GREATER_EQUAL:
+                binary_type = pp_type_create(PP_TK_Bool);
+                goto builtin_binary_done;
+            case PP_TT_PLUS:
+            case PP_TT_MINUS:
+            case PP_TT_STAR:
+            case PP_TT_SLASH:
+            case PP_TT_PERCENT:
+            case PP_TT_LESS_LESS:
+            case PP_TT_GREATER_GREATER:
+            case PP_TT_AMPERSAND:
+            case PP_TT_BAR:
+            case PP_TT_CARET:
+                binary_type = pp_type_create(decayed_lhs_type->kind);
+                goto builtin_binary_done;
+            default:
+                break;
+        }
+    }
+
     switch (expr->binary_expression.op) {
         case PP_TT_BAR_BAR:
         case PP_TT_AMPERSAND_AMPERSAND:
@@ -5750,6 +5819,7 @@ static int pp_semantic_analyzer_check_unary_expression(PP_SemanticAnalyzer* sa, 
                 case PP_TK_Int32:
                 case PP_TK_Int64:
                 case PP_TK_Int128:
+                case PP_TK_ISize:
                 case PP_TK_Float:
                     unary_type = pp_type_create(decayed_operand_type->kind);
                     break;
@@ -5932,6 +6002,12 @@ static int pp_semantic_analyzer_check_literal_expression(PP_SemanticAnalyzer* sa
                     break;
                 case PP_TK_UInt128:
                     type_name = "uint128";
+                    break;
+                case PP_TK_USize:
+                    type_name = "usize";
+                    break;
+                case PP_TK_ISize:
+                    type_name = "isize";
                     break;
                 default:
                     type_name = NULL;

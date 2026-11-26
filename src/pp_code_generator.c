@@ -948,6 +948,10 @@ static LLVMTypeRef pp_backend_lower_type(PP_CodeGenerator* cg, const PPType* typ
             return LLVMInt128TypeInContext(cg->ctx);
         case PP_TK_UInt128:
             return LLVMInt128TypeInContext(cg->ctx);
+        case PP_TK_USize:
+        case PP_TK_ISize:
+            /* Pointer-width types: lower through the target data layout, never as a fixed 64-bit int. */
+            return LLVMIntPtrTypeInContext(cg->ctx, pp_code_generator_native_target_data(cg));
         case PP_TK_Float:
             return LLVMFloatTypeInContext(cg->ctx);
         case PP_TK_String: {
@@ -1553,6 +1557,13 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
             break;
         case PP_TK_UInt128:
             result = pp_code_generator_di_basic_type(cg, "uint128", 128, PP_DW_ATE_UNSIGNED);
+            break;
+        case PP_TK_USize:
+            result =
+                pp_code_generator_di_basic_type(cg, "usize", pp_code_generator_pointer_bits(cg), PP_DW_ATE_UNSIGNED);
+            break;
+        case PP_TK_ISize:
+            result = pp_code_generator_di_basic_type(cg, "isize", pp_code_generator_pointer_bits(cg), PP_DW_ATE_SIGNED);
             break;
         case PP_TK_Float:
             result = pp_code_generator_di_basic_type(cg, "float", 64, PP_DW_ATE_FLOAT);
@@ -2757,6 +2768,9 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
                             break;
                         case PP_TK_UInt128:
                             bits = 128;
+                            break;
+                        case PP_TK_USize:
+                            bits = pp_code_generator_pointer_bits(cg);
                             break;
                         default:
                             abort();
@@ -4128,6 +4142,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
                         case PP_TK_UInt128:
                             bits = 128;
                             break;
+                        case PP_TK_USize:
+                            bits = pp_code_generator_pointer_bits(cg);
+                            break;
                         default:
                             abort();
                     }
@@ -4476,30 +4493,30 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
             assert(llvm_val_to_cast);
             llvm_val = LLVMBuildBitCast(cg->builder, llvm_val_to_cast, llvm_dest_type, "ptr_cast_ptr_to_ptr");
         } else if (pp_type_is_numerical(src_type) && dest_type->kind == PP_TK_Pointer) {
-            // numeric -> pointer: normalise to i64 then inttoptr
+            // numeric -> pointer: normalise to the target pointer-width int, then inttoptr
             LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
             assert(llvm_val_to_cast);
-            LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
+            LLVMTypeRef ptr_int_type = pp_code_generator_size_type(cg);
             LLVMValueRef val = llvm_val_to_cast;
             LLVMTypeKind src_kind = LLVMGetTypeKind(llvm_src_type);
             if (src_kind == LLVMFloatTypeKind) {
-                val = LLVMBuildFPToSI(cg->builder, val, i64_type, "num_to_i64_fp");
-            } else if (llvm_src_type != i64_type) {
-                val = pp_code_generator_build_int_cast(cg, val, i64_type, src_type);
+                val = LLVMBuildFPToSI(cg->builder, val, ptr_int_type, "num_to_ptrint_fp");
+            } else if (llvm_src_type != ptr_int_type) {
+                val = pp_code_generator_build_int_cast(cg, val, ptr_int_type, src_type);
             }
             llvm_val = LLVMBuildIntToPtr(cg->builder, val, llvm_dest_type, "inttoptr_tmp");
         } else if (src_type->kind == PP_TK_Pointer && pp_type_is_numerical(dest_type)) {
-            // pointer -> numeric: ptrtoint to i64 then cast to dest numeric
+            // pointer -> numeric: ptrtoint to the target pointer-width int, then cast to dest numeric
             LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
             assert(llvm_val_to_cast);
-            LLVMTypeRef i64_type = LLVMInt64TypeInContext(cg->ctx);
-            LLVMValueRef val = LLVMBuildPtrToInt(cg->builder, llvm_val_to_cast, i64_type, "ptrtoint_tmp");
-            if (llvm_dest_type != i64_type) {
+            LLVMTypeRef ptr_int_type = pp_code_generator_size_type(cg);
+            LLVMValueRef val = LLVMBuildPtrToInt(cg->builder, llvm_val_to_cast, ptr_int_type, "ptrtoint_tmp");
+            if (llvm_dest_type != ptr_int_type) {
                 LLVMTypeKind dest_kind = LLVMGetTypeKind(llvm_dest_type);
                 if (dest_kind == LLVMIntegerTypeKind) {
-                    val = LLVMBuildIntCast(cg->builder, val, llvm_dest_type, "i64_to_num");
+                    val = LLVMBuildIntCast(cg->builder, val, llvm_dest_type, "ptrint_to_num");
                 } else if (dest_kind == LLVMFloatTypeKind) {
-                    val = LLVMBuildSIToFP(cg->builder, val, llvm_dest_type, "i64_to_fp");
+                    val = LLVMBuildSIToFP(cg->builder, val, llvm_dest_type, "ptrint_to_fp");
                 }
             }
             llvm_val = val;

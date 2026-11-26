@@ -3346,3 +3346,41 @@ TEST(CodeGenTest, ListElementStrideUsesAllocatedSize) {
     assert_ir_contains(cg.get(), "store i64 8, ptr %list_elem_size_ptr");
     assert_ir_not_contains(cg.get(), "store i64 5, ptr %list_elem_size_ptr");
 }
+
+static std::string pointer_int_width_str() { return sizeof(void*) == 4 ? "i32" : "i64"; }
+
+TEST(CodeGenTest, SizeTypeLowersToPointerWidth) {
+    const char* source = "let g_sz :: usize = 42uz;\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors + parser_errors + semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "@g_sz = global " + pointer_int_width_str() + " 42");
+}
+
+TEST(CodeGenTest, SizePointerCastUsesPointerWidth) {
+    const char* source = "func main :: () -> int32 {\n"
+                         "    let a :: usize = 4096uz;\n"
+                         "    let p :: ptr[uint8] = a as ptr[uint8];\n"
+                         "    let b :: usize = p as usize;\n"
+                         "    return 0;\n"
+                         "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw = run_codegen(source, lexer_errors, parser_errors, semantic_errors, codegen_result);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors + parser_errors + semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+    assert_ir_contains(cg.get(), "inttoptr " + pointer_int_width_str());
+    assert_ir_contains(cg.get(), "ptrtoint ptr");
+}

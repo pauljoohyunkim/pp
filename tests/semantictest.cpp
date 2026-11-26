@@ -2904,3 +2904,95 @@ TEST(SemanticTest, NonFreestandingStillAllowsStringAndList) {
     EXPECT_EQ(analyze_result, 1) << source;
     EXPECT_EQ(semantic_errors, 0) << source;
 }
+
+TEST(SemanticTest, SizeTypesAcceptPrefixedLiterals) {
+    const char* source = "func main :: () -> int32 {\n"
+                         "    let a :: usize = 42uz;\n"
+                         "    let b :: isize = 7z;\n"
+                         "    let c :: isize = 0x42z;\n"
+                         "    let d :: usize = 0x42uz;\n"
+                         "    let e :: isize = -5z;\n"
+                         "    return 0;\n"
+                         "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0) << source;
+    EXPECT_EQ(analyze_result, 1) << source;
+    EXPECT_EQ(semantic_errors, 0) << source;
+}
+
+TEST(SemanticTest, SizeTypesAreNominalNotFixedWidth) {
+    // usize must not be interchangeable with uint64, nor isize with int64.
+    const char* source = "func main :: () -> int32 {\n"
+                         "    let a :: usize = 1l;\n"
+                         "    let b :: uint64 = 1uz;\n"
+                         "    let c :: isize = 1ll;\n"
+                         "    return 0;\n"
+                         "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0) << source;
+    EXPECT_GT(semantic_errors, 0) << source;
+}
+
+TEST(SemanticTest, SizeTypesCastToAndFromPointer) {
+    const char* source = "func main :: () -> int32 {\n"
+                         "    let a :: usize = 0uz;\n"
+                         "    let p :: ptr[uint8] = a as ptr[uint8];\n"
+                         "    let b :: usize = p as usize;\n"
+                         "    let c :: uint64 = a as uint64;\n"
+                         "    let d :: isize = a as isize;\n"
+                         "    return 0;\n"
+                         "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0) << source;
+    EXPECT_EQ(analyze_result, 1) << source;
+    EXPECT_EQ(semantic_errors, 0) << source;
+}
+
+TEST(SemanticTest, SizeTypeArithmeticAndComparison) {
+    const char* source = "func main :: () -> int32 {\n"
+                         "    let a :: usize = 10uz;\n"
+                         "    let b :: usize = 3uz;\n"
+                         "    let s :: usize = a + b;\n"
+                         "    let d :: usize = a - b;\n"
+                         "    let m :: usize = a * b;\n"
+                         "    let q :: usize = a / b;\n"
+                         "    let r :: usize = a % b;\n"
+                         "    let sh :: usize = a << b;\n"
+                         "    let ok :: bool = (a < b) && (a != b) && (a >= b);\n"
+                         "    return 0;\n"
+                         "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, analyze_result = 0;
+    semantic_analyze_source(source, lexer_errors, parser_errors, semantic_errors, analyze_result);
+    EXPECT_EQ(lexer_errors + parser_errors, 0) << source;
+    EXPECT_EQ(analyze_result, 1) << source;
+    EXPECT_EQ(semantic_errors, 0) << source;
+}
+
+TEST(SemanticTest, UnaryMinusSignedOnlyForSizeTypes) {
+    const char* ok = "func main :: () -> int32 {\n"
+                     "    let a :: isize = 5z;\n"
+                     "    let b :: isize = -a;\n"
+                     "    let c :: usize = 5uz;\n"
+                     "    let d :: usize = ~c;\n"
+                     "    return 0;\n"
+                     "}\n";
+    {
+        int l = 0, p = 0, s = 0, r = 0;
+        semantic_analyze_source(ok, l, p, s, r);
+        EXPECT_EQ(l + p, 0) << ok;
+        EXPECT_EQ(r, 1) << ok;
+        EXPECT_EQ(s, 0) << ok;
+    }
+    const char* bad = "func main :: () -> int32 {\n"
+                      "    let a :: usize = 5uz;\n"
+                      "    let b :: usize = -a;\n"
+                      "    return 0;\n"
+                      "}\n";
+    int l = 0, p = 0, s = 0, r = 0;
+    semantic_analyze_source(bad, l, p, s, r);
+    EXPECT_EQ(l + p, 0) << bad;
+    EXPECT_GT(s, 0) << bad;
+}

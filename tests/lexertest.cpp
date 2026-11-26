@@ -553,3 +553,36 @@ TEST(Lexer, ConstantKeyword) {
     ASSERT_EQ(lexer->tokens[2].token_type, PP_TT_IDENTIFIER);
     ASSERT_EQ(lexer->tokens[3].token_type, PP_TT_EOF);
 }
+
+TEST(Lexer, PointerWidthLiteralSuffix) {
+    auto lexer_h = pp_lexer_create("42z 42uz 0x42z 0x42uz", nullptr, test_sp);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 5);
+    for (int i = 0; i < 4; i++) {
+        ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_INTEGER_LITERAL);
+    }
+    EXPECT_STREQ(lexer->tokens[0].lexeme, "42z");
+    EXPECT_STREQ(lexer->tokens[1].lexeme, "42uz");
+    EXPECT_STREQ(lexer->tokens[2].lexeme, "0x42z");
+    EXPECT_STREQ(lexer->tokens[3].lexeme, "0x42uz");
+}
+
+TEST(Lexer, HexDigitANotConsumedAsSuffix) {
+    // 'a' is a hex digit, so 0x42a is the number 1066, never "0x42" with an 'a' suffix.
+    auto lexer_h = pp_lexer_create("0x42a", nullptr, test_sp);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 2);
+    EXPECT_EQ(lexer->tokens[0].token_type, PP_TT_INTEGER_LITERAL);
+    EXPECT_STREQ(lexer->tokens[0].lexeme, "0x42a");
+}
+
+TEST(Lexer, SizeTypeKeywords) {
+    auto lexer_h = pp_lexer_create("usize isize", nullptr, test_sp);
+    std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
+    ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
+    ASSERT_EQ(lexer->n_tokens, 3);
+    EXPECT_EQ(lexer->tokens[0].token_type, PP_TT_USIZE);
+    EXPECT_EQ(lexer->tokens[1].token_type, PP_TT_ISIZE);
+}
