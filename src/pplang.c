@@ -18,6 +18,9 @@
 #define PPLANG_OPT_FREESTANDING 1003
 #define PPLANG_OPT_TARGET 1004
 
+/* Help continuation indent: lines up with the description column (32 = four 8-wide tab stops). */
+#define PPLANG_HELP_INDENT "                                "
+
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
         if ((ptr) == NULL) goto error_cleanup; \
@@ -548,21 +551,19 @@ static void print_help(void) {
     printf("--emit-llvm\t\t\tEmit LLVM IR.\n");
     printf("--ppi file\t\t\tPre-processor include file for external PPI declarations, can be repeated.\n");
     printf("--ffreestanding\t\t\tCompile for a heap-free environment: reject lists and strings.\n");
-    printf(
-        "--target triple\t\t\tCompile/emit for one target; disables automatic linking (needs -c, -S or "
-        "--emit-llvm).\n");
-    printf(
-        "  form: <arch>[-<vendor>][-<os>][-<env>], e.g. i386-unknown-linux-gnu,\n"
-        "  x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf,\n"
-        "  riscv64-unknown-linux-gnu, wasm32-unknown-unknown.\n");
-    printf(
-        "  arch values verified to emit in this build:\n"
-        "    x86_64 i386 aarch64 aarch64_be aarch64_32 arm armeb thumb thumbeb\n"
-        "    riscv32 riscv64 riscv32be riscv64be powerpc powerpc64 powerpc64le\n"
-        "    mips mipsel mips64 mips64el s390x sparc loongarch32 loongarch64\n"
-        "    wasm32 wasm64 avr msp430 bpf bpfel bpfeb hexagon lanai spirv32 spirv64 ve\n"
-        "  Other LLVM backends may be named but can fail in codegen (e.g. sparcv9, nvptx,\n"
-        "  amdgcn, xcore).\n");
+    printf("--target triple\t\t\tCompile for one target; disables linking (needs -c, -S or --emit-llvm).\n");
+    printf(PPLANG_HELP_INDENT "form: <arch>[-<vendor>][-<os>][-<env>], e.g.\n");
+    printf(PPLANG_HELP_INDENT "i386-unknown-linux-gnu, x86_64-unknown-linux-gnu,\n");
+    printf(PPLANG_HELP_INDENT "aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf,\n");
+    printf(PPLANG_HELP_INDENT "riscv64-unknown-linux-gnu, wasm32-unknown-unknown.\n");
+    printf(PPLANG_HELP_INDENT "arch values verified to emit in this build:\n");
+    printf(PPLANG_HELP_INDENT "  x86_64 i386 aarch64 aarch64_be aarch64_32 arm armeb thumb thumbeb\n");
+    printf(PPLANG_HELP_INDENT "  riscv32 riscv64 riscv32be riscv64be powerpc powerpc64 powerpc64le\n");
+    printf(PPLANG_HELP_INDENT "  mips mipsel mips64 mips64el s390x sparc loongarch32 loongarch64\n");
+    printf(PPLANG_HELP_INDENT "  wasm32 wasm64 avr msp430 bpf bpfel bpfeb hexagon lanai\n");
+    printf(PPLANG_HELP_INDENT "  spirv32 spirv64 ve\n");
+    printf(PPLANG_HELP_INDENT "Other LLVM backends may be named but can fail in codegen\n");
+    printf(PPLANG_HELP_INDENT "(e.g. sparcv9, nvptx, amdgcn, xcore).\n");
     printf("-o filename\t\t\tOutput filename (default: a.out)\n");
     printf(
         "-O level\t\t\tOptimization level: 0=no opt, 1=less, 2=default, 3=aggressive. Size optimisation (-Os, -Oz) "
