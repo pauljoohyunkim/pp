@@ -76,6 +76,26 @@ width is derived from that layout. So this slice only needs driver + target-mach
   comparison. Diverges from gcc/clang `--target=<host>` linking on purpose: this project is a compiler,
   not a universal linker.
 
+## Smoke test (i386 + armv7-gnueabihf + aarch64, 2026-11-26)
+
+Verified with a program exercising struct-by-value return (sret), `[int32]` + `list_push`, `string`
+literal, `usize` loop, `int64` fields, and `float` math. Oracle = clang for the same triples.
+
+| fact | i386 | armv7-gnueabihf | aarch64 |
+|---|---|---|---|
+| `%pp.list` | `{ptr,i32,i32,i32}` | same | `{ptr,i64,i64,i64}` |
+| `%pp.string` | `{ptr,i32}` | same | `{ptr,i64}` |
+| i64 align | 4 | 8 | 8 |
+| malloc/memcpy len | i32 | i32 | i64 |
+| list elem_size store | i32 4 | i32 4 | i64 4 |
+| make_big | `void @make_big(ptr sret(%Big), i64)` | same | same |
+| object | ELF32/80386/0x0 | ELF32/ARM/0x5000000 EABI | ELF64/AArch64/0x0 |
+| ARM attrs | - | VFPv3 + `Tag_ABI_VFP_args: VFP registers` | - |
+
+Object header + ARM attributes are **identical to clang's** for the same triples; `scale` uses `s0`/`vmul.f32`
+(ARM hard-float) and x87 on i386; `opt -passes=verify` OK for all three; demo `05_bf` compiles to i386 and
+armv7 objects. Reusable check: `clang --target=<t> -O0 -c tiny.c` then diff `readelf -h/-A` and `llvm-objdump -d`.
+
 ## Acceptance criteria
 
 - [x] `pplang --emit-llvm --target i386-unknown-linux-gnu x.pp` yields i386 IR: `target triple` set,
