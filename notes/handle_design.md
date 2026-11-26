@@ -45,13 +45,13 @@ runtime: the compiler knows statically which single variable owns a handle.
 handle File :: int32 drop pp_demo_close;
 
 extern func pp_demo_open :: () -> File;
-extern func pp_demo_read :: (fd :: int32, buf :: ptr[uint8], len :: uint64) -> int32;
+extern func pp_demo_read :: (fd :: int32, buf :: ptr[uint8], len :: usize) -> int32;
 
 func read_file :: () -> int32 {            // birth, then death at the end of this function
     let f :: File = pp_demo_open();
     let buf :: [uint8 : 8u] = [uint8 : 8u; 0uss, 0uss, 0uss, 0uss, 0uss, 0uss, 0uss, 0uss];
 
-    let n :: int32 = pp_demo_read(f as int32, @buf as ptr[uint8], 8u as uint64);
+    let n :: int32 = pp_demo_read(f as int32, @buf as ptr[uint8], 8uz);
     if (n != 8) {
         return 1;                          // the handle is dropped on this path too
     }
@@ -107,7 +107,7 @@ A mutable borrow is what makes `realloc` expressible without escaping to `ptr[H]
 owning slot, frees the old block and stores the new token, so the caller's scope drop releases the final
 allocation exactly once. Expressing `realloc` as `h = alloc(n)` is wrong for the opposite reason — the
 assignment drops the old value, but `realloc` already freed it. `pp_std` uses this for
-`pp_alloc_bytes_reallocate :: (pab :: PP_AllocBytes&, n :: uint64)`.
+`pp_alloc_bytes_reallocate :: (pab :: PP_AllocBytes&, n :: usize)`.
 
 ### 4. Handles can be cast *down*, never *up*
 

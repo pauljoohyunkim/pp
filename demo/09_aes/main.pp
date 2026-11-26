@@ -9,31 +9,31 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
     
     if (argc as uint32 != 5u) {
         pp_print_string("Usage: ");
-        pp_print_string(args[0u]);
+        pp_print_string(args[0uz]);
         pp_print_string(" [e/d] <input file> <key file> <output file>\n");
         return 1;
     }
 
     let prog_mode :: ProgMode;
-    if (args[1u] == "e") {
+    if (args[1uz] == "e") {
         prog_mode = ProgMode::Encryption;
-    } else if (args[1u] == "d") {
+    } else if (args[1uz] == "d") {
         prog_mode = ProgMode::Decryption;
     } else {
         pp_print_string("The first argument must either be \"e\" or \"d\".\n");
         return 1;
     }
 
-    let input_filename :: const string& = args[2u];
-    let key_filename :: const string& = args[3u];
-    let output_filename :: const string& = args[4u];
+    let input_filename :: const string& = args[2uz];
+    let key_filename :: const string& = args[3uz];
+    let output_filename :: const string& = args[4uz];
 
     // Read key file.
     let key :: [uint8 : AES_EXPANDED_KEY_BYTES];
     let aes_mode :: AESMode;
     {
         let keyfile :: PP_File = pp_file_open(key_filename, PP_File_OpenMode::PP_FOPEN_READ_ONLY);
-        let read_bytes :: uint32 = pp_file_read(keyfile, @key[0u], 32ul) as uint32;
+        let read_bytes :: uint32 = pp_file_read(keyfile, @key[0uz], 32uz) as uint32;
         if (read_bytes == 16u) {
             aes_mode = AESMode::AES128;
         } else if (read_bytes == 24u) {
@@ -54,9 +54,9 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
     let output_file :: PP_File = pp_file_open(output_filename, PP_File_OpenMode::PP_FOPEN_WRITE_ONLY);
     if (prog_mode == ProgMode::Encryption) {
         rand_bytes(@iv_ctr as uint64 as ptr[uint8], 12u);
-        pp_file_write(output_file, @iv_ctr[0u] as ptr[const uint8], 12ul);
+        pp_file_write(output_file, @iv_ctr[0uz] as ptr[const uint8], 12uz);
     } else {
-        let read_bytes :: uint32 = pp_file_read(input_file, @iv_ctr[0u], 12ul) as uint32;
+        let read_bytes :: uint32 = pp_file_read(input_file, @iv_ctr[0uz], 12uz) as uint32;
         if (read_bytes < 12u) {
             pp_print_string("You asked for encryption, but the ciphertext file does not contain IV.\n");
             return 1;
@@ -72,7 +72,7 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
     };
     while (true) {
         let data_buffer :: [uint8 : 16u];
-        let read_bytes :: uint32 = pp_file_read(input_file, @data_buffer[0u], #ctx.block as uint64) as uint32;
+        let read_bytes :: uint32 = pp_file_read(input_file, @data_buffer[0uz], #ctx.block) as uint32;
         if (read_bytes == 0u) {
             break;
         }
@@ -84,7 +84,7 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
         xor16(data_buffer, ctx.block);
 
         // Write the data chunk + encr(IV || Counter)
-        let write_bytes :: uint32 = pp_file_write(output_file, @data_buffer[0u] as ptr[const uint8], read_bytes as uint64) as uint32;
+        let write_bytes :: uint32 = pp_file_write(output_file, @data_buffer[0uz] as ptr[const uint8], read_bytes as usize) as uint32;
 
         // Increment counter
         increment_iv_counter(iv_ctr);
@@ -95,7 +95,7 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
 }
 
 func xor16 :: (buf1 :: [uint8 : 16u]&, buf2 :: const [uint8 : 16u]&) -> void {
-    for (let i :: uint32 = 0u ; i < #buf1; i += 1u) {
-        buf1[i] ^= buf2[i];
+    for (let i :: uint32 = 0u ; i < #buf1 as uint32; i += 1u) {
+        buf1[i as usize] ^= buf2[i as usize];
     }
 }

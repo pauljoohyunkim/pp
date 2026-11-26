@@ -10,7 +10,7 @@ func readBFCode :: (ctx :: BFContext&) -> void {
 
 func runBFCode :: (ctx :: BFContext&) -> void {
     while (ctx.code_idx < #ctx.code as uint32) {
-        let cur :: const uint8 = ctx.code[ctx.code_idx as uint32];
+        let cur :: const uint8 = ctx.code[ctx.code_idx as usize];
 
         // Dispatch
         if (cur == BFCommand::Greater as uint8) {
@@ -28,29 +28,29 @@ func runBFCode :: (ctx :: BFContext&) -> void {
             ctx.mem_idx -= 1u;
         } else if (cur == BFCommand::Plus as uint8) {
             // +
-            ctx.memory[ctx.mem_idx as uint32] += 1uss;
+            ctx.memory[ctx.mem_idx as usize] += 1uss;
         } else if (cur == BFCommand::Minus as uint8) {
             // -
-            ctx.memory[ctx.mem_idx as uint32] -= 1uss;
+            ctx.memory[ctx.mem_idx as usize] -= 1uss;
         } else if (cur == BFCommand::Period as uint8) {
             // .
-            pp_print_char(ctx.memory[ctx.mem_idx as uint32]);
+            pp_print_char(ctx.memory[ctx.mem_idx as usize]);
         } else if (cur == BFCommand::Comma as uint8) {
             let c :: const int32 = pp_input_char();
             if (c < 0) {
                 pp_print_string("EOF Received\n");
             } else {
                 let ch :: const uint8 = c as uint8;
-                ctx.memory[ctx.mem_idx as uint32] = ch;
+                ctx.memory[ctx.mem_idx as usize] = ch;
             }
         } else if (cur == BFCommand::LeftBracket as uint8) {
-            if (ctx.memory[ctx.mem_idx as uint32] == 0uss) {
+            if (ctx.memory[ctx.mem_idx as usize] == 0uss) {
                 // skip forward to matching ]
                 let depth :: uint16 = 1us;
                 ctx.code_idx += 1u;
                 let done :: bool = false;
                 while (depth > 0us && ctx.code_idx < #ctx.code as uint32 && !done) {
-                    let ch :: const uint8 = ctx.code[ctx.code_idx as uint32];
+                    let ch :: const uint8 = ctx.code[ctx.code_idx as usize];
                     if (ch == BFCommand::LeftBracket as uint8) { depth += 1us; }
                     else if (ch == BFCommand::RightBracket as uint8) { depth -= 1us; }
                     if (depth == 0us) { done = true; }
@@ -63,8 +63,8 @@ func runBFCode :: (ctx :: BFContext&) -> void {
                 list_push(ctx.return_stack, ctx.code_idx);
             }
         } else if (cur == BFCommand::RightBracket as uint8) {
-            if (ctx.memory[ctx.mem_idx as uint32] != 0uss) {
-                if (#ctx.return_stack == 0u) {
+            if (ctx.memory[ctx.mem_idx as usize] != 0uss) {
+                if (#ctx.return_stack == 0uz) {
                     pp_print_string("[ ] Unmatched ']' - aborting\n");
                     pp_abort();
                 } else {
@@ -75,7 +75,7 @@ func runBFCode :: (ctx :: BFContext&) -> void {
                 }
             } else {
                 // pop matching '['
-                if (#ctx.return_stack > 0u) {
+                if (#ctx.return_stack > 0uz) {
                     list_pop(ctx.return_stack);
                 }
             }

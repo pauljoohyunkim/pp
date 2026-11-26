@@ -2,16 +2,16 @@ func main :: () -> int32 {
     let arr :: [uint16 : 4u] = [uint16 : 4u; 1us, 2us, 3us, 4us];
 
     pp_print_string("Before pointer manipulation\n");
-    pp_print_uint64(arr[0u] as uint64);
-    pp_print_uint64(arr[1u] as uint64);
-    pp_print_uint64(arr[2u] as uint64);
-    pp_print_uint64(arr[3u] as uint64);
+    pp_print_uint64(arr[0uz] as uint64);
+    pp_print_uint64(arr[1uz] as uint64);
+    pp_print_uint64(arr[2uz] as uint64);
+    pp_print_uint64(arr[3uz] as uint64);
     pp_print_string("\n");
 
-    let p0 :: ptr[uint16] = @arr[0u];
-    let p1 :: ptr[uint16] = @arr[1u];
-    let p2 :: ptr[uint16] = @arr[2u];
-    let p3 :: ptr[uint16] = @arr[3u];
+    let p0 :: ptr[uint16] = @arr[0uz];
+    let p1 :: ptr[uint16] = @arr[1uz];
+    let p2 :: ptr[uint16] = @arr[2uz];
+    let p3 :: ptr[uint16] = @arr[3uz];
 
     $p0 = $p0 * 2us;
     $p1 = $p1 * 2us;

@@ -4,7 +4,7 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
     
     if (argc as uint32 < 2u) {
         pp_print_string("Usage: ");
-        pp_print_string(args[0u]);
+        pp_print_string(args[0uz]);
         pp_print_string(" <rom file>\n");
         return 1;
     }
@@ -16,7 +16,7 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
 
     pp_seed_unsafe_rand();
     load_chip8_font(chip8);
-    load_chip8_rom(chip8, args[1u]);
+    load_chip8_rom(chip8, args[1uz]);
 
     while (true) {
         // Poll keyboard (returns non-zero on ESC)
@@ -32,7 +32,7 @@ func main :: (argc :: int32, argv :: ptr[ptr[uint8]]) -> int32 {
         pp_print_string("\x1b[H");  // ANSI: cursor home
         for (let row :: uint16 = 0us; row < HEIGHT; row += 1us) {
             for (let col :: uint16 = 0us; col < WIDTH; col += 1us) {
-                let pixel :: uint8 = chip8.display[row * WIDTH + col];
+                let pixel :: uint8 = chip8.display[(row * WIDTH + col) as usize];
                 let ch :: uint8;
                 if (pixel != 0uss) {
                     ch = '#';  // '#'

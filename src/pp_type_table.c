@@ -81,6 +81,8 @@ bool pp_type_equal(const PPType* a, const PPType* b) {
         case PP_TK_UInt64:
         case PP_TK_Int128:
         case PP_TK_UInt128:
+        case PP_TK_USize:
+        case PP_TK_ISize:
         case PP_TK_Float:
         case PP_TK_Bool:
             return true;
@@ -307,6 +309,8 @@ const PPType* pp_type_decay(PP_GlobalTypeTable* gtt, const PPType* type) {
         case PP_TK_UInt64:
         case PP_TK_Int128:
         case PP_TK_UInt128:
+        case PP_TK_USize:
+        case PP_TK_ISize:
         case PP_TK_Void:
         case PP_TK_Struct:
         case PP_TK_Newtype:
@@ -384,6 +388,8 @@ const PPType* pp_type_decay_cg(const PP_GlobalTypeTable* gtt, const PPType* type
         case PP_TK_UInt64:
         case PP_TK_Int128:
         case PP_TK_UInt128:
+        case PP_TK_USize:
+        case PP_TK_ISize:
         case PP_TK_Void:
         case PP_TK_Struct:
         case PP_TK_Newtype:
