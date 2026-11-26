@@ -9,6 +9,11 @@ Pointer operators are built-in, non-overloadable and signal user-accepts-risk se
 
 * `$p` – dereference. `p` must be `ptr[T]`. Result type is `T`.  C equivalent: `*p`. Null dereference is undefined behaviour.
 
+* `p[i]` – pointer subscript. `p` must be `ptr[T]` with `T` not `void`; `i` must be `usize`. Result is an
+  l-value of type `T` at `p + i * sizeof(T)`. C equivalent: `p[i]`. Unchecked: no bounds check, null and
+  out-of-range access are undefined behaviour. Pointee constness carries over, so `q[i]` on `ptr[const T]`
+  is a read-only l-value.
+
 * `nullptr[T]` – null pointer literal of type `ptr[T]`.
 
 Pointer operations are user-accepts-risk: the type system will not prevent aliasing, null dereference, or invalid pointer arithmetic. Casting between pointer types and numeric types is explicitly user-accepts-risk.
@@ -20,6 +25,11 @@ let x :: int32 = 5;
 let p :: ptr[int32] = @x;      // uint32_t *p = &x;
 let v :: int32 = $p;           // int32_t v = *p;
 let n :: ptr[int32] = nullptr[int32];
+
+let arr :: [int32 : 4u] = [int32 : 4u; 1, 2, 3, 4];
+let p2 :: ptr[int32] = @arr[0uz];
+p2[1uz] = 20;                  // *(p2 + 1) = 20; scales by sizeof(int32)
+let v2 :: int32 = p2[1uz];     // int32_t v2 = p2[1];
 ```
 
 ## Built-in string operators

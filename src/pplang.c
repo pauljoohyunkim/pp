@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
     static struct option long_opts[] = {{"emit-llvm", no_argument, 0, PPLANG_OPT_EMIT_LLVM},
                                         {"ppi", required_argument, 0, PPLANG_OPT_PPI},
                                         {"help", no_argument, 0, PPLANG_OPT_HELP},
-                                        {"ffreestanding", no_argument, 0, PPLANG_OPT_FREESTANDING},
+                                        {"freestanding", no_argument, 0, PPLANG_OPT_FREESTANDING},
                                         {"target", required_argument, 0, PPLANG_OPT_TARGET},
                                         {0, 0, 0, 0}};
     while ((opt = getopt_long(argc, argv, "hcSvo:O:g", long_opts, NULL)) != -1) {
@@ -174,7 +174,7 @@ int main(int argc, char** argv) {
     // llvm.memcpy/llvm.memset, which may lower to libcalls the target environment does not provide.
     if (freestanding && optimization_mode != '\0' && optimization_mode != '0') {
         fprintf(stderr,
-                "Warning: --ffreestanding forces -O0; higher optimization levels can introduce "
+                "Warning: --freestanding forces -O0; higher optimization levels can introduce "
                 "memcpy/memset libcalls\n");
         optimization_mode = '\0';
     }
@@ -541,8 +541,8 @@ static PPLang_Filetype detect_filetype(const char* path) {
 
 static void print_help(void) {
     printf(
-        "Usage: pplang [-h] [-v] [-c] [-S] [-o filename] [-O 0123] [--ppi file] [--target triple] [-I dir] "
-        "src.pp\n");
+        "Usage: pplang [-h] [-v] [-c] [-S] [-o filename] [-O 0123] [--ppi file] [--freestanding] "
+        "[--target triple] [-I dir] src.pp\n");
     printf("-h\t\t\t\tShow this help menu\n");
     printf("-v\t\t\t\tShow verbose output\n");
     printf("-g\t\t\t\tEmit DWARF debug information\n");
@@ -550,7 +550,7 @@ static void print_help(void) {
     printf("-S\t\t\t\tCompile to assembly file.\n");
     printf("--emit-llvm\t\t\tEmit LLVM IR.\n");
     printf("--ppi file\t\t\tPre-processor include file for external PPI declarations, can be repeated.\n");
-    printf("--ffreestanding\t\t\tCompile for a heap-free environment: reject lists and strings.\n");
+    printf("--freestanding\t\t\tCompile for a heap-free environment: reject lists and strings.\n");
     printf("--target triple\t\t\tCompile for one target; disables linking (needs -c, -S or --emit-llvm).\n");
     printf(PPLANG_HELP_INDENT "form: <arch>[-<vendor>][-<os>][-<env>], e.g.\n");
     printf(PPLANG_HELP_INDENT "i386-unknown-linux-gnu, x86_64-unknown-linux-gnu,\n");

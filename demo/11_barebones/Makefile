@@ -29,7 +29,7 @@ boot.o: boot.s
 	$(AS) $< -o $@ --32
 
 kernel.o: kernel.pp $(PPLANG)
-	$(PPLANG) $(PPCFLAGSEXTRA) --ffreestanding --target i386-unknown-linux-gnu -c -o $@ $<
+	$(PPLANG) $(PPCFLAGSEXTRA) --freestanding --target i386-unknown-linux-gnu -c -o $@ $<
 
 clean:
 	rm -f $(TARGET) *.o isodir/boot/$(TARGET) *.iso

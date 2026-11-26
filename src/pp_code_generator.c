@@ -3275,13 +3275,21 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
 
     const PPType* base_type = pp_type_decay_cg(cg->gtt, object_decoration->resolved_type);
     assert(base_type);
-    if (base_type->kind != PP_TK_Array && base_type->kind != PP_TK_List && base_type->kind != PP_TK_String) {
-        assert(0 && "Unsupported base type for array/list/string access");
+    if (base_type->kind != PP_TK_Array && base_type->kind != PP_TK_List && base_type->kind != PP_TK_String &&
+        base_type->kind != PP_TK_Pointer) {
+        assert(0 && "Unsupported base type for subscript");
         return NULL;
     }
 
-    LLVMValueRef llvm_base_ptr =
-        pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->array_list_access.expr);
+    /* A pointer base is the address itself, an rvalue: load it and GEP into it. Collections are
+     * addressable storage and go through the lvalue path. */
+    const bool pointer_base = base_type->kind == PP_TK_Pointer;
+    LLVMValueRef llvm_base_ptr = NULL;
+    if (pointer_base) {
+        llvm_base_ptr = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.expr);
+    } else {
+        llvm_base_ptr = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node->array_list_access.expr);
+    }
     assert(llvm_base_ptr);
 
     LLVMValueRef llvm_index = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
@@ -3290,7 +3298,16 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
     /* The index is a usize, so it already has the target's pointer width; no widening is needed. GEP
      * sign-extends or truncates the index to the pointer size as required. */
 
-    if (base_type->kind == PP_TK_Array) {
+    if (pointer_base) {
+        /* Unchecked access: GEP scales the index by the pointee size. No bounds check, mirroring `$p`. */
+        const PPType* pointee_type = base_type->type.pp_type_pointer.pointee;
+        assert(pointee_type);
+        LLVMTypeRef llvm_pointee_type = pp_environment_backend_lookup_type(cg, pointee_type);
+        assert(llvm_pointee_type);
+        LLVMValueRef elem_ptr = LLVMBuildGEP2(cg->builder, llvm_pointee_type, llvm_base_ptr, &llvm_index, 1, "ptr_idx");
+        assert(elem_ptr);
+        return elem_ptr;
+    } else if (base_type->kind == PP_TK_Array) {
         LLVMTypeRef llvm_base_type = pp_environment_backend_lookup_type(cg, base_type);
         assert(llvm_base_type);
         LLVMValueRef indices[2];
@@ -3347,11 +3364,20 @@ static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeG
     const PP_AST_Decoration* object_decoration = pp_ast_get_decoration(node->array_list_access.expr);
     assert(object_decoration);
 
-    if (object_decoration->value_category == PP_VALUE_CATEGORY_LVALUE) {
+    const PPType* base_kind_type = pp_type_decay_cg(cg->gtt, object_decoration->resolved_type);
+    assert(base_kind_type);
+    const bool pointer_base = base_kind_type->kind == PP_TK_Pointer;
+
+    /* Pointer subscript always denotes storage, so it is read through the lvalue path even when the
+     * pointer itself is an rvalue. */
+    if (pointer_base || object_decoration->value_category == PP_VALUE_CATEGORY_LVALUE) {
         LLVMValueRef llvm_lval = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node);
         assert(llvm_lval);
         const PPType* element_type = pp_type_decay_cg(cg->gtt, object_decoration->resolved_type);
-        if (element_type->kind == PP_TK_Array) {
+        if (element_type->kind == PP_TK_Pointer) {
+            element_type = element_type->type.pp_type_pointer.pointee;
+            assert(element_type);
+        } else if (element_type->kind == PP_TK_Array) {
             element_type = element_type->type.pp_type_array.element_type;
         } else if (element_type->kind == PP_TK_List) {
             element_type = element_type->type.pp_type_list.element_type;

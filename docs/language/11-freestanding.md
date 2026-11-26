@@ -1,6 +1,6 @@
 # Freestanding Mode
 
-`--ffreestanding` compiles a PP program for an environment without the C heap. It removes every
+`--freestanding` compiles a PP program for an environment without the C heap. It removes every
 language feature that would allocate, and guarantees that the generated object references no heap or
 memory runtime symbols:
 
@@ -8,7 +8,7 @@ memory runtime symbols:
 * no `memcpy`, `memset`, `memmove` (copies are emitted as explicit inline byte loops).
 
 ```bash
-./bin/pplang --ffreestanding program.pp -o program
+./bin/pplang --freestanding program.pp -o program
 ```
 
 This is a **no-heap hosted mode**: the output is an ordinary object/executable linked through `cc`. It
@@ -80,14 +80,14 @@ need directly, as shown above.
 
 ## Optimization
 
-`--ffreestanding` forces unoptimized IR and warns if `-O1`/`-O2`/`-O3` was requested. Higher
+`--freestanding` forces unoptimized IR and warns if `-O1`/`-O2`/`-O3` was requested. Higher
 optimization levels can synthesize `llvm.memcpy`/`llvm.memset`, which may lower to libcalls that a
 heap-free environment does not provide.
 
 ## Checking the result
 
 ```bash
-./bin/pplang --ffreestanding -c program.pp -o program.o
+./bin/pplang --freestanding -c program.pp -o program.o
 nm -u program.o | grep -E 'mem(cpy|set|move)|malloc|calloc|realloc|free' || echo "clean"
 ```
 
