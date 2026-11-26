@@ -78,6 +78,8 @@ Expected to be less efficient than array, but easier to use.
   - Type must be complete. Array size must be non-zero.
   - Newtype is judged by its underlying type.
   Reference is allowed only as an outer modifier to the whole collection, e.g. `const [int32 : 4u]&` meaning `Ref(Array(4, Const(Int32)))`. The banned form `[const int32& : 4u]` is illegal because the element type is a reference and would require per-element initialization and rebinding semantics.
+* **Index type (`usize`).** An array/list/string subscript must be a `usize` (pointer-width unsigned); e.g. `a[0uz]`, `a[#a - 1uz]`. Other integer widths, signed ints, and bare literals are rejected; an `int32` counter must be cast (`a[i as usize]`). This keeps address/offset arithmetic at pointer width so it is correct on 32-bit targets. The `#` operator yields `usize`.
+* **Array dimension type.** The compile-time dimension `[T : N]` may be any unsigned integer kind (uint8..uint64 or `usize`); it is a compile-time element count, not a runtime pointer-width quantity, so it is not restricted to `usize`.
 
 
 ## Tuple

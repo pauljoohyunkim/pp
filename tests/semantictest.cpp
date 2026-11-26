@@ -3143,3 +3143,24 @@ TEST(SemanticTest, HexArraySizeLiteral) {
         "}\n",
         "hex array sizes parse as base 16");
 }
+
+TEST(SemanticTest, SizeTypeCompoundAssignment) {
+    expect_semantic_accept(
+        "func main :: () -> int32 {\n"
+        "    let i :: usize = 8uz;\n"
+        "    i += 1uz; i -= 1uz; i *= 2uz; i /= 2uz; i %= 3uz;\n"
+        "    i <<= 1uz; i >>= 1uz; i &= 1uz; i |= 1uz; i ^= 1uz;\n"
+        "    let j :: isize = 8z;\n"
+        "    j += 1z; j -= 1z; j *= 2z; j /= 2z; j %= 3z; j &= 1z; j |= 1z; j ^= 1z;\n"
+        "    return 0;\n"
+        "}\n",
+        "usize/isize compound assignment");
+    // Shifts are unsigned-only for fixed-width ints; isize follows the same rule.
+    expect_semantic_reject(
+        "func main :: () -> int32 {\n"
+        "    let j :: isize = 8z;\n"
+        "    j <<= 1z;\n"
+        "    return 0;\n"
+        "}\n",
+        "isize <<= rejected (signed)");
+}

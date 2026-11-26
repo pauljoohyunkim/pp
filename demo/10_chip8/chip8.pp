@@ -25,29 +25,29 @@ func load_chip8_font :: (machine :: Chip8Machine&) -> void {
         0xF0uss, 0x80uss, 0xF0uss, 0x80uss, 0x80uss   // F
     ];
     for (let i :: uint16 = 0us; i < 80us; i += 1us) {
-        machine.memory[i] = font[i];
+        machine.memory[i as usize] = font[i as usize];
     }
 }
 
 func load_chip8_rom :: (machine :: Chip8Machine&, filename :: const string&) -> void {
     let fp :: PP_File = pp_file_open(filename, PP_File_OpenMode::PP_FOPEN_READ_ONLY);
     
-    pp_file_read(fp, @machine.memory[CHIP8_CODE_START], (#machine.memory - CHIP8_CODE_START as uint32) as uint64);
+    pp_file_read(fp, @machine.memory[CHIP8_CODE_START as usize], (#machine.memory - CHIP8_CODE_START as usize));
 }
 
 func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
-    let opcode :: OPCODE = (machine.memory[machine.pc] as uint16 << 8us) | (machine.memory[machine.pc+1us] as uint16);
+    let opcode :: OPCODE = (machine.memory[machine.pc as usize] as uint16 << 8us) | (machine.memory[(machine.pc+1us) as usize] as uint16);
     machine.pc += 2us;
     if (opcode == 0x00E0u as uint16) {
         // Clear screen
         for (let i :: uint16 = 0us; i < WIDTH * HEIGHT; i += 1us) {
-            machine.display[i] = 0uss;
+            machine.display[i as usize] = 0uss;
         }
         return;
     } else if (opcode == 0x00EEu as uint16) {
         // Return from subroutine
         // A RET without a matching CALL would pop an empty list, which aborts.
-        if (#machine.stack == 0u) { return; }
+        if (#machine.stack == 0uz) { return; }
         machine.pc = list_pop(machine.stack);
     } else if (extract_4bit(opcode, 0uss) == 1uss) {
         // 1NNN
@@ -66,7 +66,7 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         // Skip next instruction if VX == NN
         let x :: uint8 = extract_4bit(opcode, 1uss);
         let val :: uint8 = (opcode & 0xFFus) as uint8;
-        if (machine.v[x] == val) {
+        if (machine.v[x as usize] == val) {
             // Advance program counter.
             machine.pc += 2us;
         }
@@ -75,7 +75,7 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         // Skip next instruction if VX != NN
         let x :: uint8 = extract_4bit(opcode, 1uss);
         let val :: uint8 = (opcode & 0xFFus) as uint8;
-        if (machine.v[x] != val) {
+        if (machine.v[x as usize] != val) {
             // Advance program counter.
             machine.pc += 2us;
         }
@@ -84,7 +84,7 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         // Skips next instruction if VX == VY
         let x :: uint8 = extract_4bit(opcode, 1uss);
         let y :: uint8 = extract_4bit(opcode, 2uss);
-        if (machine.v[x] == machine.v[y]) {
+        if (machine.v[x as usize] == machine.v[y as usize]) {
             machine.pc += 2us;
         }
     } else if (extract_4bit(opcode, 0uss) == 6uss) {
@@ -92,14 +92,14 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         // Set VX = NN
         let x :: uint8 = extract_4bit(opcode, 1uss);
         let val :: uint8 = (opcode & 0xFFus) as uint8;
-        machine.v[x] = val;
+        machine.v[x as usize] = val;
     } else if (extract_4bit(opcode, 0uss) == 7uss) {
         // 7XNN
         // VX += NN
         // Carry flag n ot changed
         let x :: uint8 = extract_4bit(opcode, 1uss);
         let val :: uint8 = (opcode & 0xFFus) as uint8;
-        machine.v[x] += val;
+        machine.v[x as usize] += val;
     } else if (extract_4bit(opcode, 0uss) == 8uss) {
         // Lowest 4bits
         let l4b :: uint8 = extract_4bit(opcode, 3uss);
@@ -108,64 +108,64 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         if (l4b == 0uss) {
             // 8XY0
             // VX = VY
-            machine.v[x] = machine.v[y];
+            machine.v[x as usize] = machine.v[y as usize];
         } else if (l4b == 1uss) {
             // 8XY1
             // VX |= VY
-            machine.v[x] |= machine.v[y];
+            machine.v[x as usize] |= machine.v[y as usize];
         } else if (l4b == 2uss) {
             // 8XY2
             // VX &= VY
-            machine.v[x] &= machine.v[y];
+            machine.v[x as usize] &= machine.v[y as usize];
         } else if (l4b == 3uss) {
             // 8XY3
             // VX ^= VY
-            machine.v[x] ^= machine.v[y];
+            machine.v[x as usize] ^= machine.v[y as usize];
         } else if (l4b == 4uss) {
             // 8XY4
             // VX += VY
             // With carry
             // The result and the flag must be computed before anything is stored:
             // writing VF first would clobber the result when X == 0xF.
-            let sum :: uint16 = machine.v[x] as uint16 + machine.v[y] as uint16;
+            let sum :: uint16 = machine.v[x as usize] as uint16 + machine.v[y as usize] as uint16;
             let carry :: uint8 = 0uss;
             if (sum >= 256us) { carry = 1uss; }
-            machine.v[x] = (sum & 0xFFus) as uint8;
-            machine.v[0xFu] = carry;
+            machine.v[x as usize] = (sum & 0xFFus) as uint8;
+            machine.v[0xFuz] = carry;
         } else if (l4b == 5uss) {
             // 8XY5
             // VX -= VY
-            let result :: uint8 = machine.v[x] - machine.v[y];
+            let result :: uint8 = machine.v[x as usize] - machine.v[y as usize];
             let borrow :: uint8 = 0uss;
-            if (machine.v[x] >= machine.v[y]) { borrow = 1uss; }
-            machine.v[x] = result;
-            machine.v[0xFu] = borrow;
+            if (machine.v[x as usize] >= machine.v[y as usize]) { borrow = 1uss; }
+            machine.v[x as usize] = result;
+            machine.v[0xFuz] = borrow;
         } else if (l4b == 6uss) {
             // 8XY6
             // VX >>= 1
-            let lsb :: uint8 = machine.v[x] & 1uss;
-            machine.v[x] >>= 1uss;
-            machine.v[0xFu] = lsb;
+            let lsb :: uint8 = machine.v[x as usize] & 1uss;
+            machine.v[x as usize] >>= 1uss;
+            machine.v[0xFuz] = lsb;
         } else if (l4b == 7uss) {
             // 8XY7
             // VX = VY - VX
-            let result :: uint8 = machine.v[y] - machine.v[x];
+            let result :: uint8 = machine.v[y as usize] - machine.v[x as usize];
             let borrow :: uint8 = 0uss;
-            if (machine.v[y] >= machine.v[x]) { borrow = 1uss; }
-            machine.v[x] = result;
-            machine.v[0xFu] = borrow;
+            if (machine.v[y as usize] >= machine.v[x as usize]) { borrow = 1uss; }
+            machine.v[x as usize] = result;
+            machine.v[0xFuz] = borrow;
         } else if (l4b == 0xEuss) {
             // 8XYE
             // VX <<= 1
-            let msb :: uint8 = machine.v[x] >> 7uss;
-            machine.v[x] <<= 1uss;
-            machine.v[0xFu] = msb;
+            let msb :: uint8 = machine.v[x as usize] >> 7uss;
+            machine.v[x as usize] <<= 1uss;
+            machine.v[0xFuz] = msb;
         }
     } else if (extract_4bit(opcode, 0uss) == 9uss && extract_4bit(opcode, 3uss) == 0uss) {
         // 9XY0
         let x :: uint8 = extract_4bit(opcode, 1uss);
         let y :: uint8 = extract_4bit(opcode, 2uss);
-        if (machine.v[x] != machine.v[y]) {
+        if (machine.v[x as usize] != machine.v[y as usize]) {
             machine.pc += 2us;
         }
     } else if (extract_4bit(opcode, 0uss) == 0xEuss) {
@@ -174,13 +174,13 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         if (low == 0x9Euss) {
             // EX9E
             // Skip next instruction if key with the value of VX is pressed
-            if (machine.keys[machine.v[x] & 0xFuss] != 0uss) {
+            if (machine.keys[(machine.v[x as usize] & 0xFuss) as usize] != 0uss) {
                 machine.pc += 2us;
             }
         } else if (low == 0xA1uss) {
             // EXA1
             // Skip next instruction if key with the value of VX is not pressed
-            if (machine.keys[machine.v[x] & 0xFuss] == 0uss) {
+            if (machine.keys[(machine.v[x as usize] & 0xFuss) as usize] == 0uss) {
                 machine.pc += 2us;
             }
         }
@@ -190,30 +190,30 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
     } else if (extract_4bit(opcode, 0uss) == 0xBuss) {
         // BNNN
         // PC = V0 + NNN
-        machine.pc = (opcode & 0xFFFus) + machine.v[0u] as uint16;
+        machine.pc = (opcode & 0xFFFus) + machine.v[0uz] as uint16;
     } else if (extract_4bit(opcode, 0uss) == 0xCuss) {
         // CXNN
         // VX = rand() & NN
         let x :: uint8 = extract_4bit(opcode, 1uss);
         let val :: uint8 = (opcode & 0xFFus) as uint8;
-        machine.v[x] = ((pp_unsafe_rand() & 0xFF) as uint8) & val;
+        machine.v[x as usize] = ((pp_unsafe_rand() & 0xFF) as uint8) & val;
     } else if (extract_4bit(opcode, 0uss) == 0xDuss) {
         // DXYN
         // draw(VX, VY, N)
 
-        machine.v[0xFu] = 0uss;
+        machine.v[0xFuz] = 0uss;
 
         let x :: uint8 = extract_4bit(opcode, 1uss);
         let y :: uint8 = extract_4bit(opcode, 2uss);
-        let x_offset :: uint16 = machine.v[x] as uint16 % WIDTH;
-        let y_offset :: uint16 = machine.v[y] as uint16 % HEIGHT;
+        let x_offset :: uint16 = machine.v[x as usize] as uint16 % WIDTH;
+        let y_offset :: uint16 = machine.v[y as usize] as uint16 % HEIGHT;
         let N :: uint8 = extract_4bit(opcode, 3uss);
 
         for (let j :: uint8 = 0uss; j < N; j += 1uss) {
             // CHIP-8 sprites wrap vertically rather than clipping.
             let py :: uint16 = (y_offset + j as uint16) % HEIGHT;
 
-            let sprite_byte :: uint8 = machine.memory[machine.I + j as uint16];
+            let sprite_byte :: uint8 = machine.memory[(machine.I + j as uint16) as usize];
 
             for (let i :: uint8 = 0uss; i < 8uss; i += 1uss) {
                 // CHIP-8 sprites wrap horizontally too.
@@ -222,10 +222,10 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
                 let bit :: uint8 = (sprite_byte >> (7uss - i)) & 1uss;
                 if (bit != 0uss) {
                     let idx :: uint16 = py * WIDTH + px;
-                    if (machine.display[idx] != 0uss) {
-                        machine.v[0xFu] = 1uss;
+                    if (machine.display[idx as usize] != 0uss) {
+                        machine.v[0xFuz] = 1uss;
                     }
-                    machine.display[idx] ^= 1uss;
+                    machine.display[idx as usize] ^= 1uss;
                 }
             }
         }
@@ -234,7 +234,7 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
         let low :: uint8 = (opcode & 0xFFus) as uint8;
         if (low == 0x07uss) {
             // VX = get_delay()
-            machine.v[x] = machine.delay_timer;
+            machine.v[x as usize] = machine.delay_timer;
         } else if (low == 0x0Auss) {
             // FX0A: VX = get_key() — wait for key press, store key index
             let found :: bool = false;
@@ -243,40 +243,40 @@ func dispatch_chip8_opcode :: (machine :: Chip8Machine&) -> void {
                 // Poll keyboard to update machine.keys
                 pp_term_poll_keys(machine.keys);
                 for (let i :: uint8 = 0uss; i < 16uss; i += 1uss) {
-                    if (machine.keys[i] != 0uss) {
+                    if (machine.keys[i as usize] != 0uss) {
                         key_idx = i;
                         found = true;
                         break;
                     }
                 }
             }
-            machine.v[x] = key_idx;
+            machine.v[x as usize] = key_idx;
         } else if (low == 0x15uss) {
-            machine.delay_timer = machine.v[x];
+            machine.delay_timer = machine.v[x as usize];
         } else if (low == 0x18uss) {
-            machine.sound_timer = machine.v[x];
+            machine.sound_timer = machine.v[x as usize];
         } else if (low == 0x1Euss) {
-            machine.I += machine.v[x] as uint16;
+            machine.I += machine.v[x as usize] as uint16;
         } else if (low == 0x29uss) {
             // FX29: Set I = location of sprite for digit VX
             // Each digit sprite is 5 bytes, font starts at 0x000
-            machine.I = (machine.v[x] & 0xFuss) as uint16 * 5us;
+            machine.I = (machine.v[x as usize] & 0xFuss) as uint16 * 5us;
         } else if (low == 0x33uss) {
             // FX33: Store BCD representation of VX at I, I+1, I+2
             // VX is 0-255, store hundreds, tens, ones
-            let val :: uint8 = machine.v[x];
-            machine.memory[machine.I] = val / 100uss;
-            machine.memory[machine.I + 1us] = (val / 10uss) % 10uss;
-            machine.memory[machine.I + 2us] = val % 10uss;
+            let val :: uint8 = machine.v[x as usize];
+            machine.memory[machine.I as usize] = val / 100uss;
+            machine.memory[(machine.I + 1us) as usize] = (val / 10uss) % 10uss;
+            machine.memory[(machine.I + 2us) as usize] = val % 10uss;
         } else if (low == 0x55uss) {
             // FX55: Store V0..VX to memory starting at I
             for (let i :: uint8 = 0uss; i <= x; i += 1uss) {
-                machine.memory[machine.I + i as uint16] = machine.v[i];
+                machine.memory[(machine.I + i as uint16) as usize] = machine.v[i as usize];
             }
         } else if (low == 0x65uss) {
             // FX65: Load V0..VX from memory starting at I
             for (let i :: uint8 = 0uss; i <= x; i += 1uss) {
-                machine.v[i] = machine.memory[machine.I + i as uint16];
+                machine.v[i as usize] = machine.memory[(machine.I + i as uint16) as usize];
             }
         }
     }

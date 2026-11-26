@@ -9,7 +9,7 @@ func main :: () -> int32 {
     pp_print_string("Received code\n");
     let i :: uint32 = 0u;
     while (i < #ctx.code as uint32) {
-        pp_print_char(ctx.code[i as uint32]);
+        pp_print_char(ctx.code[i as usize]);
         i += 1u;
     }
     pp_print_string("\n");

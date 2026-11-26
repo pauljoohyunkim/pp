@@ -32,8 +32,8 @@ Search for "PP Language" in the Extensions view.
 ## Language Features Highlighted
 
 - **Keywords**: `func`, `lambda`, `operator`, `extern`, `struct`, `typedef`, `newtype`, `handle`, `let`, `const`, `if`, `else`, `while`, `for`, `return`, `break`, `continue`, `drop`, `as`
-- **Types**: `int8/16/32/64/128`, `uint8/16/32/64/128`, `float`, `bool`, `void`, `string`, `ptr`
-- **Literals**: Integer (with suffixes), Float, Boolean, String (`"..."` and `@"..."`)
+- **Types**: `int8/16/32/64/128`, `uint8/16/32/64/128`, `usize`/`isize` (pointer-width), `float`, `bool`, `void`, `string`, `ptr`
+- **Literals**: Integer with suffixes (`s`/`ss`/`l`/`ll`, `u` prefix, and `z`/`uz` for `isize`/`usize`), Float, Boolean, String (`"..."` and `@"..."`)
 - **Operators**: `+`, `-`, `*`, `/`, `%`, `=`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `!`, `->`, `=>`, `::`, `@`, `$`, `#`, `.`
 - **Built-in functions**: `list_push`, `list_pop`, `list_clear`
 - **Standard library** (`lib/pp_std`): `pp_print_*`, `pp_input_char`, `pp_abort`, `pp_fd_*` — regular library functions, not language builtins
