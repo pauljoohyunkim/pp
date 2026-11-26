@@ -3286,15 +3286,8 @@ static LLVMValueRef pp_code_generator_generate_lvalue_array_list_access(PP_CodeG
     LLVMValueRef llvm_index = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
     assert(llvm_index);
 
-    /* GEP indices are sign-extended to the pointer width, so zero-extend an unsigned index explicitly.
-     * Without this, a uint8 index of 200 would be used as -56. */
-    {
-        LLVMTypeRef index_llvm_type = LLVMTypeOf(llvm_index);
-        if (LLVMGetTypeKind(index_llvm_type) == LLVMIntegerTypeKind && LLVMGetIntTypeWidth(index_llvm_type) < 64) {
-            llvm_index = LLVMBuildZExt(cg->builder, llvm_index, LLVMInt64TypeInContext(cg->ctx), "index_zext");
-            assert(llvm_index);
-        }
-    }
+    /* The index is a usize, so it already has the target's pointer width; no widening is needed. GEP
+     * sign-extends or truncates the index to the pointer size as required. */
 
     if (base_type->kind == PP_TK_Array) {
         LLVMTypeRef llvm_base_type = pp_environment_backend_lookup_type(cg, base_type);
@@ -3383,13 +3376,7 @@ static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeG
 
     LLVMValueRef llvm_index = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, node->array_list_access.index);
     assert(llvm_index);
-    {
-        LLVMTypeRef index_llvm_type = LLVMTypeOf(llvm_index);
-        if (LLVMGetTypeKind(index_llvm_type) == LLVMIntegerTypeKind && LLVMGetIntTypeWidth(index_llvm_type) < 64) {
-            llvm_index = LLVMBuildZExt(cg->builder, llvm_index, LLVMInt64TypeInContext(cg->ctx), "index_zext");
-            assert(llvm_index);
-        }
-    }
+    /* usize already matches the pointer width; GEP adapts the index as needed. */
 
     LLVMTypeRef llvm_elem_type = NULL;
     LLVMValueRef element_ptr = NULL;
@@ -4357,19 +4344,20 @@ static LLVMValueRef pp_code_generator_generate_rvalue_unary(PP_CodeGenerator* cg
             assert(op_dec);
             const PPType* op_type = pp_type_decay_cg(cg->gtt, op_dec->resolved_type);
             assert(op_type);
+            // '#' yields usize: a pointer-width unsigned count.
+            LLVMTypeRef size_type = pp_code_generator_size_type(cg);
             if (op_type->kind == PP_TK_Array) {
                 size_t sz = op_type->type.pp_type_array.size;
-                llvm_val = LLVMConstInt(LLVMInt32TypeInContext(cg->ctx), sz, false);
+                llvm_val = LLVMConstInt(size_type, sz, false);
             } else if (op_type->kind == PP_TK_List) {
-                // List value is a struct { data_ptr, len, cap }
+                // List value is a struct { data_ptr, len, cap, elem_size }; len is stored as i64 for now, so adapt
+                // it to the target's pointer width (no-op on 64-bit, trunc on 32-bit).
                 LLVMValueRef len_val = LLVMBuildExtractValue(cg->builder, llvm_operand, 1, "list_len");
-                // List len is i64 internally, truncate to uint32 as per PP type
-                llvm_val = LLVMBuildTrunc(cg->builder, len_val, LLVMInt32TypeInContext(cg->ctx), "len_u32");
+                llvm_val = pp_code_generator_size_arg(cg, len_val);
             } else if (op_type->kind == PP_TK_String) {
-                // String value is a struct { data_ptr, len }
+                // String value is a struct { data_ptr, len }; len is stored as i64 for now.
                 LLVMValueRef len_val = LLVMBuildExtractValue(cg->builder, llvm_operand, 1, "str_len");
-                // String len is i64 internally, truncate to uint32 as per PP type
-                llvm_val = LLVMBuildTrunc(cg->builder, len_val, LLVMInt32TypeInContext(cg->ctx), "len_u32");
+                llvm_val = pp_code_generator_size_arg(cg, len_val);
             } else {
                 assert(0 && "Unary '#' requires array, list, or string");
             }

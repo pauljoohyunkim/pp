@@ -1268,8 +1268,8 @@ TEST(ParserTest, GoodHashUnaryParser) {
         "func main :: () -> uint32 {\n"
         "    let arr :: [int32 : 5u];\n"
         "    let lst :: [int32];\n"
-        "    let a :: uint32 = #arr;\n"
-        "    let b :: uint32 = #lst;\n"
+        "    let a :: usize = #arr;\n"
+        "    let b :: usize = #lst;\n"
         "    return a;\n"
         "}";
     int lexer_errors = 0, parser_errors = 0, parse_result = 0;

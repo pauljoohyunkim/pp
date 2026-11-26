@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
+
+#include <cstring>
 #include <memory>
 #include <string>
-#include <cstring>
+
 #include "pp_lexer.h"
 #include "pp_string_pool.h"
 #include "pp_tokens.h"
@@ -281,7 +283,8 @@ TEST(Lexer, OperatorCombinations) {
 }
 
 TEST(Lexer, MixedWhitespaceAndComments) {
-    auto lexer_h = pp_lexer_create("  int32 // this is a comment\n\t  x = 5 /* not a block comment */ ;  \r\n", nullptr, test_sp);
+    auto lexer_h =
+        pp_lexer_create("  int32 // this is a comment\n\t  x = 5 /* not a block comment */ ;  \r\n", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 14);
@@ -306,9 +309,7 @@ TEST(Lexer, StringLiteralBehavior) {
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 6);
-    for (int i = 0; i < 5; ++i) {
-        ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_STRING_LITERAL);
-    }
+    for (int i = 0; i < 5; ++i) { ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_STRING_LITERAL); }
     ASSERT_EQ(lexer->tokens[5].token_type, PP_TT_EOF);
 }
 
@@ -327,7 +328,8 @@ TEST(Lexer, HashToken) {
 }
 
 TEST(Lexer, IntegerSuffixLiterals) {
-    auto lexer_h = pp_lexer_create("42s 42ss 42l 42ll 42us 42uss 42ul 42ull 42S 42SS 42L 42LL 42US 42USS 42UL 42ULL", nullptr, test_sp);
+    auto lexer_h = pp_lexer_create("42s 42ss 42l 42ll 42us 42uss 42ul 42ull 42S 42SS 42L 42LL 42US 42USS 42UL 42ULL",
+                                   nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     // 16 literals + EOF
@@ -429,8 +431,8 @@ TEST(Lexer, StringLiteralNoMultiline) {
     auto lexer_h = pp_lexer_create("\"a\n", nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
-    // Lexer will produce a token for "a\n? The newline breaks token, so we get STRING_LITERAL for "a and then newline handling
-    // At minimum we should not produce a single spanning token
+    // Lexer will produce a token for "a\n? The newline breaks token, so we get STRING_LITERAL for "a and then newline
+    // handling At minimum we should not produce a single spanning token
     ASSERT_GT(lexer->n_tokens, 0);
 }
 
@@ -504,9 +506,7 @@ TEST(Lexer, HexIntegerLiterals) {
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 6);
-    for (int i = 0; i < 5; ++i) {
-        ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_INTEGER_LITERAL);
-    }
+    for (int i = 0; i < 5; ++i) { ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_INTEGER_LITERAL); }
     ASSERT_STREQ(lexer->tokens[0].lexeme, "0x0");
     ASSERT_STREQ(lexer->tokens[1].lexeme, "0X1A");
     ASSERT_STREQ(lexer->tokens[2].lexeme, "0x41u");
@@ -519,16 +519,12 @@ TEST(Lexer, CharLiterals) {
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 5);
-    for (int i = 0; i < 4; ++i) {
-        ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_CHAR_LITERAL);
-    }
+    for (int i = 0; i < 4; ++i) { ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_CHAR_LITERAL); }
     ASSERT_STREQ(lexer->tokens[0].lexeme, "'A'");
     ASSERT_STREQ(lexer->tokens[1].lexeme, "'\\n'");
     ASSERT_STREQ(lexer->tokens[2].lexeme, "'\\x41'");
     ASSERT_STREQ(lexer->tokens[3].lexeme, "'\\''");
 }
-
-
 
 TEST(Lexer, EnumFlagsAndTildeTokens) {
     auto lexer_h = pp_lexer_create("enum flag ~ OpenMode::Read", nullptr, test_sp);
@@ -559,9 +555,7 @@ TEST(Lexer, PointerWidthLiteralSuffix) {
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     ASSERT_EQ(pp_lexer_analyze(lexer.get()), 1);
     ASSERT_EQ(lexer->n_tokens, 5);
-    for (int i = 0; i < 4; i++) {
-        ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_INTEGER_LITERAL);
-    }
+    for (int i = 0; i < 4; i++) { ASSERT_EQ(lexer->tokens[i].token_type, PP_TT_INTEGER_LITERAL); }
     EXPECT_STREQ(lexer->tokens[0].lexeme, "42z");
     EXPECT_STREQ(lexer->tokens[1].lexeme, "42uz");
     EXPECT_STREQ(lexer->tokens[2].lexeme, "0x42z");

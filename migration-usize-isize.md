@@ -1,7 +1,7 @@
 # Migration: `usize` / `isize` (pointer-width integers)
 
 Branch: `feature/size-usize`
-Status: **Step 1 implemented — ready for review**
+Status: **Steps 1–2 implemented — ready for review**
 
 ## Goal
 
@@ -73,13 +73,26 @@ Each step is a commit. Step 3 **must** be a single commit (half-migrated layout 
 - [x] Verified: 650 unit tests pass; `demo/01_fibo` builds+runs; 32-bit i386 IR shows `usize`→`i32` and
   `inttoptr i32`; valgrind clean on a `usize` smoke program.
 
-### Step 2 — `#` and indexing in analyzer  `(pending)`
-- [ ] `#` returns `usize` (`src/pp_semantic_analyzer.c:5782`), keeping constexpr flag for arrays.
-- [ ] Index check (`:6284-6296`): enforce D1 policy; update comment at `:6287`.
-- [ ] Array-size / constexpr contexts: range-check `usize` values against target pointer width during
-  constant folding (wide host type, target-width bound).
-- [ ] Tests: `#arr` type is `usize`; `a[#a - 1z]` typechecks; underflow wraps but following index traps (bounds
-  check).
+### Step 2 — `#` and indexing in analyzer  `(ready for review)`
+- [x] `#` returns `usize` (analyzer). Codegen emits a pointer-width constant / adapts list+string `len` via
+  `pp_code_generator_size_arg` (i64 today, trunc to `size_t` on 32-bit).
+- [x] Index check is **strict**: `kind == PP_TK_USize` only (`"Array/list index must be a usize."`).
+- [x] Codegen: removed the `index_zext` widening in lvalue/rvalue array/list/string access — a usize index
+  already has the pointer width.
+- [x] `pp_array_size_from_simple_expr` accepts `usize` literals/constants too, so `a[0uz]` keeps its
+  compile-time bounds check and `[T : 5uz]` is accepted. **Decision:** array dimensions stay permissive
+  (unsigned kinds + usize); only *indices* are strict usize. No `as usize` cast case is added.
+- [x] Fixed a latent base-10 bug in `pp_array_size_from_simple_expr`: hex literals (`0x10uz`) were parsed
+  with base 10 and mis-parsed. Now base is 16 for a `0x/0X` prefix (leading zero stays decimal — no octal),
+  and the no-digits/trailing-garbage check uses `endptr == numbuf || *endptr != '\0'` (the old check
+  compared `lexeme` against an `endptr` into a different buffer and was dead).
+- [-] Target-width range check of `usize` array sizes -> deferred: the semantic analyzer has no target triple;
+  the existing `SIZE_MAX` (host) bound stays as an interim. Revisit when target info reaches the analyzer.
+- [x] Tests updated: existing tests that indexed with `[Nu]` now use `[Nuz]`, and `#` results are typed
+  `usize`. Added `SemanticTest.HashResultIsUsize`, `UsizeIndexAccepted`, `NonUsizeUnsignedIndexRejected`,
+  `IndexFromHashMinusOne`, and `CodeGenTest.UsizeIndexNoZeroExtend`, `HashMinusOneIndex`.
+- [x] Verified: 655 tests pass; `a[#a - 1uz]`, `v[#v - 1uz]`, `s[#s - 1uz]` compile and run; 32-bit i386 IR
+  shows `#a` as `i32` and `getelementptr ... i32 3` with no `zext`.
 
 ### Step 3 — Layout + codegen + C headers (single commit)  `(pending)`
 - [ ] `lib/pp_std/include/pp_std_types.h`: `pp_string_t.len`, `pp_list_t.len/cap/elem_size` → `size_t`.
