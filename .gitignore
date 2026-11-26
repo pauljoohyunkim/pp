@@ -60,3 +60,4 @@ dkms.conf
 demo/*/*.txt
 demo/*/keyfile
 demo/*/*.ch8
+demo/*/*.iso
