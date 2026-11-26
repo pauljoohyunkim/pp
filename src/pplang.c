@@ -56,20 +56,10 @@ static PPLang_Filetype detect_filetype(const char* path);
 static PPLang_Filetype detect_filetype(const char* path);
 static void print_help(void);
 static const char* pplang_get_temp_dir(void);
+static void pplang_llvm_fatal_error_handler(const char* reason);
 
-/*
- * Unsupported backends are rejected before codegen (pp_code_generator_target_is_supported), so a fatal
- * backend error should not happen. If it ever does, the handler turns LLVM's default abort/SIGABRT into a
- * normal message and a clean exit status. It does not return: there is no way to resume after a fatal error.
- */
+/* Selected --target triple, kept for the LLVM fatal-error handler's message. */
 static const char* g_target_triple = NULL;
-
-static void pplang_llvm_fatal_error_handler(const char* reason) {
-    fprintf(stderr, "error: LLVM backend could not generate code for target '%s': %s\n",
-            g_target_triple ? g_target_triple : "<host default>", reason ? reason : "");
-    fflush(stderr);
-    _Exit(1);
-}
 
 /* Main */
 int main(int argc, char** argv) {
@@ -582,4 +572,16 @@ static void print_help(void) {
 static const char* pplang_get_temp_dir(void) {
     const char* tmpdir = getenv("TMPDIR");
     return tmpdir ? tmpdir : "/tmp";
+}
+
+/*
+ * Unsupported backends are rejected before codegen (pp_code_generator_target_is_supported), so a fatal
+ * backend error should not happen. If it ever does, the handler turns LLVM's default abort/SIGABRT into a
+ * normal message and a clean exit status. It does not return: there is no way to resume after a fatal error.
+ */
+static void pplang_llvm_fatal_error_handler(const char* reason) {
+    fprintf(stderr, "error: LLVM backend could not generate code for target '%s': %s\n",
+            g_target_triple ? g_target_triple : "<host default>", reason ? reason : "");
+    fflush(stderr);
+    _Exit(1);
 }
