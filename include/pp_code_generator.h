@@ -226,12 +226,34 @@ int pp_code_generator_emit_assembly_to_buffer(LLVMModuleRef module, LLVMMemoryBu
 int pp_code_generator_emit_ir_file(LLVMModuleRef module, const char* output_filename);
 
 /**
+ * @brief Create a target machine for the given module and target triple.
+ * @param module LLVM module whose target triple will be set; NULL when only the machine is wanted.
+ * @param triple Target triple, or NULL to use the host default triple.
+ * @param out_tm Output target machine, caller must free with pp_code_generator_target_machine_free.
+ * @return 1 on success, 0 on failure.
+ */
+int pp_code_generator_target_machine_create(LLVMModuleRef module, const char* triple, LLVMTargetMachineRef* out_tm);
+
+/**
  * @brief Create a default native target machine for the given module.
  * @param module LLVM module whose target triple will be set; NULL when only the machine is wanted.
  * @param out_tm Output target machine, caller must free with pp_code_generator_target_machine_free.
  * @return 1 on success, 0 on failure.
  */
 int pp_code_generator_target_machine_create_default(LLVMModuleRef module, LLVMTargetMachineRef* out_tm);
+
+/**
+ * @brief Report whether this build can generate code for a target triple.
+ *
+ * Some LLVM backends are registered but cannot lower the code PP emits (e.g. GPU-only or incomplete
+ * backends). Those are rejected up front so the driver never reaches a fatal backend error.
+ *
+ * @param triple Target triple, or NULL/empty for the host default (always supported).
+ * @param out_backend Optional; receives the LLVM backend name, e.g. "x86-64" (static storage, do not free).
+ *                    Set to NULL when the triple does not resolve to any backend.
+ * @return 1 when the backend is supported for code generation, 0 otherwise.
+ */
+int pp_code_generator_target_is_supported(const char* triple, const char** out_backend);
 
 /**
  * @brief Free a target machine created by pp_code_generator_target_machine_create_default.
