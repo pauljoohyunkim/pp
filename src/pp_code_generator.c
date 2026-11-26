@@ -4498,15 +4498,22 @@ static LLVMValueRef pp_code_generator_generate_rvalue_cast(PP_CodeGenerator* cg,
             // pointer -> numeric: ptrtoint to the target pointer-width int, then cast to dest numeric
             LLVMValueRef llvm_val_to_cast = pp_code_generator_generate_rvalue(cg, symbol_table, env_b, expr_node);
             assert(llvm_val_to_cast);
+            /* Treat the pointer integer as an address (uintptr_t semantics): widening zero-extends and
+             * float conversion is unsigned. Sign-extending here would turn e.g. an i386 stack pointer with
+             * bit 31 set into a huge negative value. Narrowing is inherently lossy and left to the user. */
             LLVMTypeRef ptr_int_type = pp_code_generator_size_type(cg);
             LLVMValueRef val = LLVMBuildPtrToInt(cg->builder, llvm_val_to_cast, ptr_int_type, "ptrtoint_tmp");
-            if (llvm_dest_type != ptr_int_type) {
-                LLVMTypeKind dest_kind = LLVMGetTypeKind(llvm_dest_type);
-                if (dest_kind == LLVMIntegerTypeKind) {
-                    val = LLVMBuildIntCast(cg->builder, val, llvm_dest_type, "ptrint_to_num");
-                } else if (dest_kind == LLVMFloatTypeKind) {
-                    val = LLVMBuildSIToFP(cg->builder, val, llvm_dest_type, "ptrint_to_fp");
+            LLVMTypeKind dest_kind = LLVMGetTypeKind(llvm_dest_type);
+            if (dest_kind == LLVMIntegerTypeKind) {
+                unsigned int src_bits = LLVMGetIntTypeWidth(ptr_int_type);
+                unsigned int dest_bits = LLVMGetIntTypeWidth(llvm_dest_type);
+                if (dest_bits > src_bits) {
+                    val = LLVMBuildZExt(cg->builder, val, llvm_dest_type, "ptrint_to_num");
+                } else if (dest_bits < src_bits) {
+                    val = LLVMBuildTrunc(cg->builder, val, llvm_dest_type, "ptrint_to_num");
                 }
+            } else if (dest_kind == LLVMFloatTypeKind) {
+                val = LLVMBuildUIToFP(cg->builder, val, llvm_dest_type, "ptrint_to_fp");
             }
             llvm_val = val;
         } else {

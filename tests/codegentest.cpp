@@ -3807,6 +3807,38 @@ TEST(CodeGenTest, TargetTripleILowersSizeTypesToI32) {
     assert_ir_contains(cg.get(), "%pp.string = type { ptr, i32 }");
 }
 
+TEST(CodeGenTest, PointerToNumericUsesUintptrSemantics) {
+    // An address is unsigned: widening must zero-extend and float conversion must be unsigned. On ILP32 the
+    // stack can live above 0x80000000, so sign-extending would yield a huge negative value.
+    const char* triple = "i386-unknown-linux-gnu";
+    LLVMTargetMachineRef probe = nullptr;
+    if (!pp_code_generator_target_machine_create(nullptr, triple, &probe)) {
+        GTEST_SKIP() << "target " << triple << " is not available in this LLVM build";
+    }
+    pp_code_generator_target_machine_free(probe);
+
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let a :: usize = 4096uz;\n"
+        "    let p :: ptr[uint8] = a as ptr[uint8];\n"
+        "    let u :: uint64 = p as uint64;\n"
+        "    let f :: float = p as float;\n"
+        "    return 0;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw =
+        run_codegen_impl(source, lexer_errors, parser_errors, semantic_errors, codegen_result, false, false, triple);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors + parser_errors + semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    assert_ir_contains(cg.get(), "ptrtoint ptr");
+    assert_ir_contains(cg.get(), "zext i32");
+    assert_ir_contains(cg.get(), "uitofp i32");
+    assert_ir_not_contains(cg.get(), "sext i32");
+    assert_ir_not_contains(cg.get(), "sitofp i32");
+}
+
 TEST(CodeGenTest, HashMinusOneIndex) {
     const char* source =
         "func main :: () -> int32 {\n"
