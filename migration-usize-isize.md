@@ -94,20 +94,28 @@ Each step is a commit. Step 3 **must** be a single commit (half-migrated layout 
 - [x] Verified: 655 tests pass; `a[#a - 1uz]`, `v[#v - 1uz]`, `s[#s - 1uz]` compile and run; 32-bit i386 IR
   shows `#a` as `i32` and `getelementptr ... i32 3` with no `zext`.
 
-### Step 3 — Layout + codegen + C headers (single commit)  `(pending)`
-- [ ] `lib/pp_std/include/pp_std_types.h`: `pp_string_t.len`, `pp_list_t.len/cap/elem_size` → `size_t`.
-  Update comments at `:15`, `:21`.
-- [ ] Add/align `pp.str` C view `{const uint8_t*; size_t len;}`.
-- [ ] `lib/pp_std/include/pp_heap.h`: `pp_alloc_bytes_*` / reallocate take `size_t`.
-- [ ] `src/pp_code_generator.c` layout + ops → pointer-width:
-  - [ ] `pp.list` struct fields + DI (`:1724-1762`), `pp.string` DI (`:1694-1716`).
-  - [ ] list push/grow/pop/index math (`:5903`, `:5913-5981`, `:6006`), list copy (`:556`, `:5365`),
-    list alloc/build (`:5042-5085`), array shift/alloc (`:5489`).
-  - [ ] Drop sign/zero-extensions that existed only to widen `uint32` index to `i64`.
-- [ ] `pp_alloc` overflow check: `len * elem_size` computed at pointer width, trap/handle on 32-bit.
-- [ ] Contract test: `tests/codegentest.cpp` `ListElementStrideUsesAllocatedSize` (`:3327`) and
-  `ListOfStringsDropUsesElementStride` (`:2441`) — assert against **target `sizeof`**, not literal 8.
-- [ ] Add layout contract test asserting `pp.list`/`pp.string` field types match C `size_t`.
+### Step 3 — Layout + codegen + C headers (single commit)  `(ready for review)`
+- [x] `lib/pp_std/include/pp_std_types.h`: `pp_string_t.len`, `pp_list_t.len/cap/elem_size` → `size_t`
+  (`<stddef.h>` included); comments updated. `pp_runtime.c` casts → `(size_t)`; `lib/pp_std` rebuilt clean.
+- [-] Add/align `pp.str` C view -> N/A: PP has no `pp.str` type yet (only `string`).
+- [-] `pp_heap.h` `pp_alloc_bytes_*` → `size_t` -> deferred to Step 4 (must move together with the
+  `.ppi` extern signatures to avoid a 32-bit ABI mismatch).
+- [x] `src/pp_code_generator.c` layout + ops → pointer width via `pp_code_generator_size_type(cg)`:
+  - `pp.list` body `{ptr,size,size,size}`, `pp.string` body `{ptr,size}`; DI members use pointer bits and
+    a `usize` basic type (both `pp.list` and `pp.string`).
+  - list build/copy/drop/push/pop/clear length, cap, elem_size loads/stores/arith all size_type.
+  - string literal builder + string copy/drop/equality length math size_type; `memcmp` already declared
+    with `size_t`.
+  - `pp_code_generator_emit_inline_byte_copy` now derives its loop index type from `LLVMTypeOf(size)`, so any
+    byte-count width works; list copy/drop loops use unsigned (`ULT`) compares.
+  - Array compile-time copy/drop loops stay i64 (compile-time counts; GEP index width is irrelevant).
+- [-] `pp_alloc` overflow check `len*elem_size` -> deferred to Step 4 with the heap-signature move.
+- [x] Contract tests: added `ListLayoutMatchesSizeT`, `StringLayoutMatchesSizeT` (assert
+  `%pp.list = type { ptr, w, w, w }` / `%pp.string = type { ptr, w }` for target width `w`); made
+  `ListElementStrideUsesAllocatedSize` target-width-aware.
+- [x] Verified: 659 tests pass; 32-bit i386 IR verifies (`%pp.list={ptr,i32,i32,i32}`,
+  `%pp.string={ptr,i32}`, all len/cap ops i32); host `-g` IR ok; `demo/01_fibo` builds+runs; valgrind clean.
+  (`demo/08_argv` now fails on `i < #args` / `args[i]` — expected, that is Step 5.)
 
 ### Step 4 — Stdlib signatures / `.ppi`  `(pending)`
 - [ ] `pp_args_count` → `usize`; `pp_file_read` length → `usize`, result → `isize`.

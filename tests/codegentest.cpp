@@ -3671,11 +3671,34 @@ TEST(CodeGenTest, ListElementStrideUsesAllocatedSize) {
     EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
     EXPECT_EQ(r.codegen_result, 1);
     assert_ir_contains(cg.get(), "%Pad = type { i32, i8 }");
-    assert_ir_contains(cg.get(), "store i64 8, ptr %list_elem_size_ptr");
-    assert_ir_not_contains(cg.get(), "store i64 5, ptr %list_elem_size_ptr");
+    // elem_size is a usize (pointer-width): 8 bytes on 64-bit, still 8 on a 32-bit target here.
+    assert_ir_contains(cg.get(),
+                       "store " + std::string(sizeof(void*) == 4 ? "i32" : "i64") + " 8, ptr %list_elem_size_ptr");
+    assert_ir_not_contains(cg.get(), " 5, ptr %list_elem_size_ptr");
 }
 
 static std::string pointer_int_width_str() { return sizeof(void*) == 4 ? "i32" : "i64"; }
+
+TEST(CodeGenTest, ListLayoutMatchesSizeT) {
+    const char* source = "func main :: () -> int32 { let v :: [int32]; list_push(v, 1); return 0; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    const std::string w = pointer_int_width_str();
+    assert_ir_contains(cg.get(), "%pp.list = type { ptr, " + w + ", " + w + ", " + w + " }");
+}
+
+TEST(CodeGenTest, StringLayoutMatchesSizeT) {
+    const char* source = "func main :: () -> int32 { let s :: string = \"hi\"; return #s as int32; }\n";
+    CallableCodegenCase r = compile_and_verify(source);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(r.cg, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(r.lexer_errors + r.parser_errors + r.semantic_errors, 0);
+    EXPECT_EQ(r.codegen_result, 1);
+    assert_ir_contains(cg.get(), "%pp.string = type { ptr, " + pointer_int_width_str() + " }");
+}
 
 TEST(CodeGenTest, SizeTypeLowersToPointerWidth) {
     const char* source = "let g_sz :: usize = 42uz;\n";
