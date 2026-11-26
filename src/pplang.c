@@ -1,5 +1,6 @@
 #include <getopt.h>
 #include <limits.h>
+#include <llvm-c/ErrorHandling.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,7 @@
 #define PPLANG_OPT_PPI 1001
 #define PPLANG_OPT_HELP 1002
 #define PPLANG_OPT_FREESTANDING 1003
+#define PPLANG_OPT_TARGET 1004
 
 #define NULL_POINTER_ERROR_HANDLE(ptr)         \
     do {                                       \
@@ -55,9 +57,25 @@ static PPLang_Filetype detect_filetype(const char* path);
 static void print_help(void);
 static const char* pplang_get_temp_dir(void);
 
+/*
+ * Unsupported backends are rejected before codegen (pp_code_generator_target_is_supported), so a fatal
+ * backend error should not happen. If it ever does, the handler turns LLVM's default abort/SIGABRT into a
+ * normal message and a clean exit status. It does not return: there is no way to resume after a fatal error.
+ */
+static const char* g_target_triple = NULL;
+
+static void pplang_llvm_fatal_error_handler(const char* reason) {
+    fprintf(stderr, "error: LLVM backend could not generate code for target '%s': %s\n",
+            g_target_triple ? g_target_triple : "<host default>", reason ? reason : "");
+    fflush(stderr);
+    _Exit(1);
+}
+
 /* Main */
 int main(int argc, char** argv) {
     int exit_code = 0;
+
+    LLVMInstallFatalErrorHandler(pplang_llvm_fatal_error_handler);
 
     bool to_object = false;
     bool to_assembly = false;
@@ -66,6 +84,7 @@ int main(int argc, char** argv) {
     bool debug = false;
     bool freestanding = false;
     bool output_specified = false;
+    const char* target_triple = NULL;
     char output_filename[BUFSIZ] = {0};
     strcpy(output_filename, "a.out");
     PPLang_InputList* input_list = pplang_input_list_create();
@@ -77,6 +96,7 @@ int main(int argc, char** argv) {
                                         {"ppi", required_argument, 0, PPLANG_OPT_PPI},
                                         {"help", no_argument, 0, PPLANG_OPT_HELP},
                                         {"ffreestanding", no_argument, 0, PPLANG_OPT_FREESTANDING},
+                                        {"target", required_argument, 0, PPLANG_OPT_TARGET},
                                         {0, 0, 0, 0}};
     while ((opt = getopt_long(argc, argv, "hcSvo:O:g", long_opts, NULL)) != -1) {
         switch (opt) {
@@ -96,6 +116,9 @@ int main(int argc, char** argv) {
                 break;
             case PPLANG_OPT_FREESTANDING:
                 freestanding = true;
+                break;
+            case PPLANG_OPT_TARGET:
+                target_triple = optarg;
                 break;
             case PPLANG_OPT_PPI:
                 if (!ppi_list) {
@@ -211,12 +234,45 @@ int main(int argc, char** argv) {
         goto error_cleanup;
     }
 
+    // Automatic linking is disabled whenever --target is given. The link step shells out to the host cc
+    // and a host-built pp_std.a; it cannot honour a target triple, so --target is compile-only by design.
+    if (target_triple && !(to_object || to_assembly || emit_ir)) {
+        fprintf(stderr,
+                "error: automatic linking is disabled when --target is specified; "
+                "add -c, -S or --emit-llvm and link separately, or drop --target to link natively\n");
+        exit_code = 1;
+        goto error_cleanup;
+    }
+
+    // Static allow-list of backends that can lower PP's code. -c/-S would otherwise abort inside LLVM's
+    // instruction selection for GPU-only or incomplete backends. IR-only emission never runs instruction
+    // selection, so it only needs a resolvable triple.
+    g_target_triple = target_triple;
+    if (target_triple) {
+        const char* backend = NULL;
+        int supported = pp_code_generator_target_is_supported(target_triple, &backend);
+        if (!backend) {
+            fprintf(stderr, "error: unknown target triple '%s'\n", target_triple);
+            exit_code = 1;
+            goto error_cleanup;
+        }
+        if (!supported && (to_object || to_assembly)) {
+            fprintf(stderr,
+                    "error: target '%s' (LLVM backend '%s') is not supported for code generation in this "
+                    "build; see --help for the supported targets (--emit-llvm may still work)\n",
+                    target_triple, backend);
+            exit_code = 1;
+            goto error_cleanup;
+        }
+    }
+
     // Create a single target machine for optimization and emission
     {
         LLVMContextRef tmp_ctx = LLVMContextCreate();
         LLVMModuleRef tmp_mod = LLVMModuleCreateWithNameInContext("tmp", tmp_ctx);
-        if (!pp_code_generator_target_machine_create_default(tmp_mod, &input_list->target_machine)) {
-            fprintf(stderr, "Failed to create target machine\n");
+        if (!pp_code_generator_target_machine_create(tmp_mod, target_triple, &input_list->target_machine)) {
+            fprintf(stderr, "Failed to create target machine for triple '%s'\n",
+                    target_triple ? target_triple : "<host default>");
             LLVMDisposeModule(tmp_mod);
             LLVMContextDispose(tmp_ctx);
             exit_code = 1;
@@ -252,22 +308,22 @@ int main(int argc, char** argv) {
     for (unsigned int i = 0; i < input_list->count; i++) {
         PPLang_Input* inp = &input_list->inputs[i];
         if (inp->type == PP_SOURCE) {
+            bool compiled = false;
             if (to_object || to_assembly || emit_ir) {
                 if (inp->obj_path) {
-                    if (!pp_compiler_pipeline_compile_source_opts(&opts, inp->src_path, inp->obj_path)) {
-                        fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
-                        exit_code = 1;
-                        goto error_cleanup;
-                    }
+                    compiled = pp_compiler_pipeline_compile_source_opts(&opts, inp->src_path, inp->obj_path);
+                } else {
+                    compiled = true;
                 }
             } else {
                 LLVMMemoryBufferRef buf = NULL;
-                if (!pp_compiler_pipeline_compile_source_to_buffer_opts(&opts, inp->src_path, &buf)) {
-                    fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
-                    exit_code = 1;
-                    goto error_cleanup;
-                }
-                inp->obj_buf = buf;
+                compiled = pp_compiler_pipeline_compile_source_to_buffer_opts(&opts, inp->src_path, &buf);
+                if (compiled) { inp->obj_buf = buf; }
+            }
+            if (!compiled) {
+                fprintf(stderr, "Compilation failed for %s\n", inp->src_path);
+                exit_code = 1;
+                goto error_cleanup;
             }
         }
     }
@@ -491,7 +547,9 @@ static PPLang_Filetype detect_filetype(const char* path) {
 }
 
 static void print_help(void) {
-    printf("Usage: pplang [-h] [-v] [-c] [-S] [-o filename] [-O 0123] [--ppi file] [-I dir] src.pp\n");
+    printf(
+        "Usage: pplang [-h] [-v] [-c] [-S] [-o filename] [-O 0123] [--ppi file] [--target triple] [-I dir] "
+        "src.pp\n");
     printf("-h\t\t\t\tShow this help menu\n");
     printf("-v\t\t\t\tShow verbose output\n");
     printf("-g\t\t\t\tEmit DWARF debug information\n");
@@ -500,6 +558,21 @@ static void print_help(void) {
     printf("--emit-llvm\t\t\tEmit LLVM IR.\n");
     printf("--ppi file\t\t\tPre-processor include file for external PPI declarations, can be repeated.\n");
     printf("--ffreestanding\t\t\tCompile for a heap-free environment: reject lists and strings.\n");
+    printf(
+        "--target triple\t\t\tCompile/emit for one target; disables automatic linking (needs -c, -S or "
+        "--emit-llvm).\n");
+    printf(
+        "  form: <arch>[-<vendor>][-<os>][-<env>], e.g. i386-unknown-linux-gnu,\n"
+        "  x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf,\n"
+        "  riscv64-unknown-linux-gnu, wasm32-unknown-unknown.\n");
+    printf(
+        "  arch values verified to emit in this build:\n"
+        "    x86_64 i386 aarch64 aarch64_be aarch64_32 arm armeb thumb thumbeb\n"
+        "    riscv32 riscv64 riscv32be riscv64be powerpc powerpc64 powerpc64le\n"
+        "    mips mipsel mips64 mips64el s390x sparc loongarch32 loongarch64\n"
+        "    wasm32 wasm64 avr msp430 bpf bpfel bpfeb hexagon lanai spirv32 spirv64 ve\n"
+        "  Other LLVM backends may be named but can fail in codegen (e.g. sparcv9, nvptx,\n"
+        "  amdgcn, xcore).\n");
     printf("-o filename\t\t\tOutput filename (default: a.out)\n");
     printf(
         "-O level\t\t\tOptimization level: 0=no opt, 1=less, 2=default, 3=aggressive. Size optimisation (-Os, -Oz) "

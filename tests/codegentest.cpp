@@ -14,7 +14,7 @@ static PP_StringPool* test_sp = pp_string_pool_create();
 
 static PP_CodeGenerator* run_codegen_impl(const char* source, int& lexer_errors, int& parser_errors,
                                           int& semantic_errors, int& codegen_result, bool debug,
-                                          bool freestanding = false) {
+                                          bool freestanding = false, const char* triple = nullptr) {
     auto lexer_h = pp_lexer_create(source, nullptr, test_sp);
     std::unique_ptr<PP_Lexer, decltype(&pp_lexer_free)> lexer(lexer_h, pp_lexer_free);
     if (!lexer.get()) return nullptr;
@@ -53,7 +53,7 @@ static PP_CodeGenerator* run_codegen_impl(const char* source, int& lexer_errors,
     // The code generator takes the target from the caller; it copies the triple and data layout,
     // so the machine can be released right after creation.
     LLVMTargetMachineRef target_machine = nullptr;
-    if (!pp_code_generator_target_machine_create_default(nullptr, &target_machine)) {
+    if (!pp_code_generator_target_machine_create(nullptr, triple, &target_machine)) {
         codegen_result = 0;
         return nullptr;
     }
@@ -3735,6 +3735,76 @@ TEST(CodeGenTest, SizePointerCastUsesPointerWidth) {
     if (error_msg) LLVMDisposeMessage(error_msg);
     assert_ir_contains(cg.get(), "inttoptr " + pointer_int_width_str());
     assert_ir_contains(cg.get(), "ptrtoint ptr");
+}
+
+TEST(CodeGenTest, TargetSupportAllowList) {
+    const char* backend = nullptr;
+    // Verified backends (arch tokens differ from backend names: i386 -> "x86").
+    EXPECT_EQ(pp_code_generator_target_is_supported("x86_64-unknown-linux-gnu", &backend), 1);
+    EXPECT_STREQ(backend, "x86-64");
+    EXPECT_EQ(pp_code_generator_target_is_supported("i386-unknown-linux-gnu", &backend), 1);
+    EXPECT_STREQ(backend, "x86");
+    EXPECT_EQ(pp_code_generator_target_is_supported("armv7-unknown-linux-gnueabihf", &backend), 1);
+    EXPECT_STREQ(backend, "arm");
+    EXPECT_EQ(pp_code_generator_target_is_supported("thumbv7em-none-eabi", &backend), 1);
+    EXPECT_STREQ(backend, "thumb");
+    EXPECT_EQ(pp_code_generator_target_is_supported("s390x-unknown-linux-gnu", &backend), 1);
+    EXPECT_STREQ(backend, "systemz");
+
+    // Registered but cannot lower PP's code: resolvable backend, not supported for codegen.
+    EXPECT_EQ(pp_code_generator_target_is_supported("sparcv9-unknown-linux-gnu", &backend), 0);
+    EXPECT_STREQ(backend, "sparcv9");
+    EXPECT_EQ(pp_code_generator_target_is_supported("nvptx64-unknown-linux-gnu", &backend), 0);
+    EXPECT_STREQ(backend, "nvptx64");
+
+    // Unresolvable triple: no backend at all.
+    EXPECT_EQ(pp_code_generator_target_is_supported("bogus-cpu-xyz", &backend), 0);
+    EXPECT_EQ(backend, nullptr);
+
+    // NULL/empty means the host default, which is always fine.
+    EXPECT_EQ(pp_code_generator_target_is_supported(nullptr, &backend), 1);
+    EXPECT_EQ(pp_code_generator_target_is_supported("", &backend), 1);
+}
+
+TEST(CodeGenTest, TargetTripleILowersSizeTypesToI32) {
+    // A 32-bit target must shrink every pointer-width type: usize, list and string sizes all become i32.
+    const char* triple = "i386-unknown-linux-gnu";
+    LLVMTargetMachineRef probe = nullptr;
+    if (!pp_code_generator_target_machine_create(nullptr, triple, &probe)) {
+        GTEST_SKIP() << "target " << triple << " is not available in this LLVM build";
+    }
+    pp_code_generator_target_machine_free(probe);
+
+    const char* source =
+        "let g_sz :: usize = 42uz;\n"
+        "func main :: () -> int32 {\n"
+        "    let v :: [int32];\n"
+        "    list_push(v, 1);\n"
+        "    let s :: string = \"hi\";\n"
+        "    return #s as int32;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    PP_CodeGenerator* cg_raw =
+        run_codegen_impl(source, lexer_errors, parser_errors, semantic_errors, codegen_result, false, false, triple);
+    std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)> cg(cg_raw, pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors + parser_errors + semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+
+    assert_ir_contains(cg.get(), "target triple = \"i386-unknown-linux-gnu\"");
+    assert_ir_contains(cg.get(), "p:32:32");
+    assert_ir_contains(cg.get(), "@g_sz = global i32 42");
+    assert_ir_contains(cg.get(), "%pp.list = type { ptr, i32, i32, i32 }");
+    assert_ir_contains(cg.get(), "%pp.string = type { ptr, i32 }");
 }
 
 TEST(CodeGenTest, HashMinusOneIndex) {

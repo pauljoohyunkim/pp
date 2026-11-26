@@ -5233,38 +5233,92 @@ static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerato
     return llvm_val;
 }
 
-int pp_code_generator_target_machine_create_default(LLVMModuleRef module, LLVMTargetMachineRef* out_tm) {
+int pp_code_generator_target_machine_create(LLVMModuleRef module, const char* triple, LLVMTargetMachineRef* out_tm) {
     if (!out_tm) return 0;
     *out_tm = NULL;
 
-    LLVMInitializeNativeTarget();
-    LLVMInitializeNativeAsmPrinter();
+    /* Register every backend so non-native triples can be compiled. The calls are idempotent. */
+    LLVMInitializeAllTargetInfos();
+    LLVMInitializeAllTargets();
+    LLVMInitializeAllTargetMCs();
+    LLVMInitializeAllAsmPrinters();
+    LLVMInitializeAllAsmParsers();
 
-    char* triple = LLVMGetDefaultTargetTriple();
-    if (!triple) return 0;
+    /* Only the host-default string is owned by us; a caller-supplied triple is borrowed. */
+    char* owned_triple = NULL;
+    const char* use_triple = triple;
+    if (!use_triple) {
+        owned_triple = LLVMGetDefaultTargetTriple();
+        if (!owned_triple) return 0;
+        use_triple = owned_triple;
+    }
 
     /* A caller that only wants the machine (unit tests) may pass no module. */
-    if (module) { LLVMSetTarget(module, triple); }
+    if (module) { LLVMSetTarget(module, use_triple); }
 
     LLVMTargetRef target;
     char* err = NULL;
-    if (LLVMGetTargetFromTriple(triple, &target, &err)) {
-        if (err) LLVMDisposeMessage(err);
-        LLVMDisposeMessage(triple);
+    if (LLVMGetTargetFromTriple(use_triple, &target, &err)) {
+        if (err) {
+            fprintf(stderr, "Failed to resolve target triple '%s': %s\n", use_triple, err);
+            LLVMDisposeMessage(err);
+        }
+        if (owned_triple) LLVMDisposeMessage(owned_triple);
         return 0;
     }
 
-    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(target, triple, "generic", "", LLVMCodeGenLevelDefault,
+    LLVMTargetMachineRef tm = LLVMCreateTargetMachine(target, use_triple, "generic", "", LLVMCodeGenLevelDefault,
                                                       LLVMRelocPIC, LLVMCodeModelDefault);
-    LLVMDisposeMessage(triple);
+    if (owned_triple) LLVMDisposeMessage(owned_triple);
 
     if (!tm) return 0;
     *out_tm = tm;
     return 1;
 }
 
+int pp_code_generator_target_machine_create_default(LLVMModuleRef module, LLVMTargetMachineRef* out_tm) {
+    return pp_code_generator_target_machine_create(module, NULL, out_tm);
+}
+
 void pp_code_generator_target_machine_free(LLVMTargetMachineRef tm) {
     if (tm) LLVMDisposeTargetMachine(tm);
+}
+
+/* LLVM backends verified to lower PP's generated code to an object file. Names are LLVM backend names
+ * (LLVMGetTargetName), not triple arch tokens: e.g. powerpc -> "ppc32", s390x -> "systemz",
+ * i386 -> "x86", armv7/thumbv7em -> "arm"/"thumb". GPU-only backends (nvptx*, amdgpu, r600) and
+ * backends that fail instruction selection on PP's IR (sparcv9, sparcel, xcore) are excluded. */
+static const char* const pp_code_generator_supported_backends[] = {
+    "x86-64",  "x86",      "aarch64",   "aarch64_be", "aarch64_32",  "arm",         "armeb",   "thumb",  "thumbeb",
+    "riscv32", "riscv64",  "riscv32be", "riscv64be",  "ppc32",       "ppc64",       "ppc64le", "mips",   "mipsel",
+    "mips64",  "mips64el", "systemz",   "sparc",      "loongarch32", "loongarch64", "wasm32",  "wasm64", "avr",
+    "msp430",  "bpfel",    "bpfeb",     "hexagon",    "lanai",       "spirv32",     "spirv64", "ve",
+};
+
+int pp_code_generator_target_is_supported(const char* triple, const char** out_backend) {
+    LLVMTargetRef target = NULL;
+    char* err = NULL;
+    const char* name = NULL;
+    size_t i = 0;
+
+    if (out_backend) *out_backend = NULL;
+    if (!triple || triple[0] == '\0') return 1;
+
+    LLVMInitializeAllTargetInfos();
+    if (LLVMGetTargetFromTriple(triple, &target, &err)) {
+        if (err) LLVMDisposeMessage(err);
+        return 0;
+    }
+
+    name = LLVMGetTargetName(target);
+    if (out_backend) *out_backend = name;
+    if (!name) return 0;
+
+    for (i = 0; i < sizeof(pp_code_generator_supported_backends) / sizeof(pp_code_generator_supported_backends[0]);
+         i++) {
+        if (strcmp(name, pp_code_generator_supported_backends[i]) == 0) return 1;
+    }
+    return 0;
 }
 
 static PP_TypeCacheEntry* pp_code_generator_find_cache_entry(PP_CodeGenerator* cg, const PPType* type) {
