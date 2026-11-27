@@ -15,6 +15,13 @@ handle ::= "handle" identifier "::" type "drop" identifier ";"
 
 `handle` and `drop` are reserved keywords. See [Handles](../language/09-handles.md).
 
+```ebnf
+struct ::= [ "packed" ] "struct" identifier "{" { member ";" } "}"
+```
+
+`packed` is a reserved keyword and is only accepted immediately before `struct`. A packed struct has no
+inter-field padding and ABI alignment 1. See [Declarations](../language/03-declarations.md).
+
 ## Statements
 
 ```ebnf

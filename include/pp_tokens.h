@@ -93,6 +93,7 @@ typedef enum {
     PP_TT_FLOAT,
     PP_TT_STRING,
     PP_TT_STRUCT,
+    PP_TT_PACKED,
     PP_TT_TYPEDEF,
     PP_TT_NEWTYPE,
     PP_TT_HANDLE,

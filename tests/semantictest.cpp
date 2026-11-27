@@ -3231,3 +3231,18 @@ TEST(SemanticTest, PointerSubscriptNonUsizeIndexRejected) {
         "}\n",
         "pointer subscript index must be usize");
 }
+
+TEST(SemanticTest, PackedStructFieldAccess) {
+    expect_semantic_accept(
+        "packed struct Header {\n"
+        "    tag :: uint8;\n"
+        "    value :: uint32;\n"
+        "}\n"
+        "func main :: () -> int32 {\n"
+        "    let h :: Header;\n"
+        "    h.tag = 1uss;\n"
+        "    h.value = 2u;\n"
+        "    return h.value as int32;\n"
+        "}\n",
+        "packed struct fields are readable and writable");
+}

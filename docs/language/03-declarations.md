@@ -62,6 +62,36 @@ struct Point {
 
 Struct fields may have default initializers at global scope.
 
+### Packed structs
+
+`packed` before `struct` removes all inter-field padding and lowers the struct's ABI alignment to 1:
+
+```pp
+typedef uint16 Port;
+
+packed struct IDT_Entry {
+    offset_low :: uint16;
+    selector :: uint16;
+    zero :: uint8;
+    type_attr :: uint8;
+    offset_high :: uint16;
+}
+
+// sizeof(IDT_Entry) == 8, alignof(IDT_Entry) == 1, no padding.
+```
+
+Use it for hardware descriptors, on-disk records, and C structs declared `__attribute__((packed))`.
+
+* `packed` is a reserved keyword and is only accepted immediately before `struct`; `packed newtype`,
+  `packed handle` and a bare `packed` are parse errors.
+* Field access is emitted with an alignment derived from the field's place in the struct, so reading
+  a `uint32` field at offset 1 emits a byte-aligned access rather than an incorrectly aligned one.
+  This is what makes packed structs safe on targets that fault on unaligned access.
+* Packing is binary: a struct is packed or it is not. There is no `align(N)` yet, and packing is not
+  transitive, though a packed struct nested in a normal one is still aligned to 1.
+* Addresses obtained by casting integers to pointers still carry the pointee type's alignment, as
+  with any other user-accepts-risk pointer operation.
+
 ## Typedef / Newtype
 
 ```pp

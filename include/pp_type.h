@@ -69,6 +69,8 @@ typedef struct PPType {
     union {
         struct {
             const char* name;
+            /* Declared with `packed struct`: fields are laid out with no padding and the ABI alignment is 1. */
+            bool is_packed;
             const PP_StructLayout* layout;
         } pp_type_struct;
 
