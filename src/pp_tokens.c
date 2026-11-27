@@ -175,6 +175,8 @@ const char* pp_token_to_human_name(PP_TokenType token_type) {
             return "string";
         case PP_TT_STRUCT:
             return "struct";
+        case PP_TT_PACKED:
+            return "packed";
         case PP_TT_TYPEDEF:
             return "typedef";
         case PP_TT_NEWTYPE:

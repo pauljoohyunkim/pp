@@ -122,6 +122,7 @@ struct PP_AST_Node {
 
         struct { /* StructDeclaration */
             const char* name;
+            bool is_packed; /* declared with `packed struct`: no inter-field padding, align 1 */
             PP_AST_StructField* fields;
             unsigned int field_count;
             unsigned int field_capacity;

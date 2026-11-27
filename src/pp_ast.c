@@ -363,7 +363,8 @@ void pp_ast_root_print(const PP_AST_Node* node, unsigned int depth) {
                 pp_ast_root_print(node->program.decls[i], depth + 1);
             break;
         case PP_AST_StructDeclarationNode:
-            printf("StructDeclaration %s\n", node->struct_declaration.name ? node->struct_declaration.name : "");
+            printf("StructDeclaration %s%s\n", node->struct_declaration.is_packed ? "packed " : "",
+                   node->struct_declaration.name ? node->struct_declaration.name : "");
             for (unsigned int i = 0; i < node->struct_declaration.field_count; i++) {
                 PP_AST_StructField* f = &node->struct_declaration.fields[i];
                 pp_ast_root_print(f->field, depth + 1);

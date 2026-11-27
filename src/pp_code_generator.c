@@ -138,7 +138,14 @@ static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeG
                                                                         const PP_AST_Node* node);
 static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                       PP_Environment_Backend* env_b, const PP_AST_Node* node);
-static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type, LLVMValueRef lvalue);
+static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type, LLVMValueRef lvalue,
+                                                         unsigned align);
+static unsigned pp_code_generator_type_align(PP_CodeGenerator* cg, const PPType* type);
+static unsigned pp_code_generator_lvalue_align(PP_CodeGenerator* cg, const PP_AST_Node* node);
+static LLVMValueRef pp_code_generator_build_aligned_load(PP_CodeGenerator* cg, LLVMTypeRef type, LLVMValueRef address,
+                                                         unsigned align, const char* name);
+static void pp_code_generator_build_aligned_store(PP_CodeGenerator* cg, LLVMValueRef value, LLVMValueRef address,
+                                                  unsigned align);
 static LLVMValueRef pp_code_generator_generate_lvalue_identifier(PP_CodeGenerator* cg, PPSymbolTable* symbol_table,
                                                                  PP_Environment_Backend* env_b,
                                                                  const PP_AST_Node* node);
@@ -1679,6 +1686,9 @@ static LLVMMetadataRef pp_code_generator_get_di_type(PP_CodeGenerator* cg, const
                     if (target_data && llvm_field_type) {
                         field_size_bits = (uint64_t)LLVMStoreSizeOfType(target_data, llvm_field_type) * 8;
                         field_align_bits = LLVMABIAlignmentOfType(target_data, llvm_field_type) * 8;
+                        /* A field of a packed struct sits at a byte offset that does not honour its
+                         * natural alignment, so debug info must not claim it does. */
+                        if (t->type.pp_type_struct.is_packed) { field_align_bits = 8; }
                         field_offset_bits = LLVMOffsetOfElement(target_data, llvm_type, (unsigned)i) * 8;
                     }
                     members[i] = pp_code_generator_di_member(cg, field->field_name, field_size_bits, field_align_bits,
@@ -1865,8 +1875,9 @@ static int pp_code_generator_fill_type_map_complex(PP_CodeGenerator* cg) {
                     }
                 }
 
-                // 0 is for "packed" or not
-                LLVMStructSetBody(llvm_struct_type, llvm_types, field_count, 0);
+                /* A `packed struct` has no inter-field padding and ABI alignment 1. */
+                LLVMStructSetBody(llvm_struct_type, llvm_types, field_count,
+                                  type->type.pp_type_struct.is_packed ? 1 : 0);
                 free(llvm_types);
                 llvm_types = NULL;
             } break;
@@ -2655,7 +2666,8 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
         // whatever it holds now must be released before the new value is stored. This covers handles as well as
         // strings and lists; without it the overwritten value leaks.
         if (needs_drop) { pp_code_generator_emit_drop(cg, llvm_lhs, lhs_storage_type); }
-        LLVMBuildStore(cg->builder, llvm_rhs, llvm_lhs);
+        pp_code_generator_build_aligned_store(cg, llvm_rhs, llvm_lhs,
+                                              pp_code_generator_lvalue_align(cg, stmt->assignment.lhs));
         return 1;
     }
 
@@ -2672,7 +2684,9 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
     LLVMValueRef llvm_val = llvm_rhs;
 
     if (stmt->assignment.op != PP_TT_EQUAL) {
-        LLVMValueRef llvm_lhs_val = pp_code_generator_l_value_to_r_value(cg, lhs_type, llvm_lhs);
+        LLVMValueRef llvm_lhs_val =
+            pp_code_generator_l_value_to_r_value(cg, lhs_type, llvm_lhs,
+                                                 pp_code_generator_lvalue_align(cg, stmt->assignment.lhs));
         assert(llvm_lhs_val);
 
         switch (stmt->assignment.op) {
@@ -2702,7 +2716,8 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
                     LLVMValueRef undef = LLVMGetUndef(str_struct_ty);
                     LLVMValueRef ptr_field = LLVMBuildInsertValue(cg->builder, undef, raw_ptr, 0, "str_new_ptr");
                     LLVMValueRef new_str = LLVMBuildInsertValue(cg->builder, ptr_field, total_len, 1, "str_new");
-                    LLVMBuildStore(cg->builder, new_str, llvm_lhs);
+                    pp_code_generator_build_aligned_store(cg, new_str, llvm_lhs,
+                                                          pp_code_generator_lvalue_align(cg, stmt->assignment.lhs));
                     // No need to continue with generic store
                     return 1;
                 }
@@ -2794,7 +2809,8 @@ static int pp_code_generator_generate_assignment_statement(PP_CodeGenerator* cg,
         }
     }
 
-    LLVMBuildStore(cg->builder, llvm_val, llvm_lhs);
+    pp_code_generator_build_aligned_store(cg, llvm_val, llvm_lhs,
+                                          pp_code_generator_lvalue_align(cg, stmt->assignment.lhs));
     return 1;
 }
 
@@ -3386,7 +3402,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_array_list_access(PP_CodeG
             element_type = pp_global_type_table_find_alias(cg->gtt, "uint8");
             assert(element_type);
         }
-        return pp_code_generator_l_value_to_r_value(cg, element_type, llvm_lval);
+        return pp_code_generator_l_value_to_r_value(cg, element_type, llvm_lval,
+                                                    pp_code_generator_lvalue_align(cg, node));
     }
 
     /* Rvalue base (call result, literal, ...): materialize it so the element address can be
@@ -3485,8 +3502,88 @@ static LLVMValueRef pp_code_generator_generate_lvalue(PP_CodeGenerator* cg, PPSy
     return llvm_val;
 }
 
-static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type,
-                                                         LLVMValueRef lvalue) {
+/* ABI alignment in bytes of the storage of `type`. Packed structs lower to alignment 1, and the
+ * `const` / `newtype` / reference wrappers defer to the type they wrap, so this is the alignment a
+ * naturally-aligned object of that type has. */
+static unsigned pp_code_generator_type_align(PP_CodeGenerator* cg, const PPType* type) {
+    LLVMTargetDataRef target_data = NULL;
+    LLVMTypeRef llvm_type = NULL;
+    unsigned align = 1;
+    if (!cg || !type) return 1;
+
+    switch (type->kind) {
+        case PP_TK_Const:
+            return pp_code_generator_type_align(cg, type->type.pp_type_const.const_of);
+        case PP_TK_Newtype:
+            return pp_code_generator_type_align(cg, type->type.pp_type_newtype.underlying);
+        case PP_TK_Reference:
+            return pp_code_generator_type_align(cg, type->type.pp_type_reference.reference_to);
+        case PP_TK_Array:
+            /* An array has its element's alignment. */
+            return pp_code_generator_type_align(cg, type->type.pp_type_array.element_type);
+        default:
+            break;
+    }
+
+    llvm_type = pp_environment_backend_lookup_type(cg, type);
+    if (!llvm_type) return 1;
+    target_data = pp_code_generator_native_target_data(cg);
+    if (!target_data) return 1;
+    align = (unsigned)LLVMABIAlignmentOfType(target_data, llvm_type);
+    return align == 0 ? 1 : align;
+}
+
+/* Alignment in bytes of the storage an l-value expression denotes: the minimum over the whole
+ * projection chain. A field of a packed struct (whose own ABI alignment is 1) therefore reports 1,
+ * and so does any field or element reached through it. */
+static unsigned pp_code_generator_lvalue_align(PP_CodeGenerator* cg, const PP_AST_Node* node) {
+    const PP_AST_Decoration* dec = NULL;
+    unsigned align = 1;
+    unsigned base_align = 1;
+    if (!cg || !node) return 1;
+
+    dec = pp_ast_get_decoration(node);
+    align = dec ? pp_code_generator_type_align(cg, dec->resolved_type) : 1;
+
+    switch (node->node_type) {
+        case PP_AST_MemberAccessNode:
+            base_align = pp_code_generator_lvalue_align(cg, node->member_access.object);
+            return align < base_align ? align : base_align;
+        case PP_AST_ArrayListAccessNode:
+            base_align = pp_code_generator_lvalue_align(cg, node->array_list_access.expr);
+            return align < base_align ? align : base_align;
+        default:
+            return align;
+    }
+}
+
+static LLVMValueRef pp_code_generator_build_aligned_load(PP_CodeGenerator* cg, LLVMTypeRef type, LLVMValueRef address,
+                                                         unsigned align, const char* name) {
+    LLVMValueRef load = NULL;
+    assert(cg);
+    assert(type);
+    assert(address);
+    load = LLVMBuildLoad2(cg->builder, type, address, name);
+    assert(load);
+    /* Without an explicit alignment LLVM assumes the type's ABI alignment, which over-claims for a
+     * field inside a packed struct. */
+    LLVMSetAlignment(load, align == 0 ? 1 : align);
+    return load;
+}
+
+static void pp_code_generator_build_aligned_store(PP_CodeGenerator* cg, LLVMValueRef value, LLVMValueRef address,
+                                                  unsigned align) {
+    LLVMValueRef store = NULL;
+    assert(cg);
+    assert(value);
+    assert(address);
+    store = LLVMBuildStore(cg->builder, value, address);
+    assert(store);
+    LLVMSetAlignment(store, align == 0 ? 1 : align);
+}
+
+static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, const PPType* type, LLVMValueRef lvalue,
+                                                         unsigned align) {
     LLVMValueRef llvm_val = NULL;
     assert(cg);
     assert(type);
@@ -3501,7 +3598,7 @@ static LLVMValueRef pp_code_generator_l_value_to_r_value(PP_CodeGenerator* cg, c
     LLVMTypeRef llvm_type = pp_environment_backend_lookup_type(cg, underlying_type);
     assert(llvm_type);
 
-    llvm_val = LLVMBuildLoad2(cg->builder, llvm_type, lvalue, "lval_to_rval");
+    llvm_val = pp_code_generator_build_aligned_load(cg, llvm_type, lvalue, align, "lval_to_rval");
     assert(llvm_val);
 
     return llvm_val;
@@ -3951,7 +4048,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_binary(PP_CodeGenerator* c
 
         const PPType* return_type = bin_decor->resolved_type;
         if (pp_type_is_reference(return_type)) {
-            llvm_val = pp_code_generator_l_value_to_r_value(cg, return_type, llvm_val);
+            llvm_val = pp_code_generator_l_value_to_r_value(cg, return_type, llvm_val,
+                                                            pp_code_generator_type_align(cg, return_type));
         }
         return llvm_val;
     }
@@ -4986,7 +5084,10 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_init(PP_CodeGenerat
             if (field_src_addrs && field_src_addrs[i]) {
                 pp_code_generator_emit_copy(cg, field_ptr, field_src_addrs[i], layout->fields[i].field_type);
             } else {
-                LLVMBuildStore(cg->builder, field_vals[i], field_ptr);
+                unsigned field_align = pp_code_generator_type_align(cg, layout->fields[i].field_type);
+                unsigned struct_align = pp_code_generator_type_align(cg, struct_type);
+                pp_code_generator_build_aligned_store(cg, field_vals[i], field_ptr,
+                                                      field_align < struct_align ? field_align : struct_align);
             }
         }
         result = LLVMBuildLoad2(cg->builder, llvm_struct_type, tmp_slot, "struct_init_val");
@@ -5148,7 +5249,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_struct_member_access(PP_Co
     if (obj_dec->value_category == PP_VALUE_CATEGORY_LVALUE) {
         LLVMValueRef llvm_lval = pp_code_generator_generate_lvalue(cg, symbol_table, env_b, node);
         assert(llvm_lval);
-        LLVMValueRef llvm_val = pp_code_generator_l_value_to_r_value(cg, dec->resolved_type, llvm_lval);
+        LLVMValueRef llvm_val = pp_code_generator_l_value_to_r_value(cg, dec->resolved_type, llvm_lval,
+                                                                     pp_code_generator_lvalue_align(cg, node));
         assert(llvm_val);
         return llvm_val;
     }
@@ -5217,7 +5319,8 @@ static LLVMValueRef pp_code_generator_generate_rvalue_function_call(PP_CodeGener
 
     const PPType* return_type = call_decor->resolved_type;
     if (pp_type_is_reference(return_type)) {
-        llvm_val = pp_code_generator_l_value_to_r_value(cg, return_type, llvm_func_call);
+        llvm_val = pp_code_generator_l_value_to_r_value(cg, return_type, llvm_func_call,
+                                                        pp_code_generator_type_align(cg, return_type));
     } else {
         llvm_val = llvm_func_call;
     }
@@ -5261,7 +5364,9 @@ static LLVMValueRef pp_code_generator_generate_rvalue_identifier(PP_CodeGenerato
      * is storage: take the address and load the value out of it. */
     llvm_identifier_ref = pp_code_generator_generate_lvalue_identifier(cg, symbol_table, env_b, node);
     assert(llvm_identifier_ref);
-    llvm_val = pp_code_generator_l_value_to_r_value(cg, identifier_decoration->resolved_type, llvm_identifier_ref);
+    llvm_val =
+        pp_code_generator_l_value_to_r_value(cg, identifier_decoration->resolved_type, llvm_identifier_ref,
+                                             pp_code_generator_type_align(cg, identifier_decoration->resolved_type));
 
     return llvm_val;
 }

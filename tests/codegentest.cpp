@@ -3900,3 +3900,43 @@ TEST(CodeGenTest, PointerSubscriptGepScalesByPointee) {
     }
     if (error_msg) LLVMDisposeMessage(error_msg);
 }
+
+TEST(CodeGenTest, PackedStructLayoutAndAccessAlignment) {
+    // `packed` must remove padding (i8 + i32 = 5 bytes) and the field access must not claim the field
+    // type's natural alignment: unaligned access is UB on strict-alignment targets.
+    const char* source =
+        "struct Normal { a :: uint8; b :: uint32; }\n"
+        "packed struct Packed { a :: uint8; b :: uint32; }\n"
+        "func main :: () -> int32 {\n"
+        "    let n :: Normal = Normal { .a = 1uss, .b = 2u };\n"
+        "    let p :: Packed = Packed { .a = 3uss, .b = 4u };\n"
+        "    p.b = 5u;\n"
+        "    return (n.b + p.b) as int32;\n"
+        "}\n";
+    int lexer_errors = 0, parser_errors = 0, semantic_errors = 0, codegen_result = 0;
+    auto cg =
+        std::unique_ptr<PP_CodeGenerator, decltype(&pp_code_generator_free)>(run_codegen(source, lexer_errors,
+                                                                                         parser_errors, semantic_errors,
+                                                                                         codegen_result),
+                                                                             pp_code_generator_free);
+    ASSERT_NE(cg.get(), nullptr);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_EQ(parser_errors, 0);
+    EXPECT_EQ(semantic_errors, 0);
+    EXPECT_EQ(codegen_result, 1);
+    // Packed struct type has no padding; the normal one does.
+    assert_ir_contains(cg.get(), "%Packed = type <{ i8, i32 }>");
+    assert_ir_contains(cg.get(), "%Normal = type { i8, i32 }");
+    // The packed field access is byte-aligned; the normal one keeps the field's natural alignment.
+    assert_ir_contains(cg.get(), "store i32 5, ptr %field_gep");
+    assert_ir_contains(cg.get(), ", align 1");
+    assert_ir_contains(cg.get(), ", align 4");
+    char* error_msg = nullptr;
+    LLVMBool broken = LLVMVerifyModule(cg->mod, LLVMReturnStatusAction, &error_msg);
+    if (broken) {
+        std::string msg = error_msg ? error_msg : "unknown";
+        if (error_msg) LLVMDisposeMessage(error_msg);
+        FAIL() << "LLVMVerifyModule failed: " << msg;
+    }
+    if (error_msg) LLVMDisposeMessage(error_msg);
+}
