@@ -6,7 +6,7 @@ A minimal 32-bit x86 kernel written in PP, based on the [OSDev Bare Bones tutori
 * `kernel.pp` – Kernel main, VGA text mode driver, terminal output
 * `boot.s` – Multiboot header, stack setup, entry point (`_start`)
 * `linker.ld` – Linker script placing kernel at 2 MiB with correct section ordering
-* `Makefile` – Builds `kernel_demo` (kernel binary) and `myos.iso` (bootable ISO)
+* `Makefile` – Builds `kernel_demo` (kernel binary) and `kernel_demo.iso` (bootable ISO)
 
 ## Prerequisites
 * `i686-elf` cross-compiler toolchain (for linking assembly boot code and kernel objects)
@@ -26,7 +26,7 @@ make
 
 This produces:
 * `kernel_demo` — raw multiboot ELF kernel
-* `myos.iso` — bootable GRUB ISO image
+* `kernel_demo.iso` — bootable GRUB ISO image
 
 ## Usage
 
@@ -37,7 +37,7 @@ qemu-system-i386 -kernel kernel_demo
 
 ### Run via ISO
 ```bash
-qemu-system-i386 -cdrom myos.iso
+qemu-system-i386 -cdrom kernel_demo.iso
 ```
 
 Both should display "Hello World" in light grey on black at the top-left of the VGA text buffer.
@@ -58,7 +58,7 @@ Both should display "Hello World" in light grey on black at the top-left of the 
 make clean
 ```
 
-Removes `kernel_demo`, `myos.iso`, `boot.o`, `kernel.o`, and the `isodir/` staging directory.
+Removes `kernel_demo`, `kernel_demo.iso`, `boot.o`, `kernel.o`, and the `isodir/` staging directory.
 
 ## Notes
 
