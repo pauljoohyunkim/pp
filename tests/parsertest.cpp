@@ -49,6 +49,43 @@ TEST(ParserTest, GoodStructDeclaration) {
     EXPECT_EQ(lexer_errors + parser_errors, 0);
 }
 
+TEST(ParserTest, GoodPackedStructDeclaration) {
+    const char* source =
+        "packed struct IDT_Entry {\n"
+        "    offset_low :: uint16;\n"
+        "    selector :: uint16;\n"
+        "    zero :: uint8;\n"
+        "    type_attr :: uint8;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(parse_result, 1);
+    EXPECT_EQ(lexer_errors + parser_errors, 0);
+}
+
+TEST(ParserTest, BadPackedWithoutStruct) {
+    // `packed` is valid only immediately before `struct`.
+    for (const char* source : {"packed func f :: () -> void { }", "packed newtype Meters;", "packed;"}) {
+        int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+        parse_source(source, lexer_errors, parser_errors, parse_result);
+        EXPECT_EQ(lexer_errors, 0) << source;
+        EXPECT_GT(parser_errors, 0) << source;
+    }
+}
+
+TEST(ParserTest, BadPackedAsIdentifier) {
+    // `packed` is a reserved keyword, so it cannot name a variable.
+    const char* source =
+        "func main :: () -> int32 {\n"
+        "    let packed :: int32 = 1;\n"
+        "    return packed;\n"
+        "}";
+    int lexer_errors = 0, parser_errors = 0, parse_result = 0;
+    parse_source(source, lexer_errors, parser_errors, parse_result);
+    EXPECT_EQ(lexer_errors, 0);
+    EXPECT_GT(parser_errors, 0);
+}
+
 TEST(ParserTest, GoodVariableAndIf) {
     const char* source =
         "func check :: (v :: int32) -> bool {\n"

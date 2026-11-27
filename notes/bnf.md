@@ -30,7 +30,7 @@
 <lambda_decl>               ::= "lambda" <lambda_signature> <block>
 <operator_decl>             ::= "operator" <operator_symbol> "::" "(" <param_list> ")" "->" <type> <block>
 <extern_operator_decl>      ::= "extern" "operator" <operator_symbol> "::" "(" <param_list> ")" "->" <type> ";"
-<struct_decl>               ::= "struct" <identifier> "{" <struct_member_list> "}"
+<struct_decl>               ::= [ "packed" ] "struct" <identifier> "{" <struct_member_list> "}"
 <struct_member_list>        ::= <struct_member> ";" <struct_member_list> | ""
 <struct_member>             ::= <param_decl> [ "=" <expression> ]
 <typedef_decl>              ::= "typedef" <base_type> <identifier>

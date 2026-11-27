@@ -2220,6 +2220,7 @@ static int pp_semantic_analyzer_build_global_table_struct_decl(PP_SemanticAnalyz
     /* Assign */
     tmp_struct->type.pp_type_struct.layout = NULL; /* deferred to Pass 2 */
     tmp_struct->type.pp_type_struct.name = node->struct_declaration.name;
+    tmp_struct->type.pp_type_struct.is_packed = node->struct_declaration.is_packed;
 
     /* Add to type table */
     struct_type = pp_global_type_table_intern(sa->gtt, tmp_struct);

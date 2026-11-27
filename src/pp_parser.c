@@ -64,7 +64,7 @@ static PP_AST_Node* pp_parser_create_operator_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_extern_function_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_extern_lambda_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_extern_operator_declaration(PP_Parser* parser);
-static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser);
+static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser, bool is_packed);
 static PP_AST_Node* pp_parser_create_typedef_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_newtype_declaration(PP_Parser* parser);
 static PP_AST_Node* pp_parser_create_handle_declaration(PP_Parser* parser);
@@ -325,8 +325,23 @@ static PP_AST_Node* pp_parser_create_program_node(PP_Parser* parser) {
                 decl = pp_parser_create_operator_declaration(parser);
                 break;
             case PP_TT_STRUCT:
-                decl = pp_parser_create_struct_declaration(parser);
+                decl = pp_parser_create_struct_declaration(parser, false);
                 break;
+            case PP_TT_PACKED: {
+                /* `packed` is only meaningful immediately before `struct`. */
+                PP_Token* packed_tok = NULL;
+                {
+                    packed_tok = pp_parser_consume_token(parser, PP_TT_PACKED);
+                    if (!packed_tok) goto error_cleanup;
+                }
+                if (pp_parser_peek_token_type(parser, 0) != PP_TT_STRUCT) {
+                    pp_error_list_push_error(parser->error_list, packed_tok->loc, "Expected 'struct' after 'packed'");
+                    pp_parser_sync(parser);
+                    break;
+                }
+                decl = pp_parser_create_struct_declaration(parser, true);
+                break;
+            }
             case PP_TT_TYPEDEF:
                 decl = pp_parser_create_typedef_declaration(parser);
                 break;
@@ -1961,7 +1976,7 @@ error_cleanup:
     return NULL;
 }
 
-static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser) {
+static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser, bool is_packed) {
     PP_AST_Node* node = NULL;
     PP_Token* struct_tok = NULL;
     PP_Token* name_tok = NULL;
@@ -2025,6 +2040,7 @@ static PP_AST_Node* pp_parser_create_struct_declaration(PP_Parser* parser) {
     node = pp_ast_node_create(PP_AST_StructDeclarationNode, struct_tok->loc);
     NULL_POINTER_ERROR_HANDLE(node);
     node->struct_declaration.name = name_tok->lexeme;
+    node->struct_declaration.is_packed = is_packed;
     node->struct_declaration.fields = fields;
     node->struct_declaration.field_count = count;
     node->struct_declaration.field_capacity = capacity;

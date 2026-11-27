@@ -11,6 +11,8 @@
 * Lambdas are pure: cannot call regular functions or capture mutable globals.
 * Operator overloading limited to const-ref parameters and value returns.
 * Array sizes are limited to 64-bit via `strtoull` parsing.
+* Struct layout control is binary only: `packed struct` removes all padding and sets ABI alignment 1, and
+  there is no `align(N)`, bitfields, or per-field control.
 * Callable values (`func[...]` / `lambda[...]`) are code pointers only: no closures or captured environments.
 * No pointers to lambda types: `ptr[lambda[...]]` is rejected (pointers to `func[...]` are supported).
 * A non-empty global list initializer is rejected for every element type, including callables.
