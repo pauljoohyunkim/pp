@@ -5,7 +5,7 @@
 The PP compiler provides three built-ins for working with lists: `list_push`, `list_pop` and `list_clear`. Lists are implemented as heap-allocated dynamic arrays with the internal layout:
 
 > These built-ins are unavailable in [freestanding mode](../language/11-freestanding.md)
-> (`--ffreestanding`), together with the list type itself.
+> (`--freestanding`), together with the list type itself.
 
 ```
 %pp.list = type { ptr, i64, i64, i64 }

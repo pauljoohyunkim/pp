@@ -56,6 +56,32 @@ for d in "$ROOT"/demo/*/; do
     name=$(basename "$d")
     cd "$d" || { say "$name: cd failed"; FAIL=1; continue; }
 
+    # 11_barebones is a freestanding kernel: it requires i686-elf toolchain and qemu
+    # to link/run. We only test the PP compilation step (kernel.o) under valgrind.
+    if [ "$name" = "11_barebones" ]; then
+        for mode in plain debug; do
+            make clean >/dev/null 2>&1
+            if [ "$mode" = debug ]; then WRAP="$VG $ROOT/bin/pplang -g"; else WRAP="$VG $ROOT/bin/pplang"; fi
+
+            CLOG="$LOGDIR/pp_valgrind_${name}_${mode}_compile.log"
+            if timeout 600 make PPLANG="$WRAP" kernel.o >"$CLOG" 2>&1; then
+                say "$name[$mode]: compile PASS (kernel.o only)"
+            else
+                say "$name[$mode]: compile FAIL (rc=$?) - see $CLOG"
+                FAIL=1
+            fi
+
+            # Check compile log for leaks
+            if grep -qE "definitely lost: [1-9]|indirectly lost: [1-9]|possibly lost: [1-9]" "$CLOG"; then
+                say "$name[$mode]: LEAK in $(basename "$CLOG")"
+                grep -E "definitely lost|indirectly lost|possibly lost" "$CLOG" | tee -a "$LOG"
+                FAIL=1
+            fi
+        done
+        make clean >/dev/null 2>&1
+        continue
+    fi
+
     for mode in plain debug; do
         make clean >/dev/null 2>&1
         if [ "$mode" = debug ]; then WRAP="$VG $ROOT/bin/pplang -g"; else WRAP="$VG $ROOT/bin/pplang"; fi

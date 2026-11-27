@@ -24,7 +24,7 @@ let s :: string = "hello";
 `string` supports `+` (concatenation), `==` / `!=` (length-aware byte equality), `#s` (byte length) and
 `s[i]` (byte access, `uint8`). See [Operators](08-operators.md).
 
-> In [freestanding mode](11-freestanding.md) (`--ffreestanding`) the heap `string` type and `"..."`
+> In [freestanding mode](11-freestanding.md) (`--freestanding`) the heap `string` type and `"..."`
 > literals are rejected. Use static byte arrays `[uint8 : N]` with `@"..."` instead.
 
 ## Modifiers

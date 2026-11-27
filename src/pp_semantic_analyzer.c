@@ -6347,7 +6347,7 @@ error_cleanup:
 
 /*
  * [x] Resolve collection base expression
- * [x] Verify base is `Array`/`List` after decay
+ * [x] Verify base is `Array`/`List`/`String`/`Pointer` after decay
  * [x] Resolve index expression, require integral type and constexpr where needed
  * [x] Decay element type and create decoration for access result
  * [x] Const propagation from base to element
@@ -6375,11 +6375,16 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     NULL_POINTER_ERROR_HANDLE(decayed_base_type);
 
     if (decayed_base_type->kind != PP_TK_Array && decayed_base_type->kind != PP_TK_List &&
-        decayed_base_type->kind != PP_TK_String) {
+        decayed_base_type->kind != PP_TK_String && decayed_base_type->kind != PP_TK_Pointer) {
         pp_error_list_push_error(sa->error_list, expr->loc,
-                                 "Array/list/string access requires an array, list, or string base type.");
+                                 "Subscript requires an array, list, string, or pointer base type.");
         goto error_cleanup;
     }
+
+    // `p[i]` on a pointer is unchecked user-accepts-risk memory access: it is plain `GEP` from the
+    // pointer value, so there is no bounds check and no lifetime guarantee. `ptr[void]` has no element
+    // size to scale by and is therefore rejected.
+    const bool pointer_base = decayed_base_type->kind == PP_TK_Pointer;
 
     // Check index expression
     if (!pp_semantic_analyzer_check_expression(sa, symbol_table, expr->array_list_access.index)) {
@@ -6396,7 +6401,7 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     // `a[0uz]` rather than `a[0u]`; an `int32` loop counter must be cast to `usize` first. This keeps the
     // index width target-dependent and prevents 64-bit assumptions from leaking into 32-bit builds.
     if (decayed_index_type->kind != PP_TK_USize) {
-        pp_error_list_push_error(sa->error_list, expr->loc, "Array/list index must be a usize.");
+        pp_error_list_push_error(sa->error_list, expr->loc, "Subscript index must be a usize.");
         goto error_cleanup;
     }
 
@@ -6417,7 +6422,19 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
 
     // Resolve element type
     const PPType* element_type = NULL;
-    if (decayed_base_type->kind == PP_TK_Array) {
+    if (pointer_base) {
+        const PPType* pointee = decayed_base_type->type.pp_type_pointer.pointee;
+        if (!pointee) {
+            pp_error_list_push_error(sa->error_list, expr->loc, "Pointer subscript has null pointee type.");
+            goto error_cleanup;
+        }
+        if (pointee->kind == PP_TK_Void) {
+            pp_error_list_push_error(sa->error_list, expr->loc,
+                                     "Pointer subscript is not allowed on 'ptr[void]': the element size is unknown.");
+            goto error_cleanup;
+        }
+        element_type = pointee;
+    } else if (decayed_base_type->kind == PP_TK_Array) {
         element_type = decayed_base_type->type.pp_type_array.element_type;
     } else if (decayed_base_type->kind == PP_TK_List) {
         element_type = decayed_base_type->type.pp_type_list.element_type;
@@ -6429,9 +6446,11 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
     }
     NULL_POINTER_ERROR_HANDLE(element_type);
 
-    // Const propagation from base to element
+    // Const propagation from base to element. A pointer base is excluded: `const ptr[T]` constrains the
+    // pointer variable, not the pointee, whose own constness is already part of the pointee type
+    // (`ptr[const T]`), exactly as with `$p`.
     const PPType* result_type = element_type;
-    bool base_is_const = pp_type_is_const(base_decoration->resolved_type);
+    bool base_is_const = !pointer_base && pp_type_is_const(base_decoration->resolved_type);
     if (base_is_const && !pp_type_is_const(element_type)) {
         const_wrap = pp_type_create(PP_TK_Const);
         NULL_POINTER_ERROR_HANDLE(const_wrap);
@@ -6442,11 +6461,15 @@ static int pp_semantic_analyzer_check_array_list_access_expression(PP_SemanticAn
         result_type = interned;
     }
 
-    // Value category: propagate lvalue from base if base is lvalue
-    PP_ValueCategory value_cat = base_decoration->value_category == PP_VALUE_CATEGORY_LVALUE ? PP_VALUE_CATEGORY_LVALUE
-                                                                                             : PP_VALUE_CATEGORY_RVALUE;
+    // Value category: pointer subscript always denotes storage at the computed address, so it is an lvalue
+    // even when the pointer itself is an rvalue (e.g. `(addr as ptr[uint16])[i]`). Collections only
+    // preserve the base's category.
+    PP_ValueCategory value_cat = PP_VALUE_CATEGORY_RVALUE;
+    if (pointer_base || base_decoration->value_category == PP_VALUE_CATEGORY_LVALUE) {
+        value_cat = PP_VALUE_CATEGORY_LVALUE;
+    }
 
-    bool is_constexpr = base_decoration->is_constexpr && index_decoration->is_constexpr;
+    bool is_constexpr = !pointer_base && base_decoration->is_constexpr && index_decoration->is_constexpr;
 
     decoration = pp_ast_decoration_create(result_type, value_cat, is_constexpr, false);
     NULL_POINTER_ERROR_HANDLE(decoration);
